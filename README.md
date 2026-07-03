@@ -12,8 +12,8 @@
 
 | 이름 | GitHub | 역할 |
 |---|---|---|
-|안소희|soheean1370|프론트엔드|
-|조준호|milleion|백엔드|
+|안소희|[soheean1370](https://github.com/soheean1370)|프론트엔드|
+|조준호|[milleion](https://github.com/milleion)|백엔드|
 
 ---
 
