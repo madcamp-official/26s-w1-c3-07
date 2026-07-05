@@ -136,3 +136,12 @@
   color: var(--text-h);
   cursor: pointer;
 }
+
+.withdraw-btn {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #e11d48;
+  background: transparent;
+  color: #e11d48;
+  cursor: pointer;
+}

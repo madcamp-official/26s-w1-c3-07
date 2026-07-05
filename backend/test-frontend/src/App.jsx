@@ -42,6 +42,17 @@ function App() {
     await supabase.auth.signOut()
   }
 
+  const handleWithdraw = async () => {
+    if (!window.confirm('정말로 탈퇴하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return
+
+    const { error } = await supabase.rpc('delete_own_account')
+    if (error) {
+      alert('탈퇴 실패: ' + error.message)
+      return
+    }
+    await supabase.auth.signOut()
+  }
+
   return (
     <div className="page">
       <div className="card">
@@ -90,6 +101,9 @@ function App() {
             </div>
             <button className="logout-btn" onClick={handleLogout}>
               로그아웃
+            </button>
+            <button className="withdraw-btn" onClick={handleWithdraw}>
+              회원 탈퇴
             </button>
           </div>
         )}
