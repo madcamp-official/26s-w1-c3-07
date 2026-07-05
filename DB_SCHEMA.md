@@ -173,6 +173,30 @@ $$ language plpgsql;
 create trigger trg_block_status_change
 before update on posts
 for each row execute function block_status_change_by_non_lecturer();
+
+-- 회원 가입(Google OAuth 포함) 시 auth.users에 행이 생기면 profiles도 자동 생성
+-- profiles는 INSERT 정책이 없어(RLS로 직접 INSERT 차단) 이 트리거가 유일한 생성 경로.
+-- 일반 role은 public.profiles에 INSERT 권한이 없으므로 SECURITY DEFINER로 우회.
+-- search_path를 명시적으로 고정해 스키마 하이재킹(함수 실행 중 다른 스키마의 동명 객체가 끼어드는 것)을 방지.
+create or replace function handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, display_name)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name', new.email)
+  );
+  return new;
+end;
+$$;
+
+create trigger on_auth_user_created
+after insert on auth.users
+for each row execute function handle_new_user();
 ```
 
 ### 뷰
@@ -210,6 +234,7 @@ from posts;
 - **탈퇴와 익명 표시 체크 제약의 충돌 방지**: `posts`엔 `check (author_id is not null or is_anonymous = true)`(작성자가 없으면 반드시 익명)가 걸려 있는데, 실명으로 쓴 글의 작성자가 탈퇴하면 `author_id`가 `null`로 바뀌면서 이 체크를 위반할 뻔합니다. `trg_anonymize_posts_before_profile_delete` 트리거가 `profiles` 삭제 **직전**에 해당 작성자의 글을 먼저 `is_anonymous = true`로 바꿔둬서 이 충돌을 막습니다.
 - **강의자 권한(상태 전환/삭제/피드백 초기화)**: `posts_lecturer_update_status`/`posts_lecturer_delete`/`feedback_lecturer_reset` 정책으로 강의자가 남의 게시글 `status`를 바꾸거나, 부적절한 글을 삭제하거나, 실시간 피드백 투표를 전체 초기화할 수 있습니다(`nodes.created_by = auth.uid()`로 해당 강의 소유자인지 확인). `trg_block_status_change` 트리거가 이와 짝을 이뤄 "강의자가 아니면 `status`를 절대 못 바꾼다"를 강제합니다 — 정책은 허용 조건, 트리거는 차단 조건을 맡는 구조입니다.
 - **`posts_public` 뷰**: `posts_select_all`이 전체 공개라 `guest_token`이 그대로 노출되면 누구든 그 값을 훔쳐 남의 글을 수정/삭제할 수 있습니다. 그래서 `guest_token`을 뺀 `posts_public` 뷰를 따로 만들었고, 프론트는 조회 시 `posts`가 아니라 이 뷰를 사용해야 합니다(수정/삭제 자체는 여전히 `posts` 테이블의 RLS 정책으로 처리).
+- **회원가입 시 `profiles` 자동 생성**: `profiles`는 별도 INSERT 정책이 없어 RLS가 직접 INSERT를 막습니다. 그래서 `auth.users`에 새 행이 생길 때(Google OAuth 로그인 포함) `on_auth_user_created` 트리거가 `handle_new_user()`를 호출해 `profiles` 행을 자동으로 만드는 게 유일한 생성 경로입니다. 이 함수는 일반 role에게 없는 `public.profiles` INSERT 권한을 얻기 위해 `SECURITY DEFINER`로 선언했고, `search_path`를 `public`으로 고정해 스키마 하이재킹을 방지합니다. `display_name`은 구글 계정의 `full_name`/`name`(없으면 이메일)을 `raw_user_meta_data`에서 꺼내 자동으로 채웁니다.
 
 ## 실시간 접속자 수 (강의별)
 
@@ -345,4 +370,5 @@ create policy "feedback_lecturer_reset" on lecture_feedback_votes for delete
 - 이 문서의 SQL은 `backend/supabase/migrations/`에 마이그레이션 파일로 옮겨져 실제 Supabase 프로젝트(project ref: `zilvdbwoieplhrpjqnlo`)에 적용되어 있습니다.
   - `20260705062713_init_schema.sql` — 테이블/함수·트리거/RLS 초기 스키마 전체
   - `20260705064427_lecturer_permissions.sql` — 강의자 권한 정책(`posts_lecturer_update_status`, `posts_lecturer_delete`, `feedback_lecturer_reset`), `trg_block_status_change` 트리거, `posts_public` 뷰
+  - `20260705082805_auth_user_signup_trigger.sql` — 회원가입 시 `profiles` 자동 생성 트리거(`handle_new_user`, `on_auth_user_created`)
 - CLI로 마이그레이션을 적용하려면 `SUPABASE_ACCESS_TOKEN`(personal access token, 계정 전체 권한)이 필요하며 `backend/.env`에 보관 중(git 추적 제외).
