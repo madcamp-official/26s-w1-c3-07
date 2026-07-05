@@ -114,15 +114,21 @@ create table lecture_feedback_votes (
 ```sql
 -- 회원 탈퇴 시 author_id가 null로 바뀌기 전에, 실명으로 쓴 글을 먼저 익명 처리
 -- (posts.check 제약과 author_id의 on delete set null이 충돌하지 않도록 BEFORE DELETE에서 선처리)
+-- search_path를 명시적으로 public 고정: 이 트리거를 호출하는 쪽(예: delete_own_account,
+-- search_path='')의 search_path를 그대로 물려받으면 posts처럼 스키마 미지정 참조가 깨지므로
+-- 호출 컨텍스트와 무관하게 항상 동작하도록 자체적으로 고정.
 create or replace function anonymize_posts_before_profile_delete()
-returns trigger as $$
+returns trigger
+language plpgsql
+set search_path = public
+as $$
 begin
   update posts
   set is_anonymous = true
   where author_id = old.id;
   return old;
 end;
-$$ language plpgsql;
+$$;
 
 create trigger trg_anonymize_posts_before_profile_delete
 before delete on profiles
@@ -219,6 +225,30 @@ select
 from posts;
 ```
 
+### RPC 함수
+
+```sql
+-- 회원 탈퇴: 로그인한 본인만 자기 auth.users 행을 삭제할 수 있게 하는 RPC.
+-- auth.users DELETE는 일반 role(anon/authenticated)에게 권한이 없어 SECURITY DEFINER로 우회.
+-- auth.uid()로 대상을 "요청자 본인"으로 못박아, 다른 사람 계정 삭제를 원천 차단.
+-- search_path를 비워 모든 참조를 완전한 스키마 경로로 강제(스키마 하이재킹 방지).
+create or replace function delete_own_account()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  delete from auth.users where id = auth.uid();
+end;
+$$;
+
+revoke all on function delete_own_account() from public;
+grant execute on function delete_own_account() to authenticated;
+```
+
+프론트에서는 `supabase.rpc('delete_own_account')`로 호출합니다 (`TODO.md` #18 참고).
+
 ## 테이블 관계 요약
 
 - `nodes`는 자기참조(`parent_id`)로 트리를 이루며, `node_type`이 `folder`면 강의 폴더, `lecture`면 강의입니다.
@@ -232,6 +262,7 @@ from posts;
 - **삭제 전파(cascade) 정리**: 폴더를 삭제하면 `nodes.parent_id`의 `on delete cascade`를 타고 하위 노드(폴더/강의)가 재귀적으로 전부 삭제되고, 그에 딸린 `lectures`, `posts`(답글 포함), `post_likes`, `lecture_feedback_votes`, `my_nodes.node_id`/`my_nodes.folder_id` 즐겨찾기 기록까지 전부 연쇄적으로 같이 삭제됩니다 (즐겨찾기를 정리해둔 내 폴더를 지우면, 그 안에 넣어둔 즐겨찾기 기록도 함께 사라짐).
 - **회원 탈퇴(`auth.users` 삭제) 시 전파**: `profiles`는 `on delete cascade`로 계정과 함께 삭제되고, 그에 딸린 `my_nodes`(내 즐겨찾기)도 `cascade`로 같이 삭제됩니다. 반면 그 사람이 만든 `nodes`(강의/폴더, `created_by`)와 작성한 `posts`(`author_id`)는 `on delete set null`이라 콘텐츠 자체는 그대로 남고 "누가 만들었는지/썼는지" 정보만 사라집니다 — 강의자 한 명이 탈퇴해도 강의 구조나 다른 학생들의 질문·답글이 통째로 사라지는 일은 없습니다.
 - **탈퇴와 익명 표시 체크 제약의 충돌 방지**: `posts`엔 `check (author_id is not null or is_anonymous = true)`(작성자가 없으면 반드시 익명)가 걸려 있는데, 실명으로 쓴 글의 작성자가 탈퇴하면 `author_id`가 `null`로 바뀌면서 이 체크를 위반할 뻔합니다. `trg_anonymize_posts_before_profile_delete` 트리거가 `profiles` 삭제 **직전**에 해당 작성자의 글을 먼저 `is_anonymous = true`로 바꿔둬서 이 충돌을 막습니다.
+- **회원 탈퇴 RPC(`delete_own_account`)**: `auth.users` 행을 `auth.uid()` 본인 것만 삭제하도록 `SECURITY DEFINER` + `search_path=''`로 만든 RPC입니다. `profiles.id`가 `auth.users(id)`를 `on delete cascade`로 참조하고 있어서, 이 RPC 실행 시 `profiles` 행도 연쇄 삭제되며 `trg_anonymize_posts_before_profile_delete`가 자동으로 발동됩니다. 이때 트리거 함수가 자체 `search_path`를 고정해두지 않으면 `delete_own_account`의 빈 `search_path`를 그대로 물려받아 `posts`(스키마 미지정) 참조가 깨지는 버그가 있었고, `anonymize_posts_before_profile_delete()`에 `set search_path = public`을 명시해 수정했습니다 — `SECURITY DEFINER` 함수 안에서 다른 함수/트리거가 연쇄 호출될 때는 각자 자기 `search_path`를 스스로 고정해둬야 호출 컨텍스트에 안전하다는 걸 보여주는 사례입니다.
 - **강의자 권한(상태 전환/삭제/피드백 초기화)**: `posts_lecturer_update_status`/`posts_lecturer_delete`/`feedback_lecturer_reset` 정책으로 강의자가 남의 게시글 `status`를 바꾸거나, 부적절한 글을 삭제하거나, 실시간 피드백 투표를 전체 초기화할 수 있습니다(`nodes.created_by = auth.uid()`로 해당 강의 소유자인지 확인). `trg_block_status_change` 트리거가 이와 짝을 이뤄 "강의자가 아니면 `status`를 절대 못 바꾼다"를 강제합니다 — 정책은 허용 조건, 트리거는 차단 조건을 맡는 구조입니다.
 - **`posts_public` 뷰**: `posts_select_all`이 전체 공개라 `guest_token`이 그대로 노출되면 누구든 그 값을 훔쳐 남의 글을 수정/삭제할 수 있습니다. 그래서 `guest_token`을 뺀 `posts_public` 뷰를 따로 만들었고, 프론트는 조회 시 `posts`가 아니라 이 뷰를 사용해야 합니다(수정/삭제 자체는 여전히 `posts` 테이블의 RLS 정책으로 처리).
 - **회원가입 시 `profiles` 자동 생성**: `profiles`는 별도 INSERT 정책이 없어 RLS가 직접 INSERT를 막습니다. 그래서 `auth.users`에 새 행이 생길 때(Google OAuth 로그인 포함) `on_auth_user_created` 트리거가 `handle_new_user()`를 호출해 `profiles` 행을 자동으로 만드는 게 유일한 생성 경로입니다. 이 함수는 일반 role에게 없는 `public.profiles` INSERT 권한을 얻기 위해 `SECURITY DEFINER`로 선언했고, `search_path`를 `public`으로 고정해 스키마 하이재킹을 방지합니다. `display_name`은 구글 계정의 `full_name`/`name`(없으면 이메일)을 `raw_user_meta_data`에서 꺼내 자동으로 채웁니다.
@@ -371,3 +402,5 @@ create policy "feedback_lecturer_reset" on lecture_feedback_votes for delete
   - `20260705062713_init_schema.sql` — 테이블/함수·트리거/RLS 초기 스키마 전체
   - `20260705064427_lecturer_permissions.sql` — 강의자 권한 정책(`posts_lecturer_update_status`, `posts_lecturer_delete`, `feedback_lecturer_reset`), `trg_block_status_change` 트리거, `posts_public` 뷰
   - `20260705082805_auth_user_signup_trigger.sql` — 회원가입 시 `profiles` 자동 생성 트리거(`handle_new_user`, `on_auth_user_created`)
+  - `20260705090000_delete_own_account_rpc.sql` — 회원 탈퇴 RPC(`delete_own_account`)
+  - `20260705132633_fix_anonymize_posts_search_path.sql` — `anonymize_posts_before_profile_delete()`에 `search_path` 고정 (탈퇴 시 발생하던 버그 수정)

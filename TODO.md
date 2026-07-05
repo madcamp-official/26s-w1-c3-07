@@ -16,7 +16,6 @@
   - [15. `x-guest-token` 커스텀 헤더를 실제로 보내는 구현](#15-x-guest-token-커스텀-헤더를-실제로-보내는-구현)
   - [16. `posts_public` 뷰로 조회 대상 전환](#16-posts_public-뷰로-조회-대상-전환)
   - [17. 강의자 강의 페이지에 글 삭제 버튼 추가](#17-강의자-강의-페이지에-글-삭제-버튼-추가)
-  - [18. 회원 탈퇴 버튼 추가](#18-회원-탈퇴-버튼-추가)
   - [19. 닉네임(display_name) 수정 기능 추가](#19-닉네임display_name-수정-기능-추가)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
 
@@ -77,10 +76,6 @@ README엔 "글 작성 시(답글 포함) 미해결 게시글들과의 유사도 
 
 README 기능명세서(강의자 - 강의 페이지, "부적절한 글 삭제")에 대응하는 UI가 아직 없음 (백엔드 `posts_lecturer_delete` 정책은 이미 반영 완료, "해결된 것" 참고).
 
-### 18. 회원 탈퇴 버튼 추가
-
-README 선택 기능("회원 탈퇴 기능")에 대응하는 UI가 아직 없음. 백엔드 쪽 cascade/set null/익명 처리 트리거는 이미 다 되어 있으니, 프론트에서 탈퇴 버튼 + 확인 절차만 추가하면 됨.
-
 ### 19. 닉네임(display_name) 수정 기능 추가
 
 회원가입(Google OAuth) 시 `handle_new_user` 트리거가 구글 계정 이름(`full_name`/`name`)을 `profiles.display_name`에 자동으로 채워주는데, 이후 사용자가 원하는 닉네임으로 직접 바꿀 수 있는 UI가 아직 없음. 백엔드는 이미 `profiles_update_self` 정책으로 본인 수정이 허용되어 있으니, 프론트에서 설정 화면에 닉네임 수정 폼만 추가하면 됨.
@@ -93,3 +88,4 @@ README 선택 기능("회원 탈퇴 기능")에 대응하는 UI가 아직 없음
 - `posts`의 `check (author_id is not null or is_anonymous = true)`와 `author_id`의 `on delete set null` 충돌 → `trg_anonymize_posts_before_profile_delete` 트리거로 해결.
 - Supabase 프로젝트 연결 및 초기 스키마 마이그레이션 적용 → `backend/supabase/migrations/20260705062713_init_schema.sql`.
 - 강의자가 게시글 미해결↔해결됨 전환(`posts_lecturer_update_status`), 실시간 피드백 초기화(`feedback_lecturer_reset`), 게시글 status는 강의자만 변경 가능(`trg_block_status_change`), 강의자 글 삭제 권한(`posts_lecturer_delete`), `guest_token` 제외 공개 뷰(`posts_public`) → `backend/supabase/migrations/20260705064427_lecturer_permissions.sql`.
+- 회원 탈퇴 버튼 + RPC(`delete_own_account`) → `backend/supabase/migrations/20260705090000_delete_own_account_rpc.sql`, `backend/test-frontend`에 반영. 탈퇴 시 cascade로 발동되는 `anonymize_posts_before_profile_delete` 트리거가 `search_path` 문제로 실패하던 버그는 `20260705132633_fix_anonymize_posts_search_path.sql`로 수정.
