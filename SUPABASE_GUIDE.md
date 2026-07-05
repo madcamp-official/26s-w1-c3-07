@@ -11,7 +11,6 @@
 - [5. 실제로 쓸 코드 패턴](#5-실제로-쓸-코드-패턴)
 - [6. 비회원 인증: `guest_token` + `x-guest-token` 헤더](#6-비회원-인증-guest_token--x-guest-token-헤더)
 - [7. 아직 안 된 것 / 앞으로 할 일](#7-아직-안-된-것--앞으로-할-일)
-- [8. 참고 문서](#8-참고-문서)
 
 ## 1. Supabase URL / API 키가 뭔가요?
 
@@ -139,9 +138,3 @@ await supabase
 - [#14 비회원 익명 식별자(`guest_token`) 생성 로직](./TODO.md#14-비회원-익명-식별자guest_token-생성-로직)
 - [#15 `x-guest-token` 커스텀 헤더를 실제로 보내는 구현](./TODO.md#15-x-guest-token-커스텀-헤더를-실제로-보내는-구현)
 - [#16 `posts_public` 뷰로 조회 대상 전환](./TODO.md#16-posts_public-뷰로-조회-대상-전환)
-
-## 8. 참고 문서
-
-- [`DB_SCHEMA.md`](./DB_SCHEMA.md) — 전체 테이블/RLS 정책/트리거 상세
-- [`TODO.md`](./TODO.md) — 아직 안 풀린 이슈/결정 필요한 것들
-- [`README.md`](./README.md) — 기획안 및 기능 명세서
