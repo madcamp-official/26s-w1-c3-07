@@ -205,26 +205,6 @@ after insert on auth.users
 for each row execute function handle_new_user();
 ```
 
-### 뷰
-
-```sql
--- posts.guest_token을 뺀 공개용 뷰. posts_select_all이 전체 공개라
--- guest_token이 그대로 노출되면 남의 글을 수정/삭제할 수 있게 되므로, 프론트는 이 뷰로 조회
-create view posts_public as
-select
-  id,
-  lecture_id,
-  parent_id,
-  author_id,
-  is_anonymous,
-  post_type,
-  status,
-  resolved_at,
-  content,
-  created_at
-from posts;
-```
-
 ### RPC 함수
 
 ```sql
@@ -247,7 +227,27 @@ revoke all on function delete_own_account() from public;
 grant execute on function delete_own_account() to authenticated;
 ```
 
-프론트에서는 `supabase.rpc('delete_own_account')`로 호출합니다 (`TODO.md` #18 참고).
+프론트에서는 `supabase.rpc('delete_own_account')`로 호출합니다.
+
+### 뷰
+
+```sql
+-- posts.guest_token을 뺀 공개용 뷰. posts_select_all이 전체 공개라
+-- guest_token이 그대로 노출되면 남의 글을 수정/삭제할 수 있게 되므로, 프론트는 이 뷰로 조회
+create view posts_public as
+select
+  id,
+  lecture_id,
+  parent_id,
+  author_id,
+  is_anonymous,
+  post_type,
+  status,
+  resolved_at,
+  content,
+  created_at
+from posts;
+```
 
 ## 테이블 관계 요약
 
