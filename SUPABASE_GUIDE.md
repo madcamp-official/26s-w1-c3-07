@@ -112,23 +112,18 @@ const { data } = await supabase
 
 **⚠️ 아직 아무 데도 구현 안 되어 있어요** — `guest_token` 생성/저장 로직도, 헤더를 실어 보내는 코드도 지금 코드베이스 어디에도 없습니다. 앞으로 만들어야 할 부분이에요 ([TODO.md #14, #15](./TODO.md#14-비회원-익명-식별자guest_token-생성-로직) 참고).
 
-만들 때 쓸 수 있는 supabase-js API 두 가지 (실제 설치된 `@supabase/supabase-js` 소스에서 확인한 진짜 동작하는 방법):
+**구현 방식: 요청마다 체이닝으로 헤더 설정**
 
-**방법 1: 클라이언트 생성 시 고정 헤더** (guest_token이 안 바뀌는 경우에만 적합)
-```js
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  global: { headers: { 'x-guest-token': guestToken } },
-})
-```
-
-**방법 2 (추천): 요청마다 체이닝으로 헤더 설정**
 ```js
 await supabase
   .from('posts_public')
   .select('*')
   .setHeader('x-guest-token', guestToken)
 ```
-`localStorage`에서 매번 최신 `guestToken`을 읽어서 요청 시점에 넣을 수 있어서 이 방식이 더 적합해요.
+
+supabase 클라이언트는 앱 시작할 때 딱 한 번만 만들고(`supabaseClient.js`), 실제 요청을 보내는 시점에 `localStorage`에서 최신 `guestToken`을 읽어서 `.setHeader()`로 그때그때 붙이는 방식이에요.
+
+**왜 이 방식인지**: `createClient(...)` 옵션(`global.headers`)으로 헤더를 고정하는 방법도 있지만, 그건 클라이언트를 만드는 시점에 값이 한 번 박혀버려요. `guest_token`은 앱이 로드된 *이후에* `localStorage`에서 읽히는 값이라 클라이언트 생성 시점엔 아직 없을 수 있고, 로그인 여부에 따라 이 헤더가 필요 없는 요청도 있어서(회원은 `author_id`로 처리) 요청마다 동적으로 판단해야 해요. 그래서 매 요청 시점에 값을 읽어 붙이는 `.setHeader()` 방식으로 간다.
 
 ## 7. 아직 안 된 것 / 앞으로 할 일
 
