@@ -146,6 +146,8 @@
 
 > API 주소, 요청 방식, 요청값, 응답값, 에러 상황을 정리
 
+Supabase 연동 방법(URL/API 키, 클라이언트 설정, 코드 예시)은 [SUPABASE_GUIDE.md](./SUPABASE_GUIDE.md) 참고
+
 | Method | Endpoint | 설명 | 요청 | 응답 |
 |---|---|---|---|---|
 |  |  |  |  |  |
