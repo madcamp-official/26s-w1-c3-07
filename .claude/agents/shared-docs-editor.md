@@ -17,21 +17,26 @@ Anything else (Supabase migrations under `backend/supabase/`, `TODO.md`, `CLAUDE
 
 # Workflow (follow in order, do not skip steps)
 
-1. `git branch --show-current` — remember this as `<original-branch>`. If it's already `dev`, skip steps 2 and 7 (no need to switch away and back).
-2. `git checkout dev`
-3. `git pull origin dev` — make sure you're editing on top of the latest shared state (teammate may have pushed since your last sync).
-4. Make the requested edits using Read/Edit/Write.
-5. `git add <changed files>` (stage only the shared-doc files you touched — never stray untracked files from other branches, e.g. a leftover `backend/` directory).
-6. Commit using this repo's convention (see `CLAUDE.md`): `<type>: <description>`, almost always `docs:` for these files. Add a trailing `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>` line.
-7. `git push origin dev`.
-8. `git checkout <original-branch>` (skip if you started on dev).
-9. `git merge dev` — brings the new shared-doc commit(s) back into the original branch. This is a plain merge, never rebase (rebase would rewrite already-pushed history on a shared branch and is unsafe here).
-10. If `<original-branch>` tracks a remote and the user's task implies pushing it too, push it; otherwise leave it to the user to push when ready (don't push branches you weren't asked to touch beyond bringing them up to date locally).
+1. `git branch --show-current` — remember this as `<original-branch>`. If it's already `dev`, skip steps 2, 3, 8, and the stash logic entirely (no need to switch away and back, nothing to protect).
+2. `git status --porcelain` on `<original-branch>`. If there's any uncommitted change (tracked or untracked), stash it before switching so it doesn't get dragged across branches or silently overwritten by checkout:
+   `git stash push -u -m "shared-docs-editor: auto-stash before dev switch"`
+   Remember whether you actually created a stash (an empty status means nothing to stash — don't run `stash push` on a clean tree, it would just say "no local changes" but skip it explicitly anyway for clarity).
+3. `git checkout dev`
+4. `git pull origin dev` — make sure you're editing on top of the latest shared state (teammate may have pushed since your last sync).
+5. Make the requested edits using Read/Edit/Write.
+6. `git add <changed files>` (stage only the shared-doc files you touched — never stray untracked files from other branches, e.g. a leftover `backend/` directory).
+7. Commit using this repo's convention (see `CLAUDE.md`): `<type>: <description>`, almost always `docs:` for these files. Add a trailing `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>` line.
+8. `git push origin dev`.
+9. `git checkout <original-branch>`.
+10. If you created a stash in step 2, restore it now: `git stash pop`. If this reports a conflict, **stop immediately** — do not run `git merge dev` on top of an unresolved stash conflict. Report exactly which files conflicted and leave the stash entry in place (don't `git stash drop`) so the user can resolve it themselves.
+11. `git merge dev` — brings the new shared-doc commit(s) back into the original branch. This is a plain merge, never rebase (rebase would rewrite already-pushed history on a shared branch and is unsafe here).
+12. If `<original-branch>` tracks a remote and the user's task implies pushing it too, push it; otherwise leave it to the user to push when ready (don't push branches you weren't asked to touch beyond bringing them up to date locally).
 
 # Guardrails
 
 - Never use `git rebase` on `dev` or on the original branch in this flow — always `merge`.
 - Never force-push.
+- Never run `git stash drop` or `git stash clear` — if a stash pop fails or is skipped, leave it in the stash list for the user to handle manually.
 - Before staging, run `git status --porcelain` and double check you're only adding the shared-doc files you intended — branch switches in this repo have previously left stray untracked directories (e.g. `backend/`) sitting in the working tree; don't sweep those into a `dev` commit.
 - If `git pull origin dev` or `git merge dev` hits a conflict, stop and report exactly which files conflict and why — do not attempt to resolve content conflicts unilaterally in shared docs.
-- End by reporting: which branch you edited on, the commit hash(es) and message(s), whether dev was pushed, and whether the original branch now has the merge (and whether it was pushed).
+- End by reporting: which branch you edited on, the commit hash(es) and message(s), whether dev was pushed, whether a stash was created/restored (and its state if still pending), and whether the original branch now has the merge (and whether it was pushed).
