@@ -26,7 +26,7 @@
 두 가지 방법:
 
 1. **Supabase Dashboard**에서 직접 확인: 프로젝트(`zilvdbwoieplhrpjqnlo`) → **Project Settings → API** → "Project URL" / "anon(publishable) key"
-2. **이미 검증된 값이 저장소에 있음**: `backend/test-frontend/.env.example` 파일에 실제 값이 그대로 들어있어요. 이건 테스트용으로 만든 임시 프론트엔드지만, 값 자체는 진짜 프로젝트 값이라 그대로 복사해서 쓰면 됩니다.
+2. **이미 검증된 값이 저장소 루트에 있음**: [`.env.example`](./.env.example) 파일에 실제 값이 그대로 들어있어요. 그대로 복사해서 쓰면 됩니다 (아래 4번 참고).
 
 ## 3. supabase-js 클라이언트 설정
 
@@ -50,13 +50,12 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 ## 4. `.env` / `.env.example` 사용법
 
 - **`.env`**: 로컬 전용 파일, git에 안 올라감(`.gitignore` 처리됨). 여기에 실제 값을 넣고 로컬에서만 씀.
-- **`.env.example`**: git에 커밋되는 템플릿 파일. **이 프로젝트에선 예외적으로 진짜 값을 그대로 넣어뒀어요** (anon key는 공개돼도 안전한 값이라서요 — 보통 다른 프로젝트에선 여기에 placeholder만 넣는 게 일반적이니, 이건 이 프로젝트만의 편의를 위한 선택이라고 이해하시면 돼요).
+- **`.env.example`**: git에 커밋되는 템플릿 파일 (저장소 루트에 있음). **이 프로젝트에선 예외적으로 진짜 값을 그대로 넣어뒀어요** (anon key는 공개돼도 안전한 값이라서요 — 보통 다른 프로젝트에선 여기에 placeholder만 넣는 게 일반적이니, 이건 이 프로젝트만의 편의를 위한 선택이라고 이해하시면 돼요).
 
-프로젝트 새로 받으면:
+본인 프론트엔드 프로젝트 폴더에서, 저장소 루트의 `.env.example`을 복사해서 쓰면 됩니다:
 ```bash
-cp .env.example .env
+cp ../.env.example .env   # 프론트엔드 프로젝트가 저장소 루트 바로 아래 폴더에 있다고 가정한 경로, 실제 위치에 맞게 조정
 ```
-이렇게 한 번만 실행하면 됩니다.
 
 ## 5. 실제로 쓸 코드 패턴
 
