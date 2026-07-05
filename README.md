@@ -109,18 +109,18 @@
 > 서비스의 전체 페이지 구조와 페이지 간 이동 흐름; 각 페이지의 주요 UI 구성, 입력 요소, 버튼, 사용자 행동 흐름 등을 간단한 와이어프레임 형태로 정리
 
 <!-- Figma 링크 또는 이미지 첨부 -->
-![image](./docs/IA.png)
+![image](./images/IA.png)
 
-![image](./docs/화면설계서_1.png)
+![image](./images/화면설계서_1.png)
 
-![image](./docs/화면설계서_2.png)
+![image](./images/화면설계서_2.png)
 
-![image](./docs/화면설계서_3.png)
+![image](./images/화면설계서_3.png)
 
-![image](./docs/화면설계서_4.png)
+![image](./images/화면설계서_4.png)
 
-![image](./docs/화면설계서_5.png)
-![image](./docs/화면설계서_6.png)
+![image](./images/화면설계서_5.png)
+![image](./images/화면설계서_6.png)
 
 ---
 ## DB 스키마
