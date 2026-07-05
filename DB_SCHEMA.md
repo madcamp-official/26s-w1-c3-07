@@ -371,4 +371,3 @@ create policy "feedback_lecturer_reset" on lecture_feedback_votes for delete
   - `20260705062713_init_schema.sql` — 테이블/함수·트리거/RLS 초기 스키마 전체
   - `20260705064427_lecturer_permissions.sql` — 강의자 권한 정책(`posts_lecturer_update_status`, `posts_lecturer_delete`, `feedback_lecturer_reset`), `trg_block_status_change` 트리거, `posts_public` 뷰
   - `20260705082805_auth_user_signup_trigger.sql` — 회원가입 시 `profiles` 자동 생성 트리거(`handle_new_user`, `on_auth_user_created`)
-- CLI로 마이그레이션을 적용하려면 `SUPABASE_ACCESS_TOKEN`(personal access token, 계정 전체 권한)이 필요하며 `backend/.env`에 보관 중(git 추적 제외).
