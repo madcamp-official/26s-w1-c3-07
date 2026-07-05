@@ -71,7 +71,7 @@ README엔 "글 작성 시(답글 포함) 미해결 게시글들과의 유사도 
 
 ### 16. `posts_public` 뷰로 조회 대상 전환
 
-백엔드에서 `posts_public` 뷰가 만들어지면, 프론트는 `posts` 테이블이 아니라 이 뷰를 조회하도록 변경.
+`posts_public` 뷰는 이미 만들어져 있음(`backend/supabase/migrations/20260705064427_lecturer_permissions.sql`, "해결된 것" 참고). 프론트에서 `posts` 테이블이 아니라 이 뷰를 조회하도록 변경하는 작업만 남음.
 
 ### 17. 강의자 강의 페이지에 글 삭제 버튼 추가
 
