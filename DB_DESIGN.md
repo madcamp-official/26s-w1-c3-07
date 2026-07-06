@@ -423,21 +423,41 @@ create policy "lecture_join_codes_owner_delete" on lecture_join_codes for delete
 
 ### `my_nodes`
 
-완전히 개인적인 데이터라 본인만 읽기/쓰기 전부 가능합니다(`my_nodes_owner_all`). 여기에 더해, 즐겨찾기 대상(`node_id`)이 실제로 강의자 모드로 만들어진 노드인지 확인합니다(왜 필요한지는 설계 노트 참고). 다른 테이블(`nodes`) 조회가 필요해 `check` 제약으로는 표현할 수 없고(서브쿼리 금지), 기존 `my_nodes_owner_all`이 이미 `for all`(permissive)로 열려 있어서 여기에 permissive 정책을 추가하면 OR로 합쳐져 오히려 더 넓어지기만 하므로 `RESTRICTIVE`로 만들어 AND로 좁혔습니다. `node_id`는 PK 컬럼이라 이론상 UPDATE도 가능해서 INSERT/UPDATE 둘 다 막습니다.
+완전히 개인적인 데이터라 본인만 읽기/쓰기 전부 가능합니다(`my_nodes_owner_all`). 여기에 더해, 즐겨찾기 대상(`node_id`)이 실제로 강의자 모드로 만들어진 노드인지, `folder_id`(즐겨찾기를 정리해둔 내 개인 폴더)가 실제로 내가 수강생 모드로 만든 폴더인지 확인합니다(왜 필요한지는 설계 노트 참고). 둘 다 다른 테이블(`nodes`) 조회가 필요해 `check` 제약으로는 표현할 수 없고(서브쿼리 금지), 기존 `my_nodes_owner_all`이 이미 `for all`(permissive)로 열려 있어서 여기에 permissive 정책을 추가하면 OR로 합쳐져 오히려 더 넓어지기만 하므로 `RESTRICTIVE`로 만들어 AND로 좁혔습니다. `node_id`는 PK 컬럼이라 이론상 UPDATE도 가능해서 INSERT/UPDATE 둘 다 막고, `folder_id`는 즐겨찾기를 다른 폴더로 옮길 때 바뀌는 컬럼이라 오히려 UPDATE 쪽이 더 자주 쓰이므로 마찬가지로 INSERT/UPDATE 둘 다 막습니다. `folder_id`가 가리키는 노드의 `node_type = 'folder'`는 별도로 검사하지 않는데, `nodes`의 `check (node_type <> 'lecture' or created_mode = 'lecturer')` 제약의 대우로 `created_mode = 'student' → node_type = 'folder'`가 이미 보장되기 때문입니다.
 
 ```sql
 alter table my_nodes enable row level security;
 create policy "my_nodes_owner_all" on my_nodes for all
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 
-create policy "my_nodes_only_favorite_lecturer_mode_insert" on my_nodes as restrictive for insert
+create policy "my_nodes_insert_only_favorite_lecturer_mode" on my_nodes as restrictive for insert
   with check (
     exists (select 1 from nodes where nodes.id = node_id and nodes.created_mode = 'lecturer')
   );
-create policy "my_nodes_only_favorite_lecturer_mode_update" on my_nodes as restrictive for update
+create policy "my_nodes_update_only_favorite_lecturer_mode" on my_nodes as restrictive for update
   using (true)
   with check (
     exists (select 1 from nodes where nodes.id = node_id and nodes.created_mode = 'lecturer')
+  );
+
+create policy "my_nodes_insert_folder_must_be_own_student_folder" on my_nodes as restrictive for insert
+  with check (
+    folder_id is null or exists (
+      select 1 from nodes
+      where nodes.id = folder_id
+        and nodes.created_by = auth.uid()
+        and nodes.created_mode = 'student'
+    )
+  );
+create policy "my_nodes_update_folder_must_be_own_student_folder" on my_nodes as restrictive for update
+  using (true)
+  with check (
+    folder_id is null or exists (
+      select 1 from nodes
+      where nodes.id = folder_id
+        and nodes.created_by = auth.uid()
+        and nodes.created_mode = 'student'
+    )
   );
 ```
 
@@ -609,3 +629,5 @@ create policy "lecture_feedback_votes_lecturer_reset" on lecture_feedback_votes 
   - `20260706110000_profiles_rename_columns.sql` — `profiles` 컬럼 이름을 단순화(`display_name` → `name`, `last_mode` → `mode`). `posts_public` 뷰와 체크 제약은 컬럼을 attnum으로 참조해 자동으로 따라가고, `handle_new_user()` 함수만 새 컬럼명에 맞춰 갱신
   - `20260706130000_delete_own_account_use_sql_language.sql` — `delete_own_account()`를 `plpgsql`에서 `sql` 언어로 변경 (분기/변수 없는 단순 `DELETE` 한 줄이라 트리거 함수들과 달리 `plpgsql`이 필요 없음)
   - `20260706150816_nodes_parent_ownership_mode_match.sql` — `nodes.parent_id`가 가리키는 부모 노드와 `created_by`/`created_mode`가 일치해야 함을 강제하는 `trg_enforce_nodes_parent_ownership` 트리거 추가
+  - `20260706154459_my_nodes_folder_must_be_own_student_folder.sql` — `my_nodes.folder_id`(즐겨찾기를 정리해둔 내 개인 폴더)가 실제로 내가 수강생 모드로 만든 폴더인지 확인하는 `RESTRICTIVE` RLS 정책(`my_nodes_folder_must_be_own_student_folder_insert`/`_update`, 아래 마이그레이션에서 이름 변경됨) 추가
+  - `20260706154910_unify_my_nodes_policy_names.sql` — `my_nodes` RLS 정책 이름을 다른 테이블과 같은 `<테이블>_<동작>_<설명>` 순서로 통일(`my_nodes_only_favorite_lecturer_mode_insert` → `my_nodes_insert_only_favorite_lecturer_mode`, `_update`도 동일, `my_nodes_folder_must_be_own_student_folder_insert` → `my_nodes_insert_folder_must_be_own_student_folder`, `_update`도 동일)
