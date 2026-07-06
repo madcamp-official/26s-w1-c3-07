@@ -4,6 +4,7 @@ import CourseRoomPage from './pages/CourseRoomPage'
 import CreateCoursePage from './pages/CreateCoursePage'
 import LandingPage from './pages/LandingPage'
 import PostWritePage from './pages/PostWritePage'
+import SettingsPage from './pages/SettingsPage'
 import StudentCoursesPage from './pages/StudentCoursesPage'
 import UnansweredQuestionsPage from './pages/UnansweredQuestionsPage'
 
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/student/courses/new" element={<CreateCoursePage />} />
         <Route path="/student/courses/:courseId/edit" element={<CreateCoursePage />} />
         <Route path="/student/questions" element={<UnansweredQuestionsPage />} />
+        <Route path="/student/settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
