@@ -19,7 +19,7 @@ export default function QuestionThread({ question, canResolve = false, onLike, o
   const isOpinion = question.postType === 'opinion'
 
   const handleResolve = async () => {
-    if (!onResolve || question.isResolved) return
+    if (!onResolve) return
     setIsResolving(true)
     try {
       await onResolve(question.id)
@@ -41,7 +41,7 @@ export default function QuestionThread({ question, canResolve = false, onLike, o
             <button
               type="button"
               onClick={() => void handleResolve()}
-              disabled={question.isResolved || isResolving}
+              disabled={isResolving}
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition disabled:cursor-not-allowed',
                 question.isResolved ? 'bg-emerald-500 text-white' : 'border border-slate-200 text-slate-500 hover:border-emerald-300 hover:text-emerald-600',

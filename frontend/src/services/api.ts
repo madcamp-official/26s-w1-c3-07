@@ -89,6 +89,16 @@ export async function switchUserRole(role: UserRole): Promise<User> {
   return clone(mockCurrentUser)
 }
 
+export async function updateUserName(name: string): Promise<User> {
+  await delay(300)
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('닉네임을 입력해 주세요.')
+
+  mockCurrentUser.name = trimmed
+  mockCurrentUser.avatarText = trimmed.slice(0, 1)
+  return clone(mockCurrentUser)
+}
+
 export async function getCourseFolders(): Promise<CourseFolder[]> {
   await delay()
   return clone(mockCourseFolders)
@@ -477,7 +487,7 @@ export async function toggleQuestionLike(courseId: string, questionId: string): 
   return clone({ ...question, isLikedByMe })
 }
 
-/** 강의자가 질문을 해결 완료로 표시합니다. */
+/** 강의자가 질문의 해결 여부를 전환합니다. */
 export async function resolveQuestion(courseId: string, questionId: string): Promise<Question> {
   await delay(200)
   if (!isPrivilegedEditor()) throw new Error('강의자만 질문을 해결 처리할 수 있습니다.')
@@ -486,7 +496,7 @@ export async function resolveQuestion(courseId: string, questionId: string): Pro
   const question = room?.questions.find((item) => item.id === questionId)
   if (!question) throw new Error('질문을 찾을 수 없습니다.')
 
-  question.isResolved = true
+  question.isResolved = !question.isResolved
   return clone(question)
 }
 
