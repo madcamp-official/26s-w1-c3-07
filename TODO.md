@@ -70,13 +70,13 @@ README엔 "글 작성 시(답글 포함) 미해결 게시글들과의 유사도 
 
 ### 10. AI 보조 기능 서버 아키텍처 결정 (Edge Function vs Express)
 
-AI 교정, 부적절한 내용 필터링, 유사 질문 자동 탐지(#8, #9) 기능을 처리할 서버를 **Supabase Edge Function**으로 만들지, **별도 Express 서버**를 새로 띄울지 아직 결정 안 됨. 현재는 Express 백엔드 서버 없이 Supabase만으로 구성되어 있음(`DB_SCHEMA.md` 배포 현황 참고). 이 결정에 따라 배포 방식, 인증 처리(Edge Function은 Supabase 세션과 통합이 쉬움), LLM API 키 보관 위치 등이 달라짐.
+AI 교정, 부적절한 내용 필터링, 유사 질문 자동 탐지(#8, #9) 기능을 처리할 서버를 **Supabase Edge Function**으로 만들지, **별도 Express 서버**를 새로 띄울지 아직 결정 안 됨. 현재는 Express 백엔드 서버 없이 Supabase만으로 구성되어 있음(`DB_DESIGN.md` 배포 현황 참고). 이 결정에 따라 배포 방식, 인증 처리(Edge Function은 Supabase 세션과 통합이 쉬움), LLM API 키 보관 위치 등이 달라짐.
 
 ## Realtime 관련
 
 ### 11. `max_participants`(최다 참여 인원) 강제 여부 결정
 
-컬럼만 있고 실제 입장 제한 로직/참여자 카운트 테이블이 없음. 정보 표시용인지 실제 강제해야 하는지 확인 필요 (강제한다면 Realtime **Presence** 또는 별도 카운트 확인 로직 추가 필요, `DB_SCHEMA.md`의 "실시간 접속자 수" 섹션 참고).
+컬럼만 있고 실제 입장 제한 로직/참여자 카운트 테이블이 없음. 정보 표시용인지 실제 강제해야 하는지 확인 필요 (강제한다면 Realtime **Presence** 또는 별도 카운트 확인 로직 추가 필요, `DB_DESIGN.md`의 "실시간 접속자 수" 섹션 참고).
 
 ## join_code 관련
 
@@ -114,7 +114,7 @@ RPC 반환 형태는 두 가지 방식이 있음.
 ## 해결된 것 (참고용 기록)
 
 - `posts.status`가 답글에는 항상 `null`이어야 하는 문제 → `check ((parent_id is null) = (status is not null))`로 해결.
-- RLS 정책 전반 → `DB_SCHEMA.md`의 "RLS 정책" 섹션에 정리 완료.
+- RLS 정책 전반 → `DB_DESIGN.md`의 "RLS 정책" 섹션에 정리 완료.
 - `posts`의 `check (author_id is not null or is_anonymous = true)`와 `author_id`의 `on delete set null` 충돌 → `trg_anonymize_posts_before_profile_delete` 트리거로 해결.
 - Supabase 프로젝트 연결 및 초기 스키마 마이그레이션 적용 → `backend/supabase/migrations/20260705062713_init_schema.sql`.
 - 강의자가 게시글 미해결↔해결됨 전환(`posts_lecturer_update_status`), 실시간 피드백 초기화(`feedback_lecturer_reset`), 게시글 status는 강의자만 변경 가능(`trg_block_status_change`), 강의자 글 삭제 권한(`posts_lecturer_delete`), `guest_token` 제외 공개 뷰(`posts_public`) → `backend/supabase/migrations/20260705064427_lecturer_permissions.sql`.
