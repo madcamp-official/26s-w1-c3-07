@@ -12,12 +12,13 @@ interface CourseRowProps {
   course: Course
   isInstructor?: boolean
   isInBlockedFolder?: boolean
+  onEdit?: (courseId: string) => void
   onRename: (itemId: string, itemType: TreeItemType, currentName: string) => void
   onMove: (itemId: string, itemType: TreeItemType, label: string) => void
   onDelete: (itemId: string, itemType: TreeItemType, label: string) => void
 }
 
-export default function CourseRow({ course, isInstructor = false, isInBlockedFolder = false, onRename, onMove, onDelete }: CourseRowProps) {
+export default function CourseRow({ course, isInstructor = false, isInBlockedFolder = false, onEdit, onRename, onMove, onDelete }: CourseRowProps) {
   const navigate = useNavigate()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const isOwned = isInstructor || course.ownership === 'owned'
@@ -50,6 +51,7 @@ export default function CourseRow({ course, isInstructor = false, isInBlockedFol
           </button>
           {isMenuOpen && (
             <ItemActionsMenu
+              onEdit={isInstructor && course.ownership === 'owned' && onEdit ? () => onEdit(course.id) : undefined}
               onRename={isOwned ? () => onRename(course.id, 'course', course.title) : undefined}
               onMove={() => onMove(course.id, 'course', course.title)}
               onDelete={() => onDelete(course.id, 'course', course.title)}

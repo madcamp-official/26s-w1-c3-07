@@ -10,12 +10,13 @@ import ItemActionsMenu from './ItemActionsMenu'
 interface CourseCardProps {
   course: Course
   isInstructor?: boolean
+  onEdit?: (courseId: string) => void
   onRename: (itemId: string, itemType: TreeItemType, currentName: string) => void
   onMove: (itemId: string, itemType: TreeItemType, label: string) => void
   onDelete: (itemId: string, itemType: TreeItemType, label: string) => void
 }
 
-export default function CourseCard({ course, isInstructor = false, onRename, onMove, onDelete }: CourseCardProps) {
+export default function CourseCard({ course, isInstructor = false, onEdit, onRename, onMove, onDelete }: CourseCardProps) {
   const navigate = useNavigate()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const isOwned = isInstructor || course.ownership === 'owned'
@@ -42,6 +43,7 @@ export default function CourseCard({ course, isInstructor = false, onRename, onM
         </button>
         {isMenuOpen && (
           <ItemActionsMenu
+            onEdit={isInstructor && course.ownership === 'owned' && onEdit ? () => onEdit(course.id) : undefined}
             onRename={isOwned ? () => onRename(course.id, 'course', course.title) : undefined}
             onMove={() => onMove(course.id, 'course', course.title)}
             onDelete={() => onDelete(course.id, 'course', course.title)}

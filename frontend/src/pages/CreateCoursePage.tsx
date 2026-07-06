@@ -1,17 +1,32 @@
-import { ArrowLeft, ArrowRight, Calendar } from 'lucide-react'
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { ArrowLeft, ArrowRight, Calendar, CheckCircle2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import Button from '../components/ui/Button'
 import { useStudentCourses } from '../hooks/useStudentCourses'
-import type { CourseFolder } from '../types/course'
+import type { Course, CourseFolder } from '../types/course'
 
 function flattenFolders(folders: CourseFolder[], depth = 0): Array<{ folder: CourseFolder; depth: number }> {
   return folders.flatMap((folder) => [{ folder, depth }, ...flattenFolders(folder.children, depth + 1)])
 }
 
+function findCourseById(folders: CourseFolder[], rootCourses: Course[], id: string): Course | null {
+  const fromRoot = rootCourses.find((course) => course.id === id)
+  if (fromRoot) return fromRoot
+
+  for (const folder of folders) {
+    const fromFolder = folder.courses.find((course) => course.id === id)
+    if (fromFolder) return fromFolder
+    const fromChildren = findCourseById(folder.children, [], id)
+    if (fromChildren) return fromChildren
+  }
+  return null
+}
+
 export default function CreateCoursePage() {
   const navigate = useNavigate()
-  const { folders, addCourse } = useStudentCourses()
+  const { courseId } = useParams<{ courseId: string }>()
+  const isEditMode = Boolean(courseId)
+  const { folders, courses, isLoading, addCourse, editCourse } = useStudentCourses()
   const [title, setTitle] = useState('')
   const [folderId, setFolderId] = useState('')
   const [date, setDate] = useState('')
@@ -21,6 +36,19 @@ export default function CreateCoursePage() {
   const [capacity, setCapacity] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [isUpdated, setIsUpdated] = useState(false)
+
+  useEffect(() => {
+    if (!isEditMode || !courseId || isLoading) return
+    const course = findCourseById(folders, courses, courseId)
+    if (!course) return
+    setTitle(course.title)
+    setDate(course.date ?? '')
+    setStartTime(course.startTime ?? '')
+    setEndTime(course.endTime ?? '')
+    setLocation(course.location ?? '')
+    setCapacity(course.capacity ? String(course.capacity) : '')
+  }, [isEditMode, courseId, isLoading, folders, courses])
 
   const flatFolders = flattenFolders(folders.filter((folder) => folder.ownership === 'owned'))
   const isValid = Boolean(title.trim() && date && startTime && endTime)
@@ -30,18 +58,32 @@ export default function CreateCoursePage() {
     setError('')
     setIsSubmitting(true)
     try {
-      const course = await addCourse({
-        title: title.trim(),
-        folderId: folderId || null,
-        date,
-        startTime,
-        endTime,
-        location: location.trim() || undefined,
-        capacity: capacity ? Number(capacity) : null,
-      })
-      navigate('/student/courses', { state: { shareCourseId: course.id } })
+      if (isEditMode && courseId) {
+        await editCourse({
+          id: courseId,
+          title: title.trim(),
+          date,
+          startTime,
+          endTime,
+          location: location.trim() || undefined,
+          capacity: capacity ? Number(capacity) : null,
+        })
+        setIsUpdated(true)
+        window.setTimeout(() => navigate('/student/courses'), 1200)
+      } else {
+        const course = await addCourse({
+          title: title.trim(),
+          folderId: folderId || null,
+          date,
+          startTime,
+          endTime,
+          location: location.trim() || undefined,
+          capacity: capacity ? Number(capacity) : null,
+        })
+        navigate('/student/courses', { state: { shareCourseId: course.id } })
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '강의를 만들지 못했습니다.')
+      setError(err instanceof Error ? err.message : (isEditMode ? '강의를 수정하지 못했습니다.' : '강의를 만들지 못했습니다.'))
     } finally {
       setIsSubmitting(false)
     }
@@ -55,13 +97,17 @@ export default function CreateCoursePage() {
             <ArrowLeft className="size-5" />
           </button>
           <span className="text-slate-200">|</span>
-          <h1 className="text-xl font-extrabold text-slate-900">강의 만들기</h1>
+          <h1 className="text-xl font-extrabold text-slate-900">{isEditMode ? '강의 수정' : '강의 만들기'}</h1>
         </div>
-        <div className="flex items-center gap-3 text-sm font-bold">
-          <span className="grid size-8 place-items-center rounded-full bg-violet-600 text-white">1</span>
-          <span className="h-px w-10 bg-slate-200" />
-          <span className="grid size-8 place-items-center rounded-full bg-slate-100 text-slate-400">2</span>
-        </div>
+        {isEditMode ? (
+          <span className="rounded-full bg-amber-100 px-4 py-1.5 text-sm font-bold text-amber-700">수정 중</span>
+        ) : (
+          <div className="flex items-center gap-3 text-sm font-bold">
+            <span className="grid size-8 place-items-center rounded-full bg-violet-600 text-white">1</span>
+            <span className="h-px w-10 bg-slate-200" />
+            <span className="grid size-8 place-items-center rounded-full bg-slate-100 text-slate-400">2</span>
+          </div>
+        )}
       </header>
 
       <div className="mx-auto max-w-3xl px-6 py-10 sm:px-10">
@@ -80,19 +126,21 @@ export default function CreateCoursePage() {
             />
           </div>
 
-          <div className="py-6">
-            <label className="mb-2 block font-bold text-slate-800">폴더 (선택)</label>
-            <select
-              value={folderId}
-              onChange={(event) => setFolderId(event.target.value)}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
-            >
-              <option value="">최상위 (폴더 없음)</option>
-              {flatFolders.map(({ folder, depth }) => (
-                <option key={folder.id} value={folder.id}>{'　'.repeat(depth)}{folder.name}</option>
-              ))}
-            </select>
-          </div>
+          {!isEditMode && (
+            <div className="py-6">
+              <label className="mb-2 block font-bold text-slate-800">폴더 (선택)</label>
+              <select
+                value={folderId}
+                onChange={(event) => setFolderId(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
+              >
+                <option value="">최상위 (폴더 없음)</option>
+                {flatFolders.map(({ folder, depth }) => (
+                  <option key={folder.id} value={folder.id}>{'　'.repeat(depth)}{folder.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="py-6">
             <label className="mb-2 block font-bold text-slate-800">강의 날짜 <span className="text-rose-500">*</span></label>
@@ -145,10 +193,19 @@ export default function CreateCoursePage() {
 
         {error && <p className="mt-4 text-sm font-medium text-rose-500">{error}</p>}
 
-        <div className="mt-8 flex justify-end">
+        {isUpdated && (
+          <p className="mt-4 flex items-center gap-2 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
+            <CheckCircle2 className="size-5" />강의가 업데이트되었습니다!
+          </p>
+        )}
+
+        <div className="mt-8 flex justify-between">
+          {isEditMode ? (
+            <Button variant="secondary" onClick={() => navigate('/student/courses')}><ArrowLeft className="size-4" />이전</Button>
+          ) : <span />}
           <Button onClick={() => void handleSubmit()} disabled={!isValid || isSubmitting} className="px-8">
-            {isSubmitting ? '만드는 중' : '다음'}
-            {!isSubmitting && <ArrowRight className="size-4" />}
+            {isSubmitting ? (isEditMode ? '수정하는 중' : '만드는 중') : (isEditMode ? '업데이트' : '다음')}
+            {!isSubmitting && !isEditMode && <ArrowRight className="size-4" />}
           </Button>
         </div>
       </div>

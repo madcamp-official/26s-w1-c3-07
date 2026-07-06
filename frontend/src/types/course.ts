@@ -42,6 +42,16 @@ export interface CreateCourseInput {
   capacity?: number | null
 }
 
+export interface UpdateCourseInput {
+  id: string
+  title: string
+  date: string
+  startTime: string
+  endTime: string
+  location?: string
+  capacity?: number | null
+}
+
 export type TreeItemType = 'folder' | 'course'
 
 export interface MoveItemInput {

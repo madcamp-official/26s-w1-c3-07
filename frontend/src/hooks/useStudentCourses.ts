@@ -9,8 +9,9 @@ import {
   joinCourse,
   moveCourseItem,
   renameCourseItem,
+  updateCourse,
 } from '../services/api'
-import type { Course, CourseFolder, CreateCourseInput, DeleteItemInput, MoveItemInput, RenameItemInput, SortOrder } from '../types/course'
+import type { Course, CourseFolder, CreateCourseInput, DeleteItemInput, MoveItemInput, RenameItemInput, SortOrder, UpdateCourseInput } from '../types/course'
 import type { User } from '../types/user'
 
 interface StudentCoursesState {
@@ -70,6 +71,12 @@ export function useStudentCourses() {
     return course
   }
 
+  const editCourse = async (input: UpdateCourseInput): Promise<Course> => {
+    const course = await updateCourse(input)
+    await refresh()
+    return course
+  }
+
   const registerCourse = async (code: string): Promise<Course> => {
     const course = await joinCourse(code)
     setState((current) => ({ ...current, courses: [course, ...current.courses] }))
@@ -102,6 +109,7 @@ export function useStudentCourses() {
     setSortOrder,
     addFolder,
     addCourse,
+    editCourse,
     registerCourse,
     moveItem,
     renameItem,

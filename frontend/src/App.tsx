@@ -16,6 +16,7 @@ export default function App() {
       <Route element={<DashboardLayout />}>
         <Route path="/student/courses" element={<StudentCoursesPage />} />
         <Route path="/student/courses/new" element={<CreateCoursePage />} />
+        <Route path="/student/courses/:courseId/edit" element={<CreateCoursePage />} />
         <Route path="/student/questions" element={<UnansweredQuestionsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

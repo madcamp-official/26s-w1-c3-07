@@ -152,6 +152,7 @@ export default function StudentCoursesPage() {
             folders={folders}
             isInstructor={isInstructor}
             onAddSubfolder={() => setIsCreateFolderOpen(true)}
+            onEditCourse={(courseId) => navigate(`/student/courses/${courseId}/edit`)}
             onRename={startRename}
             onMove={(itemId, itemType, label) => setMoveTarget({ itemId, itemType, label })}
             onDelete={(itemId, itemType, label) => setDeleteTarget({ itemId, itemType, label })}
@@ -171,6 +172,7 @@ export default function StudentCoursesPage() {
                 key={course.id}
                 course={course}
                 isInstructor={isInstructor}
+                onEdit={(courseId) => navigate(`/student/courses/${courseId}/edit`)}
                 onRename={startRename}
                 onMove={(itemId, itemType, label) => setMoveTarget({ itemId, itemType, label })}
                 onDelete={(itemId, itemType, label) => setDeleteTarget({ itemId, itemType, label })}
