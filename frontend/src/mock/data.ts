@@ -75,7 +75,7 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
     id: 'course-tree',
     title: '트리와 그래프',
     date: '2026년 7월 3일 (금)',
-    lecturerName: '김민준',
+    lecturerName: mockCurrentUser.name,
     participantCount: 34,
     feedbackOptions: [
       { key: 'cold', label: '추워요', likeCount: 8, dislikeCount: 2, myVote: null },
@@ -97,10 +97,10 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
         replies: [
           {
             id: 'reply-1',
-            authorName: '김민준',
+            authorName: mockCurrentUser.name,
             authorRole: 'lecturer',
             postType: 'question',
-            isEditable: false,
+            isEditable: true,
             createdAt: '8분 전',
             content: '좋은 질문입니다! DFS는 트리 높이 h만큼의 공간(O(h))을 사용하고, BFS는 최대 너비 w만큼의 큐를 유지합니다(O(w)). 균형 이진 트리에서 h ≈ log n이므로 DFS가 훨씬 효율적입니다. 반면 최단 경로를 찾아야 할 때는 BFS가 필수입니다.',
             likeCount: 9,
@@ -158,10 +158,10 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
         replies: [
           {
             id: 'reply-3',
-            authorName: '김민준',
+            authorName: mockCurrentUser.name,
             authorRole: 'lecturer',
             postType: 'question',
-            isEditable: false,
+            isEditable: true,
             createdAt: '35분 전',
             content: '사이클이 있으면 루트에서 특정 노드까지 가는 경로가 여러 개가 되어 트리의 계층 구조가 깨지기 때문입니다.',
             likeCount: 6,
@@ -192,8 +192,8 @@ export const mockStandaloneCourses: Course[] = [
     title: 'AI 세미나: 파운데이션 모델',
     participantCount: 88,
     questionCount: 31,
-    color: 'purple',
-    ownership: 'owned',
+    color: 'blue',
+    ownership: 'registered',
   },
   {
     id: 'course-career-talk',

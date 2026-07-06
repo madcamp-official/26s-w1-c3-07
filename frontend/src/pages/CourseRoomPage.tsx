@@ -16,7 +16,7 @@ import { cn } from '../utils/cn'
 export default function CourseRoomPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const navigate = useNavigate()
-  const { room, isLoading, error, reload, likeQuestion, voteFeedback, resetFeedback, resolveQuestion } = useCourseRoom(courseId)
+  const { room, isLoading, error, reload, likeQuestion, voteFeedback, resetFeedback, resolveQuestion, editReply } = useCourseRoom(courseId)
   const [user, setUser] = useState<User | null>(null)
   const [filter, setFilter] = useState<QuestionFilter>('unresolved')
 
@@ -117,6 +117,7 @@ export default function CourseRoomPage() {
               onLike={likeQuestion}
               onResolve={resolveQuestion}
               onReply={(questionId, label) => navigate(`/room/${courseId}/write`, { state: { target: { questionId, label } } })}
+              onEditReply={editReply}
             />
           ))}
         </div>

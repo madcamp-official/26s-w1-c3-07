@@ -1,5 +1,5 @@
 import { mockCourseFolders, mockCourseRooms, mockCurrentUser, mockStandaloneCourses } from '../mock/data'
-import type { Course, CourseFolder, CreateCourseInput, CreateFolderInput, DeleteItemInput, MoveItemInput, RenameItemInput } from '../types/course'
+import type { Course, CourseFolder, CreateCourseInput, CreateFolderInput, DeleteItemInput, MoveItemInput, RenameItemInput, UpdateCourseInput } from '../types/course'
 import type { ComposerSubmission, CourseRoom, FeedbackKey, Question, QuestionReply, UnansweredFolderNode, UnansweredQuestion } from '../types/room'
 import type { User, UserRole } from '../types/user'
 
@@ -142,6 +142,23 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
   }
 
   return course
+}
+
+/** 강의자 본인이 만든 강의의 기본 정보를 수정합니다. */
+export async function updateCourse(input: UpdateCourseInput): Promise<Course> {
+  await delay(350)
+  const course = findCourse(mockCourseFolders, mockStandaloneCourses, input.id)
+  if (!course) throw new Error('강의를 찾을 수 없습니다.')
+  if (course.ownership !== 'owned') throw new Error('내가 만든 강의만 수정할 수 있습니다.')
+
+  course.title = input.title
+  course.date = input.date
+  course.startTime = input.startTime
+  course.endTime = input.endTime
+  course.location = input.location
+  course.capacity = input.capacity ?? null
+
+  return clone(course)
 }
 
 function findFolder(folders: CourseFolder[], folderId: string): CourseFolder | null {
@@ -413,6 +430,19 @@ export async function createReply(courseId: string, questionId: string, submissi
   if (question) question.replies = [...question.replies, reply]
 
   return reply
+}
+
+/** 답글을 수정합니다. 작성자 본인(강의자 본인 포함)만 수정할 수 있습니다. */
+export async function updateReply(courseId: string, questionId: string, replyId: string, content: string): Promise<QuestionReply> {
+  await delay(250)
+  const room = mockCourseRooms[courseId]
+  const question = room?.questions.find((item) => item.id === questionId)
+  const reply = question?.replies.find((item) => item.id === replyId)
+  if (!reply) throw new Error('답글을 찾을 수 없습니다.')
+  if (!reply.isEditable) throw new Error('수정할 수 없는 답글입니다.')
+
+  reply.content = content
+  return clone(reply)
 }
 
 export async function toggleQuestionLike(courseId: string, questionId: string): Promise<Question> {

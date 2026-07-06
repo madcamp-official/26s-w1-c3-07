@@ -10,9 +10,10 @@ interface QuestionThreadProps {
   onLike: (questionId: string) => Promise<void>
   onResolve?: (questionId: string) => Promise<void>
   onReply: (questionId: string, label: string) => void
+  onEditReply?: (questionId: string, replyId: string, content: string) => Promise<void>
 }
 
-export default function QuestionThread({ question, canResolve = false, onLike, onResolve, onReply }: QuestionThreadProps) {
+export default function QuestionThread({ question, canResolve = false, onLike, onResolve, onReply, onEditReply }: QuestionThreadProps) {
   const [isExpanded, setIsExpanded] = useState(true)
   const [isResolving, setIsResolving] = useState(false)
   const isOpinion = question.postType === 'opinion'
@@ -73,7 +74,14 @@ export default function QuestionThread({ question, canResolve = false, onLike, o
 
       {isExpanded && question.replies.length > 0 && (
         <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
-          {question.replies.map((reply) => <ReplyItem key={reply.id} reply={reply} onReply={() => onReply(question.id, reply.content)} />)}
+          {question.replies.map((reply) => (
+            <ReplyItem
+              key={reply.id}
+              reply={reply}
+              onReply={() => onReply(question.id, reply.content)}
+              onEdit={onEditReply ? (content) => onEditReply(question.id, reply.id, content) : undefined}
+            />
+          ))}
         </div>
       )}
     </article>
