@@ -108,6 +108,14 @@ RPC 반환 형태는 두 가지 방식이 있음.
 
 참고로 Supabase(PostgREST)를 쓰는 이상 클라이언트가 받는 응답은 RPC 반환 타입(`table`, `jsonb` 등)과 무관하게 항상 JSON으로 직렬화되어 옴 — 방식 1/2의 차이는 "JSON이냐 아니냐"가 아니라 "평평한 JSON 배열이냐, 이미 중첩된 JSON이냐"의 차이일 뿐임.
 
+일반 테이블 select는 PostgREST의 `db-max-rows` 설정이 응답 행 수를 캡해주므로, RLS만으로도 "한 요청으로 테이블 전체 dump"는 기본적으로 막혀 있음 (이건 인가 문제지 리소스 문제가 아님). 반면 재귀 CTE로 트리를 순회하는 `get_node_tree` 같은 RPC는 얘기가 다름 — depth/범위를 제한하지 않으면 RLS 필터와 무관하게 쿼리 자체가 무거워질 수 있음. 따라서 이 RPC를 구현할 때는 다음을 함께 고려해야 함:
+
+- `root_id`(또는 `lecture_id`) 파라미터를 필수로 받아 특정 서브트리로 범위를 한정
+- 재귀 CTE 안에 최대 depth 제한 조건 추가 (예: `where depth < 20` 같은 가드)
+- 필요시 반환 행 수에 `limit` 적용
+
+`posts` 트리도 동일한 자기참조 구조라 같은 가드가 필요함.
+
 ## 해결된 것 (참고용 기록)
 
 - `posts.status`가 답글에는 항상 `null`이어야 하는 문제 → `check ((parent_id is null) = (status is not null))`로 해결.
