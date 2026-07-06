@@ -99,6 +99,15 @@ README 기능명세서(강의자 - 강의 페이지, "부적절한 글 삭제")�
 
 `nodes`는 `parent_id` 자기참조로 깊이 무제한 트리를 이루는데, Supabase의 기본 REST API(PostgREST)는 중첩 조회(`nodes(children:nodes(...))`) 시 요청마다 중첩 단계를 직접 지정해야 해서 "깊이 무제한" 요구사항엔 안 맞음. 재귀 CTE(`with recursive`)를 Postgres 함수로 감싸서 RPC로 노출해야 함 (예: `get_node_tree(root_id)`). 아직 함수/마이그레이션 미작성.
 
+RPC 반환 형태는 두 가지 방식이 있음.
+
+1. **평평한 행 목록 방식** — RPC 반환 타입을 `table(...)` 또는 `setof nodes`로 하고, 재귀 CTE 결과를 그대로 반환. 클라이언트는 `parent_id` 기준의 평평한 배열을 받아서 프론트/백엔드 쪽에서 트리로 재조립해야 함.
+2. **중첩 JSON 트리 방식** — 반환 타입을 `jsonb`로 하고, 재귀 CTE 결과를 `jsonb_build_object`/`jsonb_agg`로 계층 구조로 조립해서 반환. 단, Postgres 재귀 CTE 안에서는 집계 함수를 바로 쓸 수 없어서, CTE 밖에서 별도로 재귀 조립 로직이 필요해 구현이 더 복잡함.
+
+실무적으로는 방식 1(평평한 목록)이 더 흔히 쓰임. `lecture_id` 기준 `posts` 트리 조회도 `nodes`와 동일한 자기참조 구조이므로 같은 패턴을 적용 가능.
+
+참고로 Supabase(PostgREST)를 쓰는 이상 클라이언트가 받는 응답은 RPC 반환 타입(`table`, `jsonb` 등)과 무관하게 항상 JSON으로 직렬화되어 옴 — 방식 1/2의 차이는 "JSON이냐 아니냐"가 아니라 "평평한 JSON 배열이냐, 이미 중첩된 JSON이냐"의 차이일 뿐임.
+
 ## 해결된 것 (참고용 기록)
 
 - `posts.status`가 답글에는 항상 `null`이어야 하는 문제 → `check ((parent_id is null) = (status is not null))`로 해결.
