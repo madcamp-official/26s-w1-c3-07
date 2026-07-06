@@ -13,8 +13,6 @@
     - [5. `max_participants`(최다 참여 인원) 강제 여부 결정](#5-max_participants최다-참여-인원-강제-여부-결정)
   - [join_code 관련](#join_code-관련)
     - [6. `lecture_join_codes` 파기 시점/주체 결정](#6-lecture_join_codes-파기delete-시점주체-결정)
-  - [기타 사항](#기타-사항)
-    - [7. 강의 폴더 트리 조회 (내 강의 페이지 / 강의 페이지)](#7-강의-폴더-트리-조회-내-강의-페이지--강의-페이지)
 - [프론트엔드](#프론트엔드)
   - [guest_token 관련](#guest_token-관련-1)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
@@ -62,69 +60,6 @@ AI 교정, 부적절한 내용 필터링, 유사 질문 자동 탐지(#2, #3) �
 
 강의 종료 시 자동으로 지울지(예: `pg_cron`), 강의자가 수동으로 파기하기 전까진 남겨둘지. 안 지워져도 입장 시 `lectures.end_time` 확인이 안전망이라 급한 이슈는 아님.
 
-### 기타 사항
-
-#### 7. 강의 폴더 트리 조회 (내 강의 페이지 / 강의 페이지)
-
-"내 강의"/"강의" 페이지에서 서버에 물어봐야 하는 건 3가지: (1) 강의자 모드로 "내 강의" 접속 시 내가 만든 모든 노드, (2) 수강생 모드로 "내 강의" 접속 시 내가 만든 노드 + 내가 즐겨찾기한 노드 + 그 즐겨찾기 노드들을 조상으로 갖는 모든 노드, (3) 강의 페이지 접속 시 해당 `lecture_id`의 모든 `posts`. 이 중 (1)·(3)은 평평한 필터 조회라 RPC 없이 프론트에서 바로 쿼리하면 되고, (2)만 "즐겨찾기한 노드의 모든 자손"이 depth 무제한 재귀라 RPC가 필요함.
-
-**(1) 강의자 모드 — RPC 불필요, 프론트에서 직접 쿼리**
-```js
-const { data } = await supabase
-  .from('nodes')
-  .select('*')
-  .eq('created_by', userId)
-  .eq('created_mode', 'lecturer')
-```
-
-**(3) 강의 페이지 — RPC 불필요, 프론트에서 직접 쿼리**
-```js
-const { data } = await supabase
-  .from('posts_public')
-  .select('*')
-  .eq('lecture_id', lectureId)
-```
-`posts.lecture_id`가 답글까지 포함해 모든 행에 직접 박혀 있어서 트리 depth와 무관하게 평평한 조회로 끝남.
-
-**(2) 수강생 모드 — RPC 필요**: `nodes`는 `parent_id` 자기참조로 깊이 무제한 트리를 이루는데, "즐겨찾기한 노드 자신 + 그 아래 전체 서브트리"를 구하려면 재귀 CTE가 필요하고 Supabase 기본 REST API(중첩 조회)로는 깊이 무제한을 표현할 수 없음. 반환 형태는 **평평한 행 목록**(`setof nodes`) 방식으로 결정 — 중첩 JSON 트리 방식은 재귀 CTE 안에서 집계 함수(`jsonb_agg` 등)를 바로 못 써서 CTE 밖에 depth 역순으로 훑는 별도 조립 루프가 필요해 훨씬 복잡한데, 지금은 이 트리를 조립해서 쓰는 화면이 "내 강의" 하나뿐이라 그 복잡도를 감수할 이득이 없음. 아직 함수/마이그레이션 미작성.
-
-```sql
-create or replace function get_node_descendants(root_ids uuid[])
-returns setof nodes
-language sql
-stable
-as $$
-  with recursive descendants as (
-    select n.*, 0 as depth from nodes n where n.id = any(root_ids)
-    union all
-    select n.*, d.depth + 1 from nodes n
-    join descendants d on n.parent_id = d.id
-    where d.depth < 50  -- 무한루프/과도한 재귀 방지 가드
-  )
-  select id, parent_id, node_type, name, created_by, created_mode, created_at from descendants;
-$$;
-```
-
-- `nodes_select_all`이 이미 전체 공개(`using (true)`)라 이 RPC는 `SECURITY DEFINER`가 필요 없음(REST로도 어차피 읽을 수 있는 데이터를 재귀 조회 형태로만 대신 해주는 것).
-- base case가 `root_ids`(즐겨찾기 node_id 목록)에 속한 노드 자신도 포함하므로, "즐겨찾기 노드 자신 + 서브트리"가 한 번의 호출로 다 나옴.
-- 프론트는 (a) `nodes`에서 `created_by = 나 and created_mode = 'student'`로 내가 만든 노드, (b) `my_nodes`에서 내 즐겨찾기 `node_id` 목록, (c) 그 목록으로 위 RPC 호출 — 이 세 결과를 합쳐서(id 기준 중복 제거) 클라이언트에서 트리로 조립. 별도 라이브러리 없이 아래처럼 조립 가능(부모가 조회 결과 안에 없으면 자동으로 최상위 취급 — 즐겨찾기한 노드의 실제 조상은 우리가 안 가져왔으므로 이 fallback이 정확히 원하는 동작).
-  ```js
-  function buildTree(flatNodes) {
-    const byId = new Map(flatNodes.map(n => [n.id, { ...n, children: [] }]))
-    const roots = []
-    for (const node of byId.values()) {
-      const parent = byId.get(node.parent_id)
-      if (parent) parent.children.push(node)
-      else roots.push(node)
-    }
-    return roots
-  }
-  ```
-
-Edge Function은 필요 없음 — 순수 DB 조회라 SQL(RPC)로 완결되고, Edge Function을 끼우면 네트워크 홉만 늘어남 (Edge Function은 LLM 호출처럼 SQL로 못 하는 로직에만 쓸 것, #4 참고).
-
-프론트 요청 시점은 로그인 시 한꺼번에 받아두지 않고, 모드 전환/페이지 진입 시점마다 그 모드에 맞는 것만 요청 (안 쓰일 수도 있는 요청을 미리 낭비하지 않고, 세션 중 변경사항도 재요청 때 자연히 반영됨).
-
 ## 프론트엔드
 
 ### guest_token 관련
@@ -145,3 +80,9 @@ Edge Function은 필요 없음 — 순수 DB 조회라 SQL(RPC)로 완결되고,
 - "해결된 게시글에 질문 답글이 달리면 자동 미해결 전환"과 status 트리거의 충돌 → `reopen_resolved_post_on_question_reply` 트리거(`AFTER INSERT on posts`)가 재귀 CTE로 트리 최상위 게시글을 찾아 자동 전환. `trg_block_status_change_by_non_lecturer`는 `app.bypass_status_lock` 트랜잭션 로컬 플래그가 켜져 있으면 통과하도록 수정(이건 `auth.uid()` 기반 검사라 `SECURITY DEFINER`로는 못 우회함). 반면 자동 전환 함수 자체는 `posts` 직접 SELECT가 회수돼 있고 이 UPDATE를 실행하는 수강생이 기존 RLS 어디에도 안 걸려서, 이건 `SECURITY DEFINER`로 우회 → `backend/supabase/migrations/20260706101235_reopen_resolved_post_on_question_reply.sql`, `20260706101723_reopen_resolved_post_security_definer.sql`.
 - `profiles` 컬럼 이름을 단순화: `display_name` → `name`, `last_mode` → `mode`. `posts_public` 뷰와 체크 제약은 컬럼을 attnum으로 참조해 자동으로 따라가고, `handle_new_user()` 함수만 새 컬럼명에 맞춰 갱신 → `backend/supabase/migrations/20260706110000_profiles_rename_columns.sql`.
 - 즐겨찾기(`my_nodes`)가 남의 수강생 모드 개인 정리 폴더까지 등록 가능했던 문제 발견 → 강의자 모드로 만든 노드만 즐겨찾기 가능하도록 `RESTRICTIVE` RLS 정책 추가, 더미 데이터도 이 규칙에 맞게 수정(B/C가 수강생 모드로 만들었던 "운영체제"/"수학" 폴더를 강의자 모드로 바꾸고 그 밑에 강의들을 옮김) → `backend/supabase/migrations/20260706122114_my_nodes_only_favorite_lecturer_mode.sql`.
+- **강의 폴더 트리 조회(내 강의 페이지 / 강의 페이지)** — 서버에 물어봐야 하는 건 3가지: (1) 강의자 모드 "내 강의" 접속 시 내가 만든 모든 노드, (2) 수강생 모드 "내 강의" 접속 시 내가 만든 노드 + 즐겨찾기한 노드들의 서브트리, (3) 강의 페이지 접속 시 해당 `lecture_id`의 모든 `posts`. (1)·(3)은 평평한 필터 조회라 RPC 없이 프론트에서 직접 쿼리(`nodes.eq(created_by, userId).eq(created_mode, 'lecturer')`, `posts_public.eq(lecture_id, lectureId)`)하면 되고, (2)만 재귀가 필요해 RPC로 뺌.
+  - 처음엔 `get_node_descendants(root_ids)` RPC로 즐겨찾기 서브트리를 가져온 뒤, `created`(내가 만든 노드) + 이 결과를 **하나의 `byId` Map으로 합쳐서** 중복 제거하고 트리를 조립하는 방식을 생각했으나, 검토 중 문제 발견: 폴더 A와 그 하위 강의 B를 각각 따로 즐겨찾기한 경우, B는 "A의 서브트리 안의 자손"이자 "B 자신의 즐겨찾기 루트"로 **두 자리에 각각 독립적으로 나타나야 하는데**, 전역 `id` 기준으로 합치면 하나로 뭉개져 버림(자기 자신을 즐겨찾기하는 경우엔 오히려 `created_mode` 필터 덕분에 겹칠 일이 없다는 것도 확인함).
+  - 그래서 `get_node_descendants` 대신 `get_my_favorite_subtrees()` RPC로 교체: 즐겨찾기 루트(`my_nodes.node_id`)마다 재귀로 서브트리를 구하되, 결과 행마다 `anchor_node_id`(어느 즐겨찾기 루트에서 나온 행인지)를 태그하고, `union`이 아니라 `union all`로 중복 행을 일부러 유지. 프론트는 `anchor_node_id`로 그룹핑해서 즐겨찾기 루트별로 독립된 서브트리를 조립·렌더링하고(React `key`도 전역 `id`가 아니라 "어느 anchor에서 나온 사본인지"까지 포함해야 충돌 안 남), 서로 다른 anchor의 결과를 하나의 `byId` Map으로 합치지 않음. 즐겨찾기가 정리된 개인 폴더(`folder_id`)는 이 RPC에 안 담고, 프론트가 `my_nodes`를 직접 조회해서(RLS로 본인 행만 허용) 얻음.
+  - 이 설계를 뒷받침하기 위해 두 가지 RLS/제약도 같이 정리: `nodes.parent_id`가 가리키는 부모와 `created_by`/`created_mode`가 항상 일치하도록 강제하는 `enforce_nodes_parent_ownership` 트리거(안 그러면 남의 트리 밑에 내 노드를 끼워 넣거나 내 강의자/수강생 모드 트리가 섞일 수 있었음), `my_nodes.folder_id`가 실제로 내가 수강생 모드로 만든 폴더인지 확인하는 `RESTRICTIVE` RLS 정책 → `backend/supabase/migrations/20260706150816_nodes_parent_ownership_mode_match.sql`, `20260706154459_my_nodes_folder_must_be_own_student_folder.sql`, `20260706154910_unify_my_nodes_policy_names.sql`, `20260706161208_get_my_favorite_subtrees_rpc.sql`.
+  - Edge Function은 필요 없음(순수 DB 조회라 RPC로 완결). 프론트 요청 시점은 로그인 시 한꺼번에 받지 않고 모드 전환/페이지 진입 시점마다 그 모드에 맞는 것만 요청.
+  - **프론트 구현은 아직 안 됨** — 위 RPC/RLS는 백엔드 쪽만 완료된 상태이고, `frontend` 브랜치의 "내 강의" 페이지(`useStudentCourses.ts` 등)는 아직 이 RPC를 안 쓰고 목업 API로 동작 중.
