@@ -9,6 +9,7 @@ import ModerationBlockedModal from './ModerationBlockedModal'
 interface PostComposerProps {
   target: ComposerTarget | null
   isLoggedIn: boolean
+  isInstructor?: boolean
   onSubmit: (submission: ComposerSubmission) => Promise<void>
   onCancel?: () => void
 }
@@ -46,9 +47,9 @@ function ToggleRow({ label, description, checked, disabled, onChange }: ToggleRo
   )
 }
 
-export default function PostComposer({ target, isLoggedIn, onSubmit, onCancel }: PostComposerProps) {
+export default function PostComposer({ target, isLoggedIn, isInstructor = false, onSubmit, onCancel }: PostComposerProps) {
   const [content, setContent] = useState('')
-  const [isAnonymous, setIsAnonymous] = useState(true)
+  const [isAnonymous, setIsAnonymous] = useState(!isInstructor)
   const [isAiAssisted, setIsAiAssisted] = useState(false)
   const [isOpinion, setIsOpinion] = useState(false)
   const [aiDraft, setAiDraft] = useState<string | null>(null)
@@ -99,12 +100,17 @@ export default function PostComposer({ target, isLoggedIn, onSubmit, onCancel }:
           label={isAnonymous ? '익명' : '실명'}
           description={isAnonymous ? '이름이 공개되지 않습니다' : '이름이 공개됩니다'}
           checked={isAnonymous}
-          disabled={!isLoggedIn}
+          disabled={!isLoggedIn || isInstructor}
           onChange={setIsAnonymous}
         />
         {!isLoggedIn && (
           <div className="border-t-0 py-2">
             <p className="flex items-center gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700"><TriangleAlert className="size-4 shrink-0" />실명으로 작성하려면 Google 로그인이 필요합니다.</p>
+          </div>
+        )}
+        {isInstructor && (
+          <div className="border-t-0 py-2">
+            <p className="flex items-center gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700"><TriangleAlert className="size-4 shrink-0" />강의자는 익명으로 작성할 수 없습니다.</p>
           </div>
         )}
         <ToggleRow

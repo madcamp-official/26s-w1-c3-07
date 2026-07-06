@@ -22,10 +22,15 @@ export default function PostWritePage() {
   const [user, setUser] = useState<User | null>(null)
 
   const target = (location.state as WriteLocationState | null)?.target ?? null
+  const isInstructor = user?.role === 'instructor'
 
   useEffect(() => {
     void getCurrentUser().then(setUser)
   }, [])
+
+  useEffect(() => {
+    if (isInstructor && !target && courseId) navigate(`/room/${courseId}`, { replace: true })
+  }, [isInstructor, target, courseId, navigate])
 
   if (!courseId) return null
 
@@ -73,6 +78,7 @@ export default function PostWritePage() {
               <PostComposer
                 target={target}
                 isLoggedIn={Boolean(user)}
+                isInstructor={isInstructor}
                 onCancel={() => navigate(`/room/${courseId}`)}
                 onSubmit={async (submission) => {
                   if (target) await createReply(courseId, target.questionId, submission)

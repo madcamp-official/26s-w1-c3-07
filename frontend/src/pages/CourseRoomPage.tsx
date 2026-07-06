@@ -98,7 +98,9 @@ export default function CourseRoomPage() {
               해결됨 · {resolvedCount}
             </button>
           </div>
-          <Button onClick={() => navigate(`/room/${courseId}/write`)} className="rounded-full"><Plus className="size-5" />글 작성하기</Button>
+          {!isInstructor && (
+            <Button onClick={() => navigate(`/room/${courseId}/write`)} className="rounded-full"><Plus className="size-5" />글 작성하기</Button>
+          )}
         </div>
 
         <div className="mt-5 space-y-4">
