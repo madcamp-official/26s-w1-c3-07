@@ -27,6 +27,15 @@
 
 `posts_update_own`/`posts_delete_own`, `post_likes`/`lecture_feedback_votes` 관련 정책 전부에 "강의 종료 시각(`lectures.end_time`) 이후엔 `guest_token` 무효화" 조건이 아직 안 들어감.
 
+**관련해서 검토한 것들:**
+
+- **`posts.author_id`/`guest_token` 동시 null 허용 여부**: 지금 스키마는 `author_id`와 `guest_token`이 동시에 값을 가지는 것도 막지 않음(회원 글에 의미 없는 `guest_token`이 같이 들어가도 통과됨) — 데이터 정합성 관점에서 `check (not (author_id is not null and guest_token is not null))` 추가를 고려할 만함. 다만 **무효화를 "guest_token을 null로 지우는 방식"으로 갈 거라면, `(author_id is null and guest_token is null)` 상태(무효화된 비회원 글)는 반드시 허용해야 함** — 위 CHECK는 "둘 다 값이 있는 경우"만 막으므로 이 상태와 충돌 안 함.
+- **무효화 구현 방식 두 가지**:
+  1. **`pg_cron` 배치**: 주기적으로(예: 5~15분마다) `update posts set guest_token = null where guest_token is not null and lecture_id in (select node_id from lectures where end_time < now() - interval '1 hour')` 같은 걸 반복 실행. 멱등적이라 반복 실행해도 안전하지만, `pg_cron` 확장을 켜야 하고 폴링 주기만큼 무효화가 지연될 수 있음.
+  2. **RLS 조건에 시각 비교를 직접 추가 (배치 job 불필요, 추천)**: 데이터를 지우지 않고 `posts_update_own`/`posts_delete_own`/`post_likes_*`/`lecture_feedback_votes_*` 정책의 `guest_token` 매칭 조건에 `now() < (해당 강의 end_time) + interval '1 hour'`를 추가. 매 요청 시점에 실제 시각으로 판단하니 지연 없이 정확하고, `pg_cron` 같은 별도 스케줄 인프라가 필요 없음.
+  
+  아직 어느 방식으로 갈지, 그리고 `check` 제약을 추가할지 결정 안 됨.
+
 ### AI 보조 기능 관련 (Edge Function vs Express 서버 미결정)
 
 #### 2. 유사도 검사 비교 대상 범위 (미해결 게시글만? 답글도 포함?)
