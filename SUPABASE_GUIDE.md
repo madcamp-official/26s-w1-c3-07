@@ -17,7 +17,7 @@
 - **URL**: "우리 Supabase 프로젝트가 어디 있는지" 가리키는 주소예요. `https://<project-ref>.supabase.co` 형태.
 - **anon(publishable) key**: "이 요청을 보내는 게 로그인 안 한 익명 사용자다"라고 신원을 밝히는 값이에요.
 
-**이 두 개는 비밀번호가 아니에요.** 프론트엔드 코드에 그대로 들어가고, 브라우저 개발자도구에서 누구나 볼 수 있어요. 그래도 안전한 이유는, 실제 "누가 뭘 할 수 있는지"는 이 키가 아니라 **RLS(Row Level Security) 정책**이 결정하기 때문이에요 (자세한 건 [DB_SCHEMA.md의 RLS 정책 섹션](./DB_SCHEMA.md#rls-정책) 참고).
+**이 두 개는 비밀번호가 아니에요.** 프론트엔드 코드에 그대로 들어가고, 브라우저 개발자도구에서 누구나 볼 수 있어요. 그래도 안전한 이유는, 실제 "누가 뭘 할 수 있는지"는 이 키가 아니라 **RLS(Row Level Security) 정책**이 결정하기 때문이에요 (자세한 건 [DB_DESIGN.md의 RLS 정책 섹션](./DB_DESIGN.md#rls-정책) 참고).
 
 **절대 헷갈리면 안 되는 것**: `SUPABASE_ACCESS_TOKEN`이라는 값도 있는데, 이건 완전히 다른 거예요 — 백엔드 전용 비밀 값(계정 전체 권한)이고 `backend/.env`에만 있어요. 프론트엔드 코드에는 **절대 들어가면 안 됩니다.**
 
@@ -112,7 +112,7 @@ const { data } = await supabase
   .single()
 ```
 
-**⚠️ 중요**: 게시글 조회할 때는 `posts` 테이블이 아니라 **반드시 `posts_public` 뷰**를 조회하세요. `posts` 테이블엔 `guest_token`이라는 민감한 컬럼이 있어서, 그걸 그대로 노출하면 남의 글을 수정/삭제당할 수 있어요. `posts_public`은 그 컬럼만 뺀 안전한 뷰예요 (자세한 이유는 [DB_SCHEMA.md](./DB_SCHEMA.md) 참고).
+**⚠️ 중요**: 게시글 조회할 때는 `posts` 테이블이 아니라 **반드시 `posts_public` 뷰**를 조회하세요. `posts` 테이블엔 `guest_token`이라는 민감한 컬럼이 있어서, 그걸 그대로 노출하면 남의 글을 수정/삭제당할 수 있어요. `posts_public`은 그 컬럼만 뺀 안전한 뷰예요 (자세한 이유는 [DB_DESIGN.md](./DB_DESIGN.md) 참고).
 
 ```js
 const { data } = await supabase

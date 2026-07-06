@@ -16,7 +16,7 @@
   - [필수 기능](#필수-기능)
   - [선택 기능](#선택-기능)
 - [IA 및 화면 설계서](#ia-및-화면-설계서)
-- [DB 스키마](#db-스키마)
+- [DB 설계](#db-설계)
 - [API 문서](#api-문서)
 - [배포 결과물](#배포-결과물)
 - [회고 문서](#회고-문서)
@@ -138,7 +138,7 @@
 ![image](./images/화면설계서_6.png)
 
 ---
-## DB 스키마
+## DB 설계
 
 | 테이블 | 대응하는 기능 |
 |---|---|
@@ -154,7 +154,7 @@
 
 `nodes`는 자기참조 구조로 강의 폴더/강의의 무제한 depth 트리를 이루고, `posts`도 마찬가지로 자기참조로 게시글과 답글을 하나의 트리로 통합해 관리합니다. 읽기는 대부분 공개로 열어두되 쓰기는 "본인 것만" 원칙으로 제한하며, Supabase RLS(Row Level Security) 정책과 트리거로 강의자 권한(상태 전환, 삭제, 피드백 초기화)과 비회원 인증(`guest_token`)을 함께 처리합니다.
 
-전체 SQL, RLS 정책, 트리거, 테이블 관계 상세 설명은 [`DB_SCHEMA.md`](./DB_SCHEMA.md)를 참고하세요.
+전체 SQL, RLS 정책, 트리거, 테이블 관계 상세 설명은 [`DB_DESIGN.md`](./DB_DESIGN.md)를 참고하세요.
 
 ---
 
@@ -164,7 +164,7 @@
 
 Supabase 연동 방법(URL/API 키, 클라이언트 설정, 코드 예시)은 [SUPABASE_GUIDE.md](./SUPABASE_GUIDE.md) 참고
 
-일반 테이블 조회/작성(select/insert 등)은 Supabase REST API 표준 패턴을 그대로 따르고, 테이블 구조는 [DB_SCHEMA.md](./DB_SCHEMA.md)에 정리되어 있어 아래 표에는 따로 표기하지 않음. 이 표는 이름만으로는 파라미터/반환값을 알 수 없는 **RPC/Edge Function 전용**.
+일반 테이블 조회/작성(select/insert 등)은 Supabase REST API 표준 패턴을 그대로 따르고, 테이블 구조는 [DB_DESIGN.md](./DB_DESIGN.md)에 정리되어 있어 아래 표에는 따로 표기하지 않음. 이 표는 이름만으로는 파라미터/반환값을 알 수 없는 **RPC/Edge Function 전용**.
 
 | Method | Endpoint | 설명 | 요청 | 응답 |
 |---|---|---|---|---|
