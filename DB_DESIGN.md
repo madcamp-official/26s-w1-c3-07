@@ -105,7 +105,7 @@ create table lecture_join_codes (
 -- 동시에 독립적으로 누를 수 있게 함 (voter_key만으로 PK를 잡으면 둘 중 하나만 가능해짐)
 create table lecture_feedback_votes (
   lecture_id uuid references lectures(id) on delete cascade,
-  feedback_type text not null check (feedback_type in ('cold', 'hot', 'quiet', 'dark')),
+  feedback_type text not null check (feedback_type in ('cold', 'hot', 'quiet', 'unclear')),
   voter_key uuid not null,
   value smallint not null check (value in (1, -1)), -- 좋아요/싫어요
   primary key (lecture_id, feedback_type, voter_key, value)
