@@ -14,6 +14,7 @@
   - [join_code 관련](#join_code-관련)
     - [6. `lecture_join_codes` 파기 시점/주체 결정](#6-lecture_join_codes-파기delete-시점주체-결정)
 - [프론트엔드](#프론트엔드)
+  - [트리 구조 데이터 조회 관련](#트리-구조-데이터-조회-관련)
   - [guest_token 관련](#guest_token-관련-1)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
 
