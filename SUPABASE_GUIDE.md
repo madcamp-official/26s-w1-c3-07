@@ -12,7 +12,6 @@
 - [6. 비회원 인증: `guest_token` + `x-guest-token` 헤더](#6-비회원-인증-guest_token--x-guest-token-헤더)
 - [7. 강의자/수강생 모드 색 구분: `posts.created_mode`](#7-강의자수강생-모드-색-구분-postscreated_mode)
 - [8. 테스트용 더미 데이터](#8-테스트용-더미-데이터)
-- [9. 아직 안 된 것 / 앞으로 할 일](#9-아직-안-된-것--앞으로-할-일)
 
 ## 1. Supabase URL / API 키가 뭔가요?
 
@@ -114,13 +113,24 @@ const { data } = await supabase
   .single()
 ```
 
-**⚠️ 중요**: 게시글 조회할 때는 `posts` 테이블이 아니라 **반드시 `posts_public` 뷰**를 조회하세요. `posts` 테이블엔 `guest_token`이라는 민감한 컬럼이 있어서, 그걸 그대로 노출하면 남의 글을 수정/삭제당할 수 있어요. `posts_public`은 그 컬럼만 뺀 안전한 뷰예요 (자세한 이유는 [DB_DESIGN.md](./DB_DESIGN.md) 참고).
+**⚠️ 중요**: `posts`/`post_likes`/`lecture_feedback_votes` 테이블은 `anon`/`authenticated`에게 전체 SELECT 권한이 없어요(`posts`는 아예 회수, 나머지 둘은 본인 투표 행만 조회 가능). 그래서 조회는 아래 뷰로 하세요:
+
+- **게시글 조회**: `posts` 대신 **`posts_public`** 뷰. `posts` 테이블엔 `guest_token`이라는 민감한 컬럼이 있어서 그대로 노출하면 남의 글을 수정/삭제당할 수 있고, `author_id`도 익명 여부와 무관하게 노출되면 안 되기 때문이에요. `posts_public`은 `guest_token`을 완전히 빼고, `author_id`도 숨긴 뒤 익명이 아닌 글만 작성자 이름(`author_display_name`)을 보여줘요.
+- **좋아요 개수 조회**: `post_likes` 대신 **`post_likes_counts`** 뷰(`post_id`별 `like_count`).
+- **실시간 피드백 좋아요/싫어요 개수 조회**: `lecture_feedback_votes` 대신 **`lecture_feedback_votes_counts`** 뷰(`lecture_id`, `feedback_type`별 `like_count`/`dislike_count`).
+
+세 뷰 다 회원/비회원을 특정할 수 있는 값(`guest_token`, `author_id`, `voter_key`)을 빼고 공개하는 용도예요 (자세한 이유는 [DB_DESIGN.md](./DB_DESIGN.md) 참고). "내가 이미 좋아요/피드백을 눌렀는지"는 이 카운트 뷰가 아니라 `post_likes`/`lecture_feedback_votes` 테이블에 본인 `voter_key`로 직접 조회하면 돼요(RLS가 본인 행만 보여주도록 허용되어 있음).
 
 ```js
 const { data } = await supabase
   .from('posts_public')
   .select('*')
   .eq('lecture_id', lectureId)
+
+const { data: likeCounts } = await supabase
+  .from('post_likes_counts')
+  .select('*')
+  .eq('post_id', postId)
 ```
 
 ## 6. 비회원 인증: `guest_token` + `x-guest-token` 헤더
@@ -171,11 +181,3 @@ supabase 클라이언트는 앱 시작할 때 딱 한 번만 만들고(`supabase
 | AI 세미나: 파운데이션 모델 | `9981` | |
 | 커리어 토크: 대기업 취업 전략 | `4420` | |
 | 파이썬 워크샵: 고급 패턴 | `6612` | |
-
-## 9. 아직 안 된 것 / 앞으로 할 일
-
-진행 상황과 설계 고민은 [`TODO.md`](./TODO.md)에서 트래킹하고 있어요. 프론트엔드와 특히 관련된 항목:
-
-- [프론트엔드 #1 비회원 익명 식별자(`guest_token`) 생성 로직](./TODO.md#1-비회원-익명-식별자guest_token-생성-로직)
-- [프론트엔드 #2 `x-guest-token` 커스텀 헤더를 실제로 보내는 구현](./TODO.md#2-x-guest-token-커스텀-헤더를-실제로-보내는-구현)
-- [프론트엔드 #3 `posts_public` 뷰로 조회 대상 전환](./TODO.md#3-posts_public-뷰로-조회-대상-전환)
