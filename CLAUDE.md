@@ -6,7 +6,7 @@ Conventional Commits 형식을 따른다: `<type>: <설명>`
 
 - `feat`: 새 기능 추가
 - `fix`: 버그 수정
-- `docs`: 문서만 변경 (README, DB_SCHEMA.md, TODO.md 등)
+- `docs`: 문서만 변경 (README, DB_DESIGN.md, TODO.md 등)
 - `refactor`: 동작은 그대로, 코드 구조만 개선
 - `chore`: 빌드/설정/의존성 등 잡무성 변경
 - `test`: 테스트 추가/수정
@@ -20,4 +20,4 @@ Conventional Commits 형식을 따른다: `<type>: <설명>`
 
 **push는 확인 없이 바로 수행한다.** (사용자가 명시적으로 요청함 — 커밋만 승인받고, push는 매번 물어보지 않고 진행)
 
-공유 문서(README.md, DB_SCHEMA.md, TODO.md, SUPABASE_GUIDE.md, images/) 수정 워크플로우(dev 브랜치로 전환 → 수정 → 커밋 → push → 원래 브랜치로 복귀 → merge)처럼 사용자가 이미 전체 워크플로우를 명시적으로 승인한 경우는, 커밋까지도 매 단계 재확인 없이 진행한다 — `shared-docs-editor` 서브에이전트를 호출하든, 그 에이전트가 세션에 로드되지 않아 동일한 절차를 직접 수행하든 마찬가지로 예외가 적용된다.
+공유 문서(README.md, DB_DESIGN.md, TODO.md, SUPABASE_GUIDE.md, images/) 수정 워크플로우(dev 브랜치로 전환 → 수정 → 커밋 → push → 원래 브랜치로 복귀 → merge)처럼 사용자가 이미 전체 워크플로우를 명시적으로 승인한 경우는, 커밋까지도 매 단계 재확인 없이 진행한다 — `shared-docs-editor` 서브에이전트를 호출하든, 그 에이전트가 세션에 로드되지 않아 동일한 절차를 직접 수행하든 마찬가지로 예외가 적용된다.
