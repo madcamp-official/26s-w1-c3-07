@@ -55,7 +55,7 @@ create table lectures (
   start_time timestamptz not null,
   end_time timestamptz not null,
   location text,
-  max_participants int
+  max_participants int check (max_participants is null or max_participants >= 0) -- 미설정(null) 또는 0 이상만 허용
 );
 
 -- 강의 입장 전용 4자리 숫자 코드 (즐겨찾기 등록용 node_id 코드와는 별개)
