@@ -20,14 +20,17 @@ insert into nodes (id, parent_id, node_type, name, created_by, created_mode, cre
   ('f0000000-0000-0000-0000-000000000005', 'f0000000-0000-0000-0000-000000000004', 'folder', '자료구조', 'b316c95c-796e-4570-9016-bdb06357bac3', 'student', now() - interval '9 days'),
   ('f0000000-0000-0000-0000-000000000007', 'f0000000-0000-0000-0000-000000000004', 'folder', '알고리즘', 'b316c95c-796e-4570-9016-bdb06357bac3', 'student', now() - interval '9 days');
 
--- ===== nodes: B/C가 강의자 모드로 만든 강의 (A는 수강생으로 즐겨찾기만) =====
+-- ===== nodes: B/C가 강의자 모드로 만든 폴더 + 그 밑의 강의 (A는 수강생으로 즐겨찾기만) =====
+-- 즐겨찾기(my_nodes)는 강의자 모드로 만든 노드만 등록 가능하므로, 운영체제/수학 폴더도
+-- 강의자 모드로 만들고 B/C의 강의들을 그 밑에 둠 (B/C는 수강생 모드로 만들거나
+-- 즐겨찾기한 게 하나도 없음).
 insert into nodes (id, parent_id, node_type, name, created_by, created_mode, created_at) values
-  ('f0000000-0000-0000-0000-000000000006', null, 'lecture', '배열과 연결 리스트', 'c444644b-4fc9-4f5b-b6c8-506826690f7c', 'lecturer', now() - interval '7 days'),
-  ('f0000000-0000-0000-0000-000000000008', null, 'folder', '운영체제', 'c444644b-4fc9-4f5b-b6c8-506826690f7c', 'student', now() - interval '7 days'),
-  ('f0000000-0000-0000-0000-000000000009', null, 'folder', '수학', '0833a865-2786-4dde-a7c0-e64f3b8feea3', 'student', now() - interval '6 days'),
-  ('f0000000-0000-0000-0000-00000000000a', null, 'lecture', 'AI 세미나: 파운데이션 모델', 'c444644b-4fc9-4f5b-b6c8-506826690f7c', 'lecturer', now() - interval '5 days'),
-  ('f0000000-0000-0000-0000-00000000000b', null, 'lecture', '커리어 토크: 대기업 취업 전략', '0833a865-2786-4dde-a7c0-e64f3b8feea3', 'lecturer', now() - interval '4 days'),
-  ('f0000000-0000-0000-0000-00000000000c', null, 'lecture', '파이썬 워크샵: 고급 패턴', 'c444644b-4fc9-4f5b-b6c8-506826690f7c', 'lecturer', now() - interval '4 days');
+  ('f0000000-0000-0000-0000-000000000008', null, 'folder', '운영체제', 'c444644b-4fc9-4f5b-b6c8-506826690f7c', 'lecturer', now() - interval '7 days'),
+  ('f0000000-0000-0000-0000-000000000009', null, 'folder', '수학', '0833a865-2786-4dde-a7c0-e64f3b8feea3', 'lecturer', now() - interval '6 days'),
+  ('f0000000-0000-0000-0000-000000000006', 'f0000000-0000-0000-0000-000000000008', 'lecture', '배열과 연결 리스트', 'c444644b-4fc9-4f5b-b6c8-506826690f7c', 'lecturer', now() - interval '7 days'),
+  ('f0000000-0000-0000-0000-00000000000a', 'f0000000-0000-0000-0000-000000000008', 'lecture', 'AI 세미나: 파운데이션 모델', 'c444644b-4fc9-4f5b-b6c8-506826690f7c', 'lecturer', now() - interval '5 days'),
+  ('f0000000-0000-0000-0000-00000000000c', 'f0000000-0000-0000-0000-000000000008', 'lecture', '파이썬 워크샵: 고급 패턴', 'c444644b-4fc9-4f5b-b6c8-506826690f7c', 'lecturer', now() - interval '4 days'),
+  ('f0000000-0000-0000-0000-00000000000b', 'f0000000-0000-0000-0000-000000000009', 'lecture', '커리어 토크: 대기업 취업 전략', '0833a865-2786-4dde-a7c0-e64f3b8feea3', 'lecturer', now() - interval '4 days');
 
 -- ===== lectures: 강의 부가 속성 =====
 insert into lectures (node_id, start_time, end_time, location, max_participants) values
