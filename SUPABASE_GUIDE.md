@@ -189,20 +189,26 @@ const { data: favoriteRows } = await supabase.rpc('get_my_favorite_subtrees')
 // 각 행: { id, parent_id, type, name, created_by, created_mode, created_at, anchor_node_id }
 ```
 
-**⚠️ 주의: `created`와 `favoriteRows`를 하나의 `Map`으로 합쳐서 `id` 기준으로 중복 제거하면 안 됩니다.** 폴더 A와 그 하위 강의 B를 각각 따로 즐겨찾기한 경우, B는 "A의 서브트리 안 자손"이면서 동시에 "B 자신의 즐겨찾기 루트"로 **화면 두 자리에 각각 독립적으로 나타나야** 하는데, 전역 `id`로 합치면 하나로 뭉개져 버려요. 그래서 `favoriteRows`는 `anchor_node_id`(어느 즐겨찾기 루트에서 나온 행인지)로 그룹핑해서, 즐겨찾기 루트별로 독립된 서브트리를 각각 조립해야 합니다.
+**⚠️ 주의: `favoriteRows`끼리는 `anchor_node_id`로 그룹핑해서 즐겨찾기 루트별로 독립된 서브트리를 각각 조립해야 합니다.** 폴더 A와 그 하위 강의 B를 각각 따로 즐겨찾기한 경우, B는 "A의 서브트리 안 자손"이면서 동시에 "B 자신의 즐겨찾기 루트"로 **화면 두 자리에 각각 독립적으로 나타나야** 하는데, `anchor_node_id` 구분 없이 하나로 뭉치면 하나로 뭉개져 버려요. (반대로 `created`와 `favoriteRows` 사이는 `id`가 절대 겹치지 않아서 — `created`는 항상 `created_mode = 'student'`, `favoriteRows`는 항상 `created_mode = 'lecturer'`라 — 이 둘을 하나의 flat 배열로 합치는 건 안전합니다.)
+
+### 렌더링용 JSON 조립: 보라(내가 만든 것)/파랑(즐겨찾기) 색 태깅
+
+HTML로 렌더링하려면 결국 하나의 JSON 트리로 합쳐야 하는데, 이때 각 노드에 **색(`color`)**을 명시적으로 태깅해두는 게 핵심이에요. 색은 화면 표시뿐 아니라 뒤에 나올 드래그앤드롭 제약의 판단 기준으로도 그대로 재사용됩니다.
 
 ```js
-function groupByAnchor(favoriteRows) {
-  const byAnchor = new Map()
-  for (const row of favoriteRows) {
-    if (!byAnchor.has(row.anchor_node_id)) byAnchor.set(row.anchor_node_id, [])
-    byAnchor.get(row.anchor_node_id).push(row)
-  }
-  return byAnchor
+function tagNodes(nodes, color) {
+  return nodes.map(n => ({ ...n, color, children: [] }))
 }
 
+// id가 안 겹치므로 created(보라)와 favoriteRows(파랑)는 하나의 flat 배열로 합쳐도 안전.
+// favoriteRows는 이미 anchor_node_id를 갖고 있고, 이게 곧 "같은 파란 덩어리"의 식별자예요.
+const flatNodes = [
+  ...tagNodes(created, 'purple'),
+  ...tagNodes(favoriteRows, 'blue'),
+]
+
 function buildTree(flatNodes) {
-  const byId = new Map(flatNodes.map(n => [n.id, { ...n, children: [] }]))
+  const byId = new Map(flatNodes.map(n => [n.id, n]))
   const roots = []
   for (const node of byId.values()) {
     const parent = byId.get(node.parent_id)
@@ -212,18 +218,55 @@ function buildTree(flatNodes) {
   return roots
 }
 
-// created는 그 자체로 이미 하나의 진짜 트리(내 소유 nodes.parent_id 체인)라 buildTree(created)로 바로 조립.
-// 즐겨찾기는 anchor마다 독립적으로 조립해서, favorites에서 얻은 anchor_id 위치에 각각 붙임(서로 합치지 않음).
-const favoriteRootsByAnchor = new Map() // anchor_id -> 붙일 서브트리 배열 (null이면 최상위)
-for (const [anchorNodeId, rows] of groupByAnchor(favoriteRows)) {
-  const [subtreeRoot] = buildTree(rows) // rows엔 anchor 자기 자신도 포함되어 있어서 루트 하나만 나옴
-  const { anchor_id } = myFavorites.find(m => m.node_id === anchorNodeId)
-  if (!favoriteRootsByAnchor.has(anchor_id)) favoriteRootsByAnchor.set(anchor_id, [])
-  favoriteRootsByAnchor.get(anchor_id).push(subtreeRoot)
+const purpleRoots = buildTree(flatNodes.filter(n => n.color === 'purple'))
+const blueRootsByAnchor = new Map(
+  buildTree(flatNodes.filter(n => n.color === 'blue'))
+    .map(blueRoot => {
+      const { anchor_id } = myFavorites.find(m => m.node_id === blueRoot.id)
+      return [anchor_id, blueRoot]
+    })
+)
+
+// 파란 덩어리를 favorites.anchor_id가 가리키는 보라 폴더 밑에 자식으로 끼워넣기
+function attachFavorites(node) {
+  node.children.forEach(attachFavorites)
+  if (blueRootsByAnchor.has(node.id)) node.children.push(blueRootsByAnchor.get(node.id))
+}
+purpleRoots.forEach(attachFavorites)
+const topLevelFavorite = blueRootsByAnchor.get(null) // anchor_id가 null인 즐겨찾기(최상위에 둔 것)
+
+// purpleRoots(+ topLevelFavorite)가 화면에 그대로 렌더링할 최종 JSON이에요.
+```
+
+React `key`도 전역 `id`가 아니라 `${node.color}-${node.id}`처럼 색(=어느 트리 조립 단위에서 왔는지)까지 포함해야, 같은 노드가 두 자리에 있을 때 key 충돌이 안 나요.
+
+### 드래그앤드롭 제약: 파란 덩어리는 안으로도 밖으로도 이동 불가
+
+"내 강의" 페이지에서 드래그앤드롭으로 위치를 바꿀 수 있게 할 텐데, 파란 덩어리(같은 `anchor_node_id`를 공유하는 즐겨찾기 서브트리) 안으로 다른 걸 옮기거나, 그 안에 있는 걸 밖으로 꺼내는 건 막아야 해요.
+
+**이건 사실 백엔드에 이미 100% 막혀 있어서 추가 작업이 필요 없습니다** — 프론트에서 막는 건 순전히 UX(에러 메시지 보기 전에 애초에 못 놓게 하는 것) 차원의 일이에요.
+- 파란 덩어리 안 노드는 전부 남(강의자)이 만든 노드라 `created_by`가 내가 아니에요. 내 노드를 그 밑으로 옮기려 하면 `enforce_nodes_parent_ownership` 트리거가 "부모의 `created_by`/`created_mode`가 일치해야 함"을 검사해서 항상 실패합니다.
+- 파란 덩어리 안 노드 자체를 옮기려 해도, `nodes_update_own` RLS가 "`created_by = auth.uid()`"를 요구하는데 내 소유가 아니라서 애초에 UPDATE 권한이 없어요.
+- 즐겨찾기 배치(`favorites.anchor_id`)를 덩어리 안쪽 노드로 옮기는 것도, `favorites_insert/update_anchor_must_be_own_student_folder` 정책이 "anchor는 내가 만든 수강생 모드 폴더여야 함"을 요구해서 막힙니다.
+
+그래도 UX상 드롭 가능 여부는 미리 판단해야 하니, `color`와 `anchor_node_id`만 보면 됩니다.
+
+```js
+function canDrop(draggedNode, targetNode) {
+  // 파란 덩어리 "안"(자손 포함)으로는 무엇도 못 들어감
+  if (targetNode.color === 'blue') return false
+
+  if (draggedNode.color === 'blue') {
+    // 파란 노드는 자기 덩어리의 루트만 옮길 수 있음(자손 개별 이동 불가)
+    if (draggedNode.id !== draggedNode.anchor_node_id) return false
+    // 루트라도 위에서 이미 파란 타겟은 걸러졌으니, 남은 건 보라 타겟 또는 최상위뿐
+  }
+
+  return true
 }
 ```
 
-React에서 렌더링할 때 `key`도 전역 `id`가 아니라 `${anchorNodeId}-${node.id}`처럼 "어느 anchor에서 나온 사본인지"까지 포함해야 같은 노드가 두 자리에 있을 때 key 충돌이 안 나요.
+파란 노드를 드래그할 때 실제로 바뀌는 값도 `nodes.parent_id`가 아니라 그 노드의 즐겨찾기 행(`favorites.anchor_id`)이라는 점을 헷갈리지 않아야 해요 — 즐겨찾기 대상의 실제 `parent_id`는 원래 만든 사람의 트리 구조 그대로이고, 이 개인 정리 구조 때문에 바뀌지 않습니다.
 
 세 요청 다 로그인 시 한꺼번에 받아두지 말고, 모드 전환/페이지 진입 시점마다 그 모드에 맞는 것만 요청하면 됩니다.
 
