@@ -191,9 +191,15 @@ for each row execute function anonymize_posts_before_profile_delete();
 
 -- 게시글 status는 강의자만 바꿀 수 있음 (글쓴이 본인도 불가)
 -- RLS 조건만으로는 "이 컬럼은 안 바뀌어야 한다"를 표현하기 어려워서 트리거로 강제
+-- app.bypass_status_lock 플래그가 켜져 있으면 통과시킴: reopen_resolved_post_on_question_reply()가
+-- "해결된 게시글에 질문 답글이 달리면 자동으로 미해결 전환"할 때만 예외적으로 세팅하는 트랜잭션 로컬 플래그
 create or replace function block_status_change_by_non_lecturer()
 returns trigger as $$
 begin
+  if current_setting('app.bypass_status_lock', true) = 'true' then
+    return new;
+  end if;
+
   if new.status is distinct from old.status
      and not exists (
        select 1 from lectures join nodes on nodes.id = lectures.node_id
@@ -227,6 +233,46 @@ $$ language plpgsql;
 create trigger trg_set_resolved_at_on_status_change
 before update on posts
 for each row execute function set_resolved_at_on_status_change();
+
+-- 해결된 게시글에 질문 타입 답글이 달리면 다시 미해결로 전환 (README 필수 기능).
+-- 답글의 답글까지 지원하므로 재귀 CTE로 최상위(status를 가진) 게시글까지 거슬러 올라감.
+-- 이 UPDATE는 수강생의 답글 INSERT로 촉발되는데, posts 테이블 직접 SELECT가 revoke되어 있고
+-- (위 "읽기는 테이블이 아니라 뷰로만" 참고) 이 수강생은 posts_update_own/posts_lecturer_update_status
+-- 어느 RLS에도 안 걸려서(자기 글도, 강의자도 아님) SECURITY DEFINER로 둘 다 우회함.
+-- created_mode='lecturer'인 글은 이미 opinion 타입만 가능하도록 CHECK로 막혀 있어서,
+-- post_type='question'인 답글은 항상 수강생 글임이 구조적으로 보장됨.
+create or replace function reopen_resolved_post_on_question_reply()
+returns trigger
+security definer
+set search_path = public
+as $$
+declare
+  root_id uuid;
+  root_status text;
+begin
+  if new.parent_id is null or new.post_type <> 'question' then
+    return new;
+  end if;
+
+  with recursive ancestors as (
+    select id, parent_id, status from posts where id = new.parent_id
+    union all
+    select p.id, p.parent_id, p.status from posts p join ancestors a on p.id = a.parent_id
+  )
+  select id, status into root_id, root_status from ancestors where parent_id is null;
+
+  if root_status = 'resolved' then
+    perform set_config('app.bypass_status_lock', 'true', true); -- true = 트랜잭션 끝나면 자동 초기화
+    update posts set status = 'unresolved' where id = root_id;
+  end if;
+
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trg_reopen_resolved_post_on_question_reply
+after insert on posts
+for each row execute function reopen_resolved_post_on_question_reply();
 
 -- 회원 가입(Google OAuth 포함) 시 auth.users에 행이 생기면 profiles도 자동 생성
 -- profiles는 INSERT 정책이 없어(RLS로 직접 INSERT 차단) 이 트리거가 유일한 생성 경로.
@@ -302,6 +348,7 @@ grant execute on function delete_own_account() to authenticated;
 - **강의자 권한(상태 전환/삭제/피드백 초기화)**: `posts_lecturer_update_status`/`posts_lecturer_delete`/`lecture_feedback_votes_lecturer_reset` 정책으로 강의자가 남의 게시글 `status`를 바꾸거나, 부적절한 글을 삭제하거나, 실시간 피드백 투표를 전체 초기화할 수 있습니다(`nodes.created_by = auth.uid()`로 해당 강의 소유자인지 확인). `trg_block_status_change_by_non_lecturer` 트리거가 이와 짝을 이뤄 "강의자가 아니면 `status`를 절대 못 바꾼다"를 강제합니다 — 정책은 허용 조건, 트리거는 차단 조건을 맡는 구조입니다.
 - **`resolved_at` 자동 설정/해제**: `status`가 `resolved`로 바뀌는 순간 `trg_set_resolved_at_on_status_change` 트리거가 `resolved_at`을 `now()`로 채우고, 다시 `unresolved`로 돌아가거나(또는 애초에 답글이라 `status`가 `null`인 경우) `null`로 되돌립니다. `check ((status = 'resolved') = (resolved_at is not null))` 제약이 이 관계를 양방향으로 강제해서, 트리거를 거치지 않은 직접 INSERT/UPDATE에 대한 안전장치 역할도 합니다. 같은 테이블의 `BEFORE UPDATE` 트리거는 이름 알파벳순으로 실행되므로, "강의자가 아니면 `status` 변경 자체를 차단"하는 `trg_block_status_change_by_non_lecturer`(b)가 `trg_set_resolved_at_on_status_change`(s)보다 먼저 실행되어 순서 문제가 없습니다.
 - **회원가입 시 `profiles` 자동 생성**: `profiles`는 별도 INSERT 정책이 없어 RLS가 직접 INSERT를 막습니다. 그래서 `auth.users`에 새 행이 생길 때(Google OAuth 로그인 포함) `trg_handle_new_user` 트리거가 `handle_new_user()`를 호출해 `profiles` 행을 자동으로 만드는 게 유일한 생성 경로입니다. 이 함수는 일반 role에게 없는 `public.profiles` INSERT 권한을 얻기 위해 `SECURITY DEFINER`로 선언했고, `search_path`를 `public`으로 고정해 스키마 하이재킹을 방지합니다. `display_name`은 구글 계정의 `full_name`/`name`(없으면 이메일)을 `raw_user_meta_data`에서 꺼내 자동으로 채웁니다.
+- **해결된 게시글 자동 재오픈(`reopen_resolved_post_on_question_reply`)**: README 필수 기능("해결된 게시글에 질문 답글이 달리면 다시 미해결로 전환")은 수강생의 답글 INSERT로 촉발되어 부모(정확히는 트리의 최상위) 게시글의 `status`를 UPDATE해야 하는데, 이걸 막는 장애물이 두 겹 있었습니다: (1) `trg_block_status_change_by_non_lecturer`가 "강의자가 아니면 `status` 변경 불가"를 검사하는데, 이건 `auth.uid()`(세션 JWT) 기반 검사라 `SECURITY DEFINER`로도 우회가 안 돼서(함수 실행 권한을 바꿔도 `auth.uid()`가 가리키는 실제 요청자는 안 바뀜) `app.bypass_status_lock`이라는 **트랜잭션 로컬 플래그**로 예외 처리했습니다. (2) `posts` 테이블 직접 SELECT가 `anon`/`authenticated`에서 회수돼 있고, 이 UPDATE를 실행하는 수강생은 `posts_update_own`/`posts_lecturer_update_status` 어느 RLS에도 안 걸려서(자기 글도 강의자도 아님) 조상 게시글을 조회도 갱신도 못 하는데, 이건 `auth.uid()` 문제가 아니라 순수 GRANT/RLS 권한 문제라 `SECURITY DEFINER`로 해결됩니다 — 같은 "우회"라도 무엇을 우회하려는지에 따라 통하는 방법이 다르다는 걸 보여주는 사례입니다. `created_mode='lecturer'`인 글은 이미 `opinion` 타입만 가능하도록 CHECK로 막혀 있어서, `post_type='question'`인 답글은 항상 수강생 글임이 구조적으로 보장됩니다.
 
 ### RPC·뷰 동작
 
@@ -482,3 +529,5 @@ RLS는 "누가 행에 접근 가능한가"만 결정할 뿐, "어떤 테이블/�
   - `20260706081432_posts_resolved_at_trigger_and_check.sql` — `status`가 `resolved`로 바뀌면 `resolved_at`을 자동으로 채우고 되돌아가면 `null`로 되돌리는 `trg_set_resolved_at` 트리거 추가, `check ((status = 'resolved') = (resolved_at is not null))` 양방향 제약 추가
   - `20260706084256_unify_trigger_and_policy_names.sql` — 트리거 이름을 함수 이름 축약 없이 그대로 쓰도록 통일(`on_auth_user_created` → `trg_handle_new_user`, `trg_block_status_change` → `trg_block_status_change_by_non_lecturer`, `trg_set_resolved_at` → `trg_set_resolved_at_on_status_change`), RLS 정책 이름의 테이블 접두사를 축약 없이 통일(`join_codes_*` → `lecture_join_codes_*`, `feedback_*` → `lecture_feedback_votes_*`)
   - `20260706093000_restrict_public_read_access.sql` — `profiles`를 본인만 조회 가능하게 좁히고, `posts`/`post_likes`/`lecture_feedback_votes`의 테이블 자체 SELECT를 회수(`posts`)하거나 본인 행만(`post_likes`/`lecture_feedback_votes`) 조회 가능하도록 제한. `posts_public` 뷰에서 `author_id`를 숨기고 `is_anonymous`에 따라 `profiles.display_name`만 조건부로 노출하도록 재정의, 좋아요/피드백 집계용 `post_likes_counts`/`lecture_feedback_votes_counts` 뷰 추가. `nodes`/`lectures`/`lecture_join_codes`/`my_nodes`는 강의 입장 흐름상 소유자가 아닌 사람도 읽어야 해서 기존 정책 유지
+  - `20260706101235_reopen_resolved_post_on_question_reply.sql` — 해결된 게시글에 질문 타입 답글이 달리면 다시 미해결로 전환하는 `trg_reopen_resolved_post_on_question_reply` 트리거 추가, `trg_block_status_change_by_non_lecturer`에 `app.bypass_status_lock` 플래그 우회 로직 추가
+  - `20260706101723_reopen_resolved_post_security_definer.sql` — `posts` 직접 SELECT 회수/RLS 때문에 `reopen_resolved_post_on_question_reply()`가 조상 게시글을 조회·갱신 못 하던 문제를 `SECURITY DEFINER` + `search_path` 고정으로 수정
