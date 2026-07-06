@@ -33,7 +33,7 @@ export default function ReplyItem({ reply, onReply, onEdit }: ReplyItemProps) {
   }
 
   return (
-    <div className={cn('rounded-2xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-slate-50 p-4', isOpinion ? 'border-l-rose-500' : 'border-l-violet-500', reply.depth > 0 && 'ml-6 sm:ml-10')}>
+    <div className={cn('rounded-2xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-slate-50 p-4', isLecturer ? 'border-l-blue-500' : isOpinion ? 'border-l-rose-500' : 'border-l-violet-500', reply.depth > 0 && 'ml-6 sm:ml-10')}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className={cn('font-extrabold', isLecturer ? 'text-blue-700' : 'text-slate-800')}>{reply.authorName}</span>
