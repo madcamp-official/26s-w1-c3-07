@@ -6,9 +6,60 @@ import {
   mockStudentCourses,
   mockStudentFolders,
 } from '../mock/data'
+import { supabase } from './supabaseClient'
 import type { Course, CourseFolder, CreateCourseInput, CreateFolderInput, DeleteItemInput, MoveItemInput, RenameItemInput, UpdateCourseInput } from '../types/course'
 import type { ComposerSubmission, CourseRoom, FeedbackKey, Question, QuestionReply, UnansweredFolderNode, UnansweredQuestion } from '../types/room'
 import type { User, UserRole } from '../types/user'
+
+type DbMode = 'lecturer' | 'student'
+
+function modeToRole(mode: DbMode): UserRole {
+  return mode === 'lecturer' ? 'instructor' : 'student'
+}
+
+function roleToMode(role: UserRole): DbMode {
+  return role === 'instructor' ? 'lecturer' : 'student'
+}
+
+function avatarTextOf(name: string): string {
+  return name.trim().slice(0, 1) || '?'
+}
+
+interface ProfileRow {
+  id: string
+  display_name: string | null
+  last_mode: DbMode
+}
+
+/** Supabase 세션 + profiles 행을 프론트에서 쓰는 User 모양으로 합칩니다. */
+async function loadUserFromSession(authUser: { id: string; email?: string }): Promise<User> {
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('id, display_name, last_mode')
+    .eq('id', authUser.id)
+    .single<ProfileRow>()
+
+  if (error) throw error
+
+  const name = profile.display_name ?? authUser.email ?? '이름 없음'
+  const user: User = {
+    id: profile.id,
+    name,
+    email: authUser.email ?? '',
+    role: modeToRole(profile.last_mode),
+    avatarText: avatarTextOf(name),
+  }
+
+  // 강의/게시글 등 아직 목업 데이터로 남아 있는 로직이 mockCurrentUser를 기준으로 동작하므로,
+  // 실제 세션 정보를 그대로 반영해 둡니다 (단계적 마이그레이션 동안의 임시 다리 역할).
+  mockCurrentUser.id = user.id
+  mockCurrentUser.name = user.name
+  mockCurrentUser.email = user.email
+  mockCurrentUser.role = user.role
+  mockCurrentUser.avatarText = user.avatarText
+
+  return user
+}
 
 const MOCK_DELAY = 250
 
@@ -84,26 +135,69 @@ function applyViewerVotes(room: CourseRoom, voterKey: string): CourseRoom {
   }
 }
 
-/** Supabase 연동 시 함수 시그니처는 유지하고 내부 구현만 교체합니다. */
-export async function getCurrentUser(): Promise<User> {
-  await delay()
-  return clone(mockCurrentUser)
+/** 로그인 안 한 상태면 null을 반환합니다. */
+export async function getCurrentUser(): Promise<User | null> {
+  const { data, error } = await supabase.auth.getSession()
+  if (error) throw error
+
+  const authUser = data.session?.user
+  if (!authUser) return null
+
+  return loadUserFromSession(authUser)
+}
+
+/** Google OAuth 로그인을 시작합니다. 리다이렉트 후 돌아오면 세션이 생깁니다. */
+export async function signInWithGoogle(): Promise<void> {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin },
+  })
+  if (error) throw error
+}
+
+export async function signOut(): Promise<void> {
+  const { error } = await supabase.auth.signOut()
+  if (error) throw error
+}
+
+/** 회원 탈퇴: 본인 auth.users 행을 삭제하는 RPC를 호출한 뒤 로그아웃 처리합니다. */
+export async function deleteAccount(): Promise<void> {
+  const { error } = await supabase.rpc('delete_own_account')
+  if (error) throw error
+  await signOut()
 }
 
 export async function switchUserRole(role: UserRole): Promise<User> {
-  await delay(150)
-  mockCurrentUser.role = role
-  return clone(mockCurrentUser)
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+  if (sessionError) throw sessionError
+  const authUser = sessionData.session?.user
+  if (!authUser) throw new Error('로그인이 필요합니다.')
+
+  const { error } = await supabase
+    .from('profiles')
+    .update({ last_mode: roleToMode(role) })
+    .eq('id', authUser.id)
+  if (error) throw error
+
+  return loadUserFromSession(authUser)
 }
 
 export async function updateUserName(name: string): Promise<User> {
-  await delay(300)
   const trimmed = name.trim()
   if (!trimmed) throw new Error('닉네임을 입력해 주세요.')
 
-  mockCurrentUser.name = trimmed
-  mockCurrentUser.avatarText = trimmed.slice(0, 1)
-  return clone(mockCurrentUser)
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+  if (sessionError) throw sessionError
+  const authUser = sessionData.session?.user
+  if (!authUser) throw new Error('로그인이 필요합니다.')
+
+  const { error } = await supabase
+    .from('profiles')
+    .update({ display_name: trimmed })
+    .eq('id', authUser.id)
+  if (error) throw error
+
+  return loadUserFromSession(authUser)
 }
 
 export async function getCourseFolders(): Promise<CourseFolder[]> {

@@ -1,14 +1,21 @@
 import { BookOpen, Hash, Search, UserRound } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import BrandLogo from '../components/BrandLogo'
 import Button from '../components/ui/Button'
-import { joinCourse } from '../services/api'
+import { getCurrentUser, joinCourse, signInWithGoogle } from '../services/api'
 
 export default function LandingPage() {
   const navigate = useNavigate()
   const [code, setCode] = useState('')
   const [message, setMessage] = useState('')
+  const [isSigningIn, setIsSigningIn] = useState(false)
+
+  useEffect(() => {
+    void getCurrentUser().then((user) => {
+      if (user) navigate('/student/courses', { replace: true })
+    })
+  }, [navigate])
 
   const submitCode = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -17,6 +24,16 @@ export default function LandingPage() {
       navigate(`/room/${course.id}`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '강의를 찾지 못했습니다.')
+    }
+  }
+
+  const handleGoogleSignIn = async () => {
+    setIsSigningIn(true)
+    try {
+      await signInWithGoogle()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Google 로그인에 실패했습니다.')
+      setIsSigningIn(false)
     }
   }
 
@@ -37,8 +54,8 @@ export default function LandingPage() {
           <p className="mt-1 min-h-5 text-xs font-medium text-violet-600" aria-live="polite">{message}</p>
         </form>
 
-        <Button onClick={() => navigate('/student/courses')} variant="secondary" className="mt-6 w-full py-4 text-base">
-          <span className="text-lg font-black text-blue-500">G</span>Google로 계속하기
+        <Button onClick={() => void handleGoogleSignIn()} disabled={isSigningIn} variant="secondary" className="mt-6 w-full py-4 text-base">
+          <span className="text-lg font-black text-blue-500">G</span>{isSigningIn ? '이동 중...' : 'Google로 계속하기'}
         </Button>
 
         <div className="mt-10 rounded-3xl border border-violet-100 bg-violet-50 p-5">

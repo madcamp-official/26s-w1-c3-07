@@ -2,7 +2,7 @@ import { CheckCircle2, LogOut, Pencil, TriangleAlert, UserX } from 'lucide-react
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from '../components/ui/Button'
-import { getCurrentUser, updateUserName } from '../services/api'
+import { deleteAccount, getCurrentUser, signOut, updateUserName } from '../services/api'
 import type { User } from '../types/user'
 
 export default function SettingsPage() {
@@ -15,9 +15,12 @@ export default function SettingsPage() {
   const [isSaved, setIsSaved] = useState(false)
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false)
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
+  const [isProcessingAccountAction, setIsProcessingAccountAction] = useState(false)
+  const [accountActionError, setAccountActionError] = useState('')
 
   useEffect(() => {
     void getCurrentUser().then((current) => {
+      if (!current) return
       setUser(current)
       setNickname(current.name)
     })
@@ -55,12 +58,26 @@ export default function SettingsPage() {
     }
   }
 
-  const handleLogout = () => {
-    navigate('/')
+  const handleLogout = async () => {
+    setIsProcessingAccountAction(true)
+    try {
+      await signOut()
+      navigate('/')
+    } catch (err) {
+      setAccountActionError(err instanceof Error ? err.message : '로그아웃하지 못했습니다.')
+      setIsProcessingAccountAction(false)
+    }
   }
 
-  const handleDeleteAccount = () => {
-    navigate('/')
+  const handleDeleteAccount = async () => {
+    setIsProcessingAccountAction(true)
+    try {
+      await deleteAccount()
+      navigate('/')
+    } catch (err) {
+      setAccountActionError(err instanceof Error ? err.message : '탈퇴하지 못했습니다.')
+      setIsProcessingAccountAction(false)
+    }
   }
 
   if (!user) {
@@ -143,9 +160,10 @@ export default function SettingsPage() {
           <section role="alertdialog" aria-modal="true" className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
             <h2 className="text-lg font-extrabold text-slate-900">로그아웃 하시겠습니까?</h2>
             <p className="mt-2 text-sm text-slate-500">다시 로그인하면 이전 정보로 계속 이용할 수 있습니다.</p>
+            {accountActionError && <p className="mt-2 text-sm font-medium text-rose-500">{accountActionError}</p>}
             <div className="mt-6 flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setIsLogoutConfirmOpen(false)}>취소</Button>
-              <Button onClick={handleLogout}><LogOut className="size-4" />로그아웃</Button>
+              <Button onClick={() => void handleLogout()} disabled={isProcessingAccountAction}><LogOut className="size-4" />{isProcessingAccountAction ? '로그아웃 중' : '로그아웃'}</Button>
             </div>
           </section>
         </div>
@@ -156,9 +174,10 @@ export default function SettingsPage() {
           <section role="alertdialog" aria-modal="true" className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
             <h2 className="flex items-center gap-2 text-lg font-extrabold text-slate-900"><TriangleAlert className="size-5 text-rose-500" />정말 탈퇴하시겠습니까?</h2>
             <p className="mt-2 text-sm text-slate-500">탈퇴하면 내 강의, 질문, 답글을 포함한 모든 정보가 삭제되며 되돌릴 수 없습니다.</p>
+            {accountActionError && <p className="mt-2 text-sm font-medium text-rose-500">{accountActionError}</p>}
             <div className="mt-6 flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setIsDeleteConfirmOpen(false)}>취소</Button>
-              <Button onClick={handleDeleteAccount} className="bg-rose-600 hover:bg-rose-700"><UserX className="size-4" />탈퇴하기</Button>
+              <Button onClick={() => void handleDeleteAccount()} disabled={isProcessingAccountAction} className="bg-rose-600 hover:bg-rose-700"><UserX className="size-4" />{isProcessingAccountAction ? '탈퇴하는 중' : '탈퇴하기'}</Button>
             </div>
           </section>
         </div>
