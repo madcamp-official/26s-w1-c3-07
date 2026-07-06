@@ -14,11 +14,11 @@
 | 테이블 | 대응하는 기능 |
 |---|---|
 | `profiles` | 회원(Google OAuth) 부가정보 |
-| `nodes` | 강의 폴더/강의 트리 구조 |
+| `nodes` | 강의 폴더 + 강의 통합 트리 |
 | `lectures` | 강의의 부가 속성 (시작/종료 시각, 장소, 최대인원) — 입장은 `nodes.id`(UUID)를 URL/QR로 사용 |
 | `lecture_join_codes` | 강의 입장용 4자리 숫자 코드 (발급/재발급/파기 가능, 즐겨찾기 등록용 코드와는 별개) |
 | `my_nodes` | "내 강의" 즐겨찾기 (수강생 모드) |
-| `posts` | 게시글+답글 통합 트리, 질문/의견 타입, 미해결/해결, 비회원 인증(`guest_token`) |
+| `posts` | 게시글 + 답글 통합 트리, 질문/의견 타입, 미해결/해결, 비회원 인증(`guest_token`) |
 | `post_likes` | 게시글/답글 좋아요 |
 | `lecture_feedback_votes` | 실시간 피드백(추워요/더워요/소리 작아요/잘 안 보여요) 좋아요/싫어요 |
 | `posts_public` (뷰) | `posts`에서 `guest_token`을 뺀 공개 조회용 뷰. 프론트는 `posts` 대신 이 뷰를 조회 |
