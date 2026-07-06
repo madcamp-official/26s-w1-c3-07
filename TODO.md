@@ -6,17 +6,16 @@
   - [RLS 설정 및 guest_token 관련](#rls-설정-및-guest_token-관련)
     - [1. 자동 미해결 전환과 status 트리거의 충돌](#1-해결된-게시글에-질문-답글이-달리면-자동-미해결-전환과-status-트리거의-충돌)
     - [2. `guest_token` 무효화 조건](#2-guest_token-무효화-조건-강의-종료-후)
-    - [3. `voter_key` 노출 문제](#3-voter_key-노출-문제)
   - [AI 보조 기능 관련 (Edge Function vs Express 서버 미결정)](#ai-보조-기능-관련-edge-function-vs-express-서버-미결정)
-    - [4. 유사도 검사 비교 대상 범위](#4-유사도-검사-비교-대상-범위-미해결-게시글만-답글도-포함)
-    - [5. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정](#5-유사도-비교를-위한-벡터-컬럼-추가-여부-결정)
-    - [6. AI 보조 기능 서버 아키텍처 결정](#6-ai-보조-기능-서버-아키텍처-결정-edge-function-vs-express)
+    - [3. 유사도 검사 비교 대상 범위](#3-유사도-검사-비교-대상-범위-미해결-게시글만-답글도-포함)
+    - [4. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정](#4-유사도-비교를-위한-벡터-컬럼-추가-여부-결정)
+    - [5. AI 보조 기능 서버 아키텍처 결정](#5-ai-보조-기능-서버-아키텍처-결정-edge-function-vs-express)
   - [Realtime 관련](#realtime-관련)
-    - [7. `max_participants`(최다 참여 인원) 강제 여부 결정](#7-max_participants최다-참여-인원-강제-여부-결정)
+    - [6. `max_participants`(최다 참여 인원) 강제 여부 결정](#6-max_participants최다-참여-인원-강제-여부-결정)
   - [join_code 관련](#join_code-관련)
-    - [8. `lecture_join_codes` 파기 시점/주체 결정](#8-lecture_join_codes-파기delete-시점주체-결정)
+    - [7. `lecture_join_codes` 파기 시점/주체 결정](#7-lecture_join_codes-파기delete-시점주체-결정)
   - [기타 사항](#기타-사항)
-    - [9. 강의 폴더 트리 조회용 RPC (재귀 CTE)](#9-강의-폴더-트리-조회용-rpc-재귀-cte)
+    - [8. 강의 폴더 트리 조회용 RPC (재귀 CTE)](#8-강의-폴더-트리-조회용-rpc-재귀-cte)
 - [프론트엔드](#프론트엔드)
   - [RLS 설정 및 guest_token 관련](#rls-설정-및-guest_token-관련-1)
     - [1. 비회원 익명 식별자(`guest_token`) 생성 로직](#1-비회원-익명-식별자guest_token-생성-로직)
@@ -43,39 +42,35 @@ README 필수 기능("해결된 게시글에 대한 답글 작성 시 답글이 
 
 `posts_update_own`/`posts_delete_own`, `post_likes`/`lecture_feedback_votes` 관련 정책 전부에 "강의 종료 시각(`lectures.end_time`) 이후엔 `guest_token` 무효화" 조건이 아직 안 들어감.
 
-#### 3. `voter_key` 노출 문제
-
-`post_likes`/`lecture_feedback_votes`의 `voter_key`가 회원은 `user_id`를 그대로 쓰는데, 테이블 SELECT가 공개라 "누가 좋아요 눌렀는지"가 노출됨 — 문제 없다고 볼지, 익명화할지 확인 필요.
-
 ### AI 보조 기능 관련 (Edge Function vs Express 서버 미결정)
 
-#### 4. 유사도 검사 비교 대상 범위 (미해결 게시글만? 답글도 포함?)
+#### 3. 유사도 검사 비교 대상 범위 (미해결 게시글만? 답글도 포함?)
 
 README엔 "글 작성 시(답글 포함) 미해결 게시글들과의 유사도 검사"라고 되어 있는데, 비교 대상이 미해결 게시글(최상위 글)들만인지 그 밑 답글 내용까지 포함할지 미정. 결정에 따라 유사도 검사 API가 LLM에 넘기는 데이터 범위가 달라짐.
 
-#### 5. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정
+#### 4. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정
 
 원래 기획 단계에서는 세션당 질문 수가 적을 것으로 예상해 임베딩(pgvector) 대신 "기존 질문 목록을 프롬프트에 통째로 넣고 LLM이 판단"하는 방식으로 시작하기로 했음. `posts`에 `embedding vector` 컬럼 + pgvector 확장을 추가해서 임베딩 기반 유사도 검색으로 갈지, 아니면 계속 LLM 프롬프트 방식으로 갈지 아직 결정 안 됨. 강의당 질문 수가 예상보다 많아지면 프롬프트에 다 넣기엔 비효율적이라 재검토가 필요할 수 있음.
 
-#### 6. AI 보조 기능 서버 아키텍처 결정 (Edge Function vs Express)
+#### 5. AI 보조 기능 서버 아키텍처 결정 (Edge Function vs Express)
 
-AI 교정, 부적절한 내용 필터링, 유사 질문 자동 탐지(#4, #5) 기능을 처리할 서버를 **Supabase Edge Function**으로 만들지, **별도 Express 서버**를 새로 띄울지 아직 결정 안 됨. 현재는 Express 백엔드 서버 없이 Supabase만으로 구성되어 있음(`DB_DESIGN.md` 배포 현황 참고). 이 결정에 따라 배포 방식, 인증 처리(Edge Function은 Supabase 세션과 통합이 쉬움), LLM API 키 보관 위치 등이 달라짐.
+AI 교정, 부적절한 내용 필터링, 유사 질문 자동 탐지(#3, #4) 기능을 처리할 서버를 **Supabase Edge Function**으로 만들지, **별도 Express 서버**를 새로 띄울지 아직 결정 안 됨. 현재는 Express 백엔드 서버 없이 Supabase만으로 구성되어 있음(`DB_DESIGN.md` 배포 현황 참고). 이 결정에 따라 배포 방식, 인증 처리(Edge Function은 Supabase 세션과 통합이 쉬움), LLM API 키 보관 위치 등이 달라짐.
 
 ### Realtime 관련
 
-#### 7. `max_participants`(최다 참여 인원) 강제 여부 결정
+#### 6. `max_participants`(최다 참여 인원) 강제 여부 결정
 
 컬럼만 있고 실제 입장 제한 로직/참여자 카운트 테이블이 없음. 정보 표시용인지 실제 강제해야 하는지 확인 필요 (강제한다면 Realtime **Presence** 또는 별도 카운트 확인 로직 추가 필요, `DB_DESIGN.md`의 "실시간 접속자 수" 섹션 참고).
 
 ### join_code 관련
 
-#### 8. `lecture_join_codes` 파기(DELETE) 시점/주체 결정
+#### 7. `lecture_join_codes` 파기(DELETE) 시점/주체 결정
 
 강의 종료 시 자동으로 지울지(예: `pg_cron`), 강의자가 수동으로 파기하기 전까진 남겨둘지. 안 지워져도 입장 시 `lectures.end_time` 확인이 안전망이라 급한 이슈는 아님.
 
 ### 기타 사항
 
-#### 9. 강의 폴더 트리 조회용 RPC (재귀 CTE)
+#### 8. 강의 폴더 트리 조회용 RPC (재귀 CTE)
 
 `nodes`는 `parent_id` 자기참조로 깊이 무제한 트리를 이루는데, Supabase의 기본 REST API(PostgREST)는 중첩 조회(`nodes(children:nodes(...))`) 시 요청마다 중첩 단계를 직접 지정해야 해서 "깊이 무제한" 요구사항엔 안 맞음. 재귀 CTE(`with recursive`)를 Postgres 함수로 감싸서 RPC로 노출해야 함 (예: `get_node_tree(root_id)`). 아직 함수/마이그레이션 미작성.
 
@@ -128,3 +123,4 @@ RPC 반환 형태는 두 가지 방식이 있음.
 - 회원 탈퇴 버튼 + RPC(`delete_own_account`) → `backend/supabase/migrations/20260705090000_delete_own_account_rpc.sql`, `backend/test-frontend`에 반영. 탈퇴 시 cascade로 발동되는 `anonymize_posts_before_profile_delete` 트리거가 `search_path` 문제로 실패하던 버그는 `20260705132633_fix_anonymize_posts_search_path.sql`로 수정.
 - `voter_key`(회원/비회원 겸용 단일 컬럼)를 `user_id`/`guest_token` 두 컬럼으로 분리하지 않고 현재 구조 그대로 유지하기로 결정. 회원 탈퇴 시에도 좋아요/피드백 투표 기록을 삭제하지 않고 그대로 보존하는 쪽을 택함 (자동 정리보다 기록 보존 우선).
 - 강의자 게시글 작성 제한(`restrict_lecturer_post_rules` 트리거 + `x-mode` 헤더)을 `posts.created_mode` 컬럼 + 테이블 `check` 제약 + RLS 정책 조합으로 재설계. 강의를 만든 계정이 수강생 모드로 자기 강의에 들어오면 일반 수강생처럼 글을 쓸 수 있어야 하고, 동시에 화면에서 강의자/수강생 글을 색으로 구분해야 해서 그 순간의 모드를 글에 직접 저장하는 방식으로 변경 → `backend/supabase/migrations/20260706075425_posts_created_mode_replaces_trigger.sql`.
+- `voter_key` 노출 문제: `post_likes`/`lecture_feedback_votes`의 테이블 SELECT를 "본인 투표 행만" 조회 가능하도록 좁히고, 집계(개수)는 `voter_key` 없이 `post_likes_counts`/`lecture_feedback_votes_counts` 뷰로 따로 공개하는 것으로 결정. 같은 마이그레이션에서 `profiles`도 본인만 조회 가능하게 좁히고, `posts` 테이블 자체 SELECT는 회수해 `posts_public` 뷰(비익명 글만 `profiles.display_name` 조건부 노출)로만 조회하게 변경 → `backend/supabase/migrations/20260706093000_restrict_public_read_access.sql`, `DB_DESIGN.md`의 "RLS 정책"/"뷰" 섹션 참고.
