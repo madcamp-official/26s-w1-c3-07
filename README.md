@@ -154,9 +154,9 @@
 | `post_likes_counts` (뷰) | `post_likes`에서 `voter_key` 없이 게시글별 좋아요 개수만 집계한 공개 조회용 뷰 |
 | `lecture_feedback_votes_counts` (뷰) | `lecture_feedback_votes`에서 `voter_key` 없이 강의·피드백 유형별 좋아요/싫어요 개수만 집계한 공개 조회용 뷰 |
 
-`nodes`는 자기참조 구조로 강의 폴더/강의의 무제한 depth 트리를 이루고, `posts`도 마찬가지로 자기참조로 게시글과 답글을 하나의 트리로 통합해 관리합니다. 읽기는 테이블마다 성격이 달라 강의 입장 흐름에 필요한 `nodes`/`lectures`/`lecture_join_codes`는 공개, `profiles`/`favorites`/`post_likes`/`lecture_feedback_votes`는 RLS로 본인 행만 조회 가능하도록 좁혀져 있으며(좋아요/피드백 개수는 `voter_key` 없이 집계 뷰로 따로 공개), `posts`는 유일하게 테이블 자체 SELECT 권한을 완전히 회수해서 `guest_token`/`author_id`를 뺀 `posts_public` 뷰로만 조회할 수 있습니다. 쓰기는 전부 "본인 것만" 원칙으로 제한합니다. Supabase RLS(Row Level Security) 정책과 트리거로 강의자 권한(상태 전환, 삭제, 피드백 초기화)과 비회원 인증(`guest_token`)을 함께 처리합니다.
+`nodes`는 자기참조 구조로 강의 폴더/강의의 무제한 depth 트리를 이루고, `posts`도 마찬가지로 자기참조로 게시글과 답글을 하나의 트리로 통합 관리. 읽기는 테이블마다 성격이 달라 강의 입장 흐름에 필요한 `nodes`/`lectures`/`lecture_join_codes`는 공개, `profiles`/`favorites`/`post_likes`/`lecture_feedback_votes`는 RLS로 본인 행만 조회 가능하도록 제한(좋아요/피드백 개수는 `voter_key` 없이 집계 뷰로 따로 공개), `posts`는 유일하게 테이블 자체 SELECT 권한을 완전히 회수해 `guest_token`/`author_id`를 뺀 `posts_public` 뷰로만 조회 가능. 쓰기는 전부 "본인 것만" 원칙으로 제한. Supabase RLS(Row Level Security) 정책과 트리거로 강의자 권한(상태 전환, 삭제, 피드백 초기화)과 비회원 인증(`guest_token`)을 함께 처리.
 
-전체 SQL, RLS 정책, 트리거, 테이블 관계 상세 설명은 [`DB_DESIGN.md`](./DB_DESIGN.md)를 참고하세요.
+전체 SQL, RLS 정책, 트리거, 테이블 관계 상세 설명은 [`DB_DESIGN.md`](./DB_DESIGN.md) 참고.
 
 ---
 
