@@ -69,7 +69,7 @@ AI 교정, 부적절한 내용 필터링, 유사 질문 자동 탐지(#2, #3) �
 
 ### guest_token 관련
 
-정확히 언제/어떻게 생성하는지(강의 최초 입장 시 1회 생성 등) 확정 필요. `localStorage`에 저장하고 재사용. 이후 `posts`, `post_likes`, `lecture_feedback_votes` 관련 요청을 보낼 때마다 이 값을 `x-guest-token` 헤더로 실어 보내도록 구현 (supabase-js 클라이언트에 요청별 커스텀 헤더 설정, `SUPABASE_GUIDE.md` 참고).
+정확히 언제/어떻게 생성하는지(강의 최초 입장 시 1회 생성 등) 확정 필요. `localStorage`에 저장하고 재사용. 이후 `posts`, `post_likes`, `lecture_feedback_votes` 관련 요청을 보낼 때마다 이 값을 `x-guest-token` 헤더로 실어 보내도록 구현 (supabase-js 클라이언트에 요청별 커스텀 헤더 설정 방법은 [SUPABASE_GUIDE.md의 7번 항목](./SUPABASE_GUIDE.md#7-비회원-인증-guest_token--x-guest-token-헤더) 참고).
 
 ## 해결된 것 (참고용 기록)
 
