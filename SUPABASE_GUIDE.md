@@ -17,7 +17,7 @@
 ## 1. Supabase URL / API 키란 무엇인가
 
 - **URL**: 우리 Supabase 프로젝트가 있는 위치를 가리키는 주소예요. `https://<project-ref>.supabase.co` 형태입니다.
-- **anon(publishable) key**: "이 요청을 보내는 게 로그인 안 한 익명 사용자다"라고 신원을 밝히는 값이에요.
+- **anon(publishable) key**: "이 요청이 우리 프로젝트/앱에서 온 게 맞다"를 나타내는 값이에요. supabase-js가 `apikey` 헤더로 **로그인 여부와 무관하게 모든 요청에 항상** 함께 실어 보냅니다. 로그인하면 `Authorization` 헤더에 사용자의 세션 토큰(JWT)이 추가로 실려서 `auth.uid()`가 그 사람으로 채워지지만, `apikey` 헤더의 anon key는 로그인 후에도 그대로 계속 보내야 해요 — "익명 사용자 전용" 값이 아닙니다.
 
 **이 두 값은 비밀번호가 아닙니다.** 프론트엔드 코드에 그대로 들어가고, 브라우저 개발자도구에서 누구나 볼 수 있어요. 그래도 안전한 이유는, 실제로 "누가 뭘 할 수 있는지"는 이 키가 아니라 **RLS(Row Level Security) 정책**이 결정하기 때문입니다 (자세한 내용은 [DB_DESIGN.md의 RLS 정책 섹션](./DB_DESIGN.md#rls-정책) 참고).
 
