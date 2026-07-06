@@ -6,8 +6,8 @@ import {
   getCourseFolders,
   getCurrentUser,
   getStandaloneCourses,
-  joinCourse,
   moveCourseItem,
+  registerCourseByCode,
   renameCourseItem,
   updateCourse,
 } from '../services/api'
@@ -78,7 +78,7 @@ export function useStudentCourses() {
   }
 
   const registerCourse = async (code: string): Promise<Course> => {
-    const course = await joinCourse(code)
+    const course = await registerCourseByCode(code)
     setState((current) => ({ ...current, courses: [course, ...current.courses] }))
     return course
   }

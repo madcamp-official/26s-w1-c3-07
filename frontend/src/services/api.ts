@@ -216,8 +216,7 @@ interface NodeWithLectureRow {
   lectures: { start_time: string; end_time: string; location: string | null; max_participants: number | null } | null
 }
 
-/** 4자리 강의 입장 코드로 실제 강의(nodes+lectures)를 조회합니다. */
-export async function joinCourse(code: string): Promise<Course> {
+async function findCourseByJoinCode(code: string): Promise<Course> {
   if (!/^\d{4}$/.test(code)) {
     throw new Error('4자리 강의 코드를 입력해 주세요.')
   }
@@ -239,7 +238,7 @@ export async function joinCourse(code: string): Promise<Course> {
 
   if (nodeError) throw nodeError
 
-  const course: Course = {
+  return {
     id: node.id,
     title: node.name,
     participantCount: 0,
@@ -253,6 +252,16 @@ export async function joinCourse(code: string): Promise<Course> {
     location: node.lectures?.location ?? undefined,
     capacity: node.lectures?.max_participants ?? null,
   }
+}
+
+/** 4자리 코드로 강의를 찾아 강의실에 "입장"만 합니다. 내 강의 목록에 등록하지 않습니다. */
+export async function joinCourse(code: string): Promise<Course> {
+  return findCourseByJoinCode(code)
+}
+
+/** 4자리 코드로 강의를 찾아 "내 강의" 목록에 등록합니다. */
+export async function registerCourseByCode(code: string): Promise<Course> {
+  const course = await findCourseByJoinCode(code)
 
   const { rootCourses } = getActiveDataset()
   if (!rootCourses.some((item) => item.id === course.id)) rootCourses.unshift(course)
