@@ -102,6 +102,21 @@ const { data } = await supabase
   .eq('lecture_id', lectureId)
 ```
 
+**회원 탈퇴**: `delete_own_account` RPC를 호출하면 본인 `auth.users` 행이 삭제돼요(관련 `profiles` 등도 cascade로 같이 정리됨, [README API 문서](./README.md#api-문서) 참고). 성공하면 세션도 로그아웃 처리해줘야 해요.
+
+```js
+const handleWithdraw = async () => {
+  if (!window.confirm('정말로 탈퇴하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return
+
+  const { error } = await supabase.rpc('delete_own_account')
+  if (error) {
+    alert('탈퇴 실패: ' + error.message)
+    return
+  }
+  await supabase.auth.signOut()
+}
+```
+
 ## 6. 비회원 인증: `guest_token` + `x-guest-token` 헤더
 
 로그인 안 한 수강생(비회원)도 질문을 남길 수 있어야 하는데, 그 사람이 "본인 글"을 나중에 수정/삭제하려면 신원 확인이 필요해요. 그래서 쓰는 게 `guest_token`이에요.
