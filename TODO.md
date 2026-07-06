@@ -3,25 +3,34 @@
 ## 목차
 
 - [백엔드에서 해야 할 것](#백엔드에서-해야-할-것)
-  - [1. 자동 미해결 전환과 status 트리거의 충돌](#1-해결된-게시글에-질문-답글이-달리면-자동-미해결-전환과-status-트리거의-충돌)
-  - [2. `guest_token` 무효화 조건](#2-guest_token-무효화-조건-강의-종료-후)
-  - [3. `voter_key` 노출 문제](#3-voter_key-노출-문제)
-  - [4. 유사도 검사 비교 대상 범위](#4-유사도-검사-비교-대상-범위-미해결-게시글만-답글도-포함)
-  - [5. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정](#5-유사도-비교를-위한-벡터-컬럼-추가-여부-결정)
-  - [6. AI 보조 기능 서버 아키텍처 결정](#6-ai-보조-기능-서버-아키텍처-결정-edge-function-vs-express)
-  - [7. `max_participants`(최다 참여 인원) 강제 여부 결정](#7-max_participants최다-참여-인원-강제-여부-결정)
-  - [8. `lecture_join_codes` 파기 시점/주체 결정](#8-lecture_join_codes-파기delete-시점주체-결정)
-  - [9. 강의 폴더 트리 조회용 RPC (재귀 CTE)](#9-강의-폴더-트리-조회용-rpc-재귀-cte)
+  - [RLS 설정 및 guest_token 관련](#rls-설정-및-guest_token-관련)
+    - [1. 자동 미해결 전환과 status 트리거의 충돌](#1-해결된-게시글에-질문-답글이-달리면-자동-미해결-전환과-status-트리거의-충돌)
+    - [2. `guest_token` 무효화 조건](#2-guest_token-무효화-조건-강의-종료-후)
+    - [3. `voter_key` 노출 문제](#3-voter_key-노출-문제)
+  - [AI 보조 기능 관련 (Edge Function vs Express 서버 미결정)](#ai-보조-기능-관련-edge-function-vs-express-서버-미결정)
+    - [4. 유사도 검사 비교 대상 범위](#4-유사도-검사-비교-대상-범위-미해결-게시글만-답글도-포함)
+    - [5. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정](#5-유사도-비교를-위한-벡터-컬럼-추가-여부-결정)
+    - [6. AI 보조 기능 서버 아키텍처 결정](#6-ai-보조-기능-서버-아키텍처-결정-edge-function-vs-express)
+  - [Realtime 관련](#realtime-관련)
+    - [7. `max_participants`(최다 참여 인원) 강제 여부 결정](#7-max_participants최다-참여-인원-강제-여부-결정)
+  - [join_code 관련](#join_code-관련)
+    - [8. `lecture_join_codes` 파기 시점/주체 결정](#8-lecture_join_codes-파기delete-시점주체-결정)
+  - [기타 사항](#기타-사항)
+    - [9. 강의 폴더 트리 조회용 RPC (재귀 CTE)](#9-강의-폴더-트리-조회용-rpc-재귀-cte)
 - [프론트엔드에서 해야 할 것](#프론트엔드에서-해야-할-것)
-  - [1. 비회원 익명 식별자(`guest_token`) 생성 로직](#1-비회원-익명-식별자guest_token-생성-로직)
-  - [2. `x-guest-token` 커스텀 헤더를 실제로 보내는 구현](#2-x-guest-token-커스텀-헤더를-실제로-보내는-구현)
-  - [3. `posts_public` 뷰로 조회 대상 전환](#3-posts_public-뷰로-조회-대상-전환)
-  - [4. 게시글 작성 시 `created_mode` 실제로 채워서 보내는 구현](#4-게시글-작성-시-created_mode-실제로-채워서-보내는-구현)
+  - [RLS 설정 및 guest_token 관련](#rls-설정-및-guest_token-관련-1)
+    - [1. 비회원 익명 식별자(`guest_token`) 생성 로직](#1-비회원-익명-식별자guest_token-생성-로직)
+    - [2. `x-guest-token` 커스텀 헤더를 실제로 보내는 구현](#2-x-guest-token-커스텀-헤더를-실제로-보내는-구현)
+    - [3. `posts_public` 뷰로 조회 대상 전환](#3-posts_public-뷰로-조회-대상-전환)
+  - [기타 사항](#기타-사항-1)
+    - [4. 게시글 작성 시 `created_mode` 실제로 채워서 보내는 구현](#4-게시글-작성-시-created_mode-실제로-채워서-보내는-구현)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
 
 ## 백엔드에서 해야 할 것
 
-### 1. "해결된 게시글에 질문 답글이 달리면 자동 미해결 전환"과 status 트리거의 충돌
+### RLS 설정 및 guest_token 관련
+
+#### 1. "해결된 게시글에 질문 답글이 달리면 자동 미해결 전환"과 status 트리거의 충돌
 
 README 필수 기능("해결된 게시글에 대한 답글 작성 시 답글이 질문일 경우 다시 미해결로 이동")은 **수강생의 답글 INSERT**로 촉발되어 부모 게시글 `status`를 바꿔야 하는데, "게시글 status는 강의자만" 트리거(`trg_block_status_change`)가 이걸 막아버림. 해결 방법 후보:
 
@@ -30,35 +39,43 @@ README 필수 기능("해결된 게시글에 대한 답글 작성 시 답글이 
 
 아직 설계 확정 필요.
 
-### 2. `guest_token` 무효화 조건 (강의 종료 후)
+#### 2. `guest_token` 무효화 조건 (강의 종료 후)
 
 `posts_update_own`/`posts_delete_own`, `post_likes`/`lecture_feedback_votes` 관련 정책 전부에 "강의 종료 시각(`lectures.end_time`) 이후엔 `guest_token` 무효화" 조건이 아직 안 들어감.
 
-### 3. `voter_key` 노출 문제
+#### 3. `voter_key` 노출 문제
 
 `post_likes`/`lecture_feedback_votes`의 `voter_key`가 회원은 `user_id`를 그대로 쓰는데, 테이블 SELECT가 공개라 "누가 좋아요 눌렀는지"가 노출됨 — 문제 없다고 볼지, 익명화할지 확인 필요.
 
-### 4. 유사도 검사 비교 대상 범위 (미해결 게시글만? 답글도 포함?)
+### AI 보조 기능 관련 (Edge Function vs Express 서버 미결정)
+
+#### 4. 유사도 검사 비교 대상 범위 (미해결 게시글만? 답글도 포함?)
 
 README엔 "글 작성 시(답글 포함) 미해결 게시글들과의 유사도 검사"라고 되어 있는데, 비교 대상이 미해결 게시글(최상위 글)들만인지 그 밑 답글 내용까지 포함할지 미정. 결정에 따라 유사도 검사 API가 LLM에 넘기는 데이터 범위가 달라짐.
 
-### 5. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정
+#### 5. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정
 
 원래 기획 단계에서는 세션당 질문 수가 적을 것으로 예상해 임베딩(pgvector) 대신 "기존 질문 목록을 프롬프트에 통째로 넣고 LLM이 판단"하는 방식으로 시작하기로 했음. `posts`에 `embedding vector` 컬럼 + pgvector 확장을 추가해서 임베딩 기반 유사도 검색으로 갈지, 아니면 계속 LLM 프롬프트 방식으로 갈지 아직 결정 안 됨. 강의당 질문 수가 예상보다 많아지면 프롬프트에 다 넣기엔 비효율적이라 재검토가 필요할 수 있음.
 
-### 6. AI 보조 기능 서버 아키텍처 결정 (Edge Function vs Express)
+#### 6. AI 보조 기능 서버 아키텍처 결정 (Edge Function vs Express)
 
 AI 교정, 부적절한 내용 필터링, 유사 질문 자동 탐지(#4, #5) 기능을 처리할 서버를 **Supabase Edge Function**으로 만들지, **별도 Express 서버**를 새로 띄울지 아직 결정 안 됨. 현재는 Express 백엔드 서버 없이 Supabase만으로 구성되어 있음(`DB_DESIGN.md` 배포 현황 참고). 이 결정에 따라 배포 방식, 인증 처리(Edge Function은 Supabase 세션과 통합이 쉬움), LLM API 키 보관 위치 등이 달라짐.
 
-### 7. `max_participants`(최다 참여 인원) 강제 여부 결정
+### Realtime 관련
+
+#### 7. `max_participants`(최다 참여 인원) 강제 여부 결정
 
 컬럼만 있고 실제 입장 제한 로직/참여자 카운트 테이블이 없음. 정보 표시용인지 실제 강제해야 하는지 확인 필요 (강제한다면 Realtime **Presence** 또는 별도 카운트 확인 로직 추가 필요, `DB_DESIGN.md`의 "실시간 접속자 수" 섹션 참고).
 
-### 8. `lecture_join_codes` 파기(DELETE) 시점/주체 결정
+### join_code 관련
+
+#### 8. `lecture_join_codes` 파기(DELETE) 시점/주체 결정
 
 강의 종료 시 자동으로 지울지(예: `pg_cron`), 강의자가 수동으로 파기하기 전까진 남겨둘지. 안 지워져도 입장 시 `lectures.end_time` 확인이 안전망이라 급한 이슈는 아님.
 
-### 9. 강의 폴더 트리 조회용 RPC (재귀 CTE)
+### 기타 사항
+
+#### 9. 강의 폴더 트리 조회용 RPC (재귀 CTE)
 
 `nodes`는 `parent_id` 자기참조로 깊이 무제한 트리를 이루는데, Supabase의 기본 REST API(PostgREST)는 중첩 조회(`nodes(children:nodes(...))`) 시 요청마다 중첩 단계를 직접 지정해야 해서 "깊이 무제한" 요구사항엔 안 맞음. 재귀 CTE(`with recursive`)를 Postgres 함수로 감싸서 RPC로 노출해야 함 (예: `get_node_tree(root_id)`). 아직 함수/마이그레이션 미작성.
 
@@ -81,19 +98,23 @@ RPC 반환 형태는 두 가지 방식이 있음.
 
 ## 프론트엔드에서 해야 할 것
 
-### 1. 비회원 익명 식별자(`guest_token`) 생성 로직
+### RLS 설정 및 guest_token 관련
+
+#### 1. 비회원 익명 식별자(`guest_token`) 생성 로직
 
 정확히 언제/어떻게 생성하는지(강의 최초 입장 시 1회 생성 등) 확정 필요. `localStorage`에 저장하고 재사용.
 
-### 2. `x-guest-token` 커스텀 헤더를 실제로 보내는 구현
+#### 2. `x-guest-token` 커스텀 헤더를 실제로 보내는 구현
 
 `posts`, `post_likes`, `lecture_feedback_votes` 관련 요청을 보낼 때마다 이 헤더를 실어 보내도록 구현 (supabase-js 클라이언트에 요청별 커스텀 헤더 설정, `SUPABASE_GUIDE.md` 참고).
 
-### 3. `posts_public` 뷰로 조회 대상 전환
+#### 3. `posts_public` 뷰로 조회 대상 전환
 
 `posts_public` 뷰는 이미 만들어져 있음(`backend/supabase/migrations/20260705064427_lecturer_permissions.sql`, "해결된 것" 참고). 프론트에서 `posts` 테이블이 아니라 이 뷰를 조회하도록 변경하는 작업만 남음.
 
-### 4. 게시글 작성 시 `created_mode` 실제로 채워서 보내는 구현
+### 기타 사항
+
+#### 4. 게시글 작성 시 `created_mode` 실제로 채워서 보내는 구현
 
 강의를 만든 계정이 수강생 모드로 자기 강의에 들어와도 일반 수강생처럼 글을 쓸 수 있고, 화면에서 강의자/수강생 글을 색으로 구분할 수 있도록 `posts.created_mode` 컬럼 + 제약(`check`)/RLS 정책이 이미 반영됨(`backend/supabase/migrations/20260706075425_posts_created_mode_replaces_trigger.sql`). 근데 프론트에 지금 모드(강의자/수강생) 상태를 관리하고, 게시글 INSERT 시 `created_mode`에 그 값을 실제로 채워 보내는 구현은 아직 없음 (`SUPABASE_GUIDE.md` 참고). 안 보내면 DB 기본값(`student`)이 적용되니 당장 급한 이슈는 아님.
 
