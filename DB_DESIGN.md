@@ -10,7 +10,7 @@
     - [`anonymize_posts_before_profile_delete()`](#anonymize_posts_before_profile_delete)
     - [`block_status_change_by_non_lecturer()`](#block_status_change_by_non_lecturer)
     - [`set_resolved_at_on_status_change()`](#set_resolved_at_on_status_change)
-    - [`reopen_resolved_post_on_question_reply()`](#reopen_resolved_post_on_question_reply)
+    - [`unresolve_post_on_question_reply()`](#unresolve_post_on_question_reply)
     - [`handle_new_user()`](#handle_new_user)
     - [`enforce_nodes_parent_ownership()`](#enforce_nodes_parent_ownership)
   - [RPC 함수](#rpc-함수)
@@ -206,7 +206,7 @@ for each row execute function anonymize_posts_before_profile_delete();
 
 #### `block_status_change_by_non_lecturer()`
 
-게시글 `status`(미해결/해결)는 강의자만 바꿀 수 있어야 하는데, RLS 조건만으로는 "이 컬럼은 안 바뀌어야 한다"는 규칙을 표현하기 어려워서 트리거로 강제합니다. `status`가 실제로 바뀌려는 시도이면서 요청자가 그 강의의 소유자(`nodes.created_by = auth.uid()`)가 아니면 예외를 발생시켜 막습니다. 다만 `app.bypass_status_lock`이라는 트랜잭션 로컬 플래그가 켜져 있으면 이 검사를 건너뜁니다 — `reopen_resolved_post_on_question_reply()`가 "해결된 게시글에 질문 답글이 달리면 자동으로 미해결 전환"할 때만 예외적으로 이 플래그를 세팅합니다.
+게시글 `status`(미해결/해결)는 강의자만 바꿀 수 있어야 하는데, RLS 조건만으로는 "이 컬럼은 안 바뀌어야 한다"는 규칙을 표현하기 어려워서 트리거로 강제합니다. `status`가 실제로 바뀌려는 시도이면서 요청자가 그 강의의 소유자(`nodes.created_by = auth.uid()`)가 아니면 예외를 발생시켜 막습니다. 다만 `app.bypass_status_lock`이라는 트랜잭션 로컬 플래그가 켜져 있으면 이 검사를 건너뜁니다 — `unresolve_post_on_question_reply()`가 "해결된 게시글에 질문 답글이 달리면 자동으로 미해결 전환"할 때만 예외적으로 이 플래그를 세팅합니다.
 
 ```sql
 create or replace function block_status_change_by_non_lecturer()
@@ -255,12 +255,12 @@ before update on posts
 for each row execute function set_resolved_at_on_status_change();
 ```
 
-#### `reopen_resolved_post_on_question_reply()`
+#### `unresolve_post_on_question_reply()`
 
 README 필수 기능("해결된 게시글에 질문 답글이 달리면 다시 미해결로 전환")을 구현합니다. 답글의 답글까지 무한 depth를 지원하므로, 재귀 CTE로 답글 트리를 거슬러 올라가 `status`를 들고 있는 최상위 게시글을 찾습니다. 그 게시글이 `resolved` 상태였다면 `app.bypass_status_lock` 플래그를 세팅한 뒤 `status`를 `unresolved`로 되돌립니다(이 플래그가 왜 필요한지는 `block_status_change_by_non_lecturer()` 설명 참고). `SECURITY DEFINER`로 선언한 이유는, 이 UPDATE를 실제로 실행하는 사람은 그 답글을 쓴 수강생인데 `posts` 테이블 직접 SELECT가 `anon`/`authenticated`에서 회수되어 있고(아래 [RLS 정책 → `posts`](#posts) 참고) 이 수강생은 `posts_update_own`/`posts_lecturer_update_status` 어느 RLS에도 걸리지 않아(자기 글도, 강의자도 아님) 조상 게시글을 조회·수정할 권한이 원래 없기 때문입니다. `created_mode = 'lecturer'`인 글은 이미 답글+`opinion` 타입만 가능하도록 CHECK로 막혀 있어서, `post_type = 'question'`인 답글은 항상 수강생 글임이 구조적으로 보장됩니다.
 
 ```sql
-create or replace function reopen_resolved_post_on_question_reply()
+create or replace function unresolve_post_on_question_reply()
 returns trigger
 security definer
 set search_path = public
@@ -289,9 +289,9 @@ begin
 end;
 $$ language plpgsql;
 
-create trigger trg_reopen_resolved_post_on_question_reply
+create trigger trg_unresolve_post_on_question_reply
 after insert on posts
-for each row execute function reopen_resolved_post_on_question_reply();
+for each row execute function unresolve_post_on_question_reply();
 ```
 
 #### `handle_new_user()`
@@ -673,3 +673,4 @@ create policy "lecture_feedback_votes_lecturer_reset" on lecture_feedback_votes 
   - `20260706154910_unify_my_nodes_policy_names.sql` — `my_nodes` RLS 정책 이름을 다른 테이블과 같은 `<테이블>_<동작>_<설명>` 순서로 통일(`my_nodes_only_favorite_lecturer_mode_insert` → `my_nodes_insert_only_favorite_lecturer_mode`, `_update`도 동일, `my_nodes_folder_must_be_own_student_folder_insert` → `my_nodes_insert_folder_must_be_own_student_folder`, `_update`도 동일)
   - `20260706161208_get_my_favorite_subtrees_rpc.sql` — 즐겨찾기 루트별 서브트리를 `anchor_node_id`로 태그해 한 번에 가져오는 RPC(`get_my_favorite_subtrees`) 추가
   - `20260706161244_move_delete_own_account_language_clause.sql` — `delete_own_account()`의 `language sql` 절 위치를 본문 뒤로 옮겨 다른 함수들과 스타일 통일 (동작 변화 없음)
+  - `20260706163119_rename_reopen_to_unresolve.sql` — `reopen_resolved_post_on_question_reply()`/`trg_reopen_resolved_post_on_question_reply`를 `unresolve_post_on_question_reply()`/`trg_unresolve_post_on_question_reply`로 개명 (동작 변화 없음, "reopen"이 실제 동작에 비해 모호해서 상태값 이름과 대칭되게 변경)
