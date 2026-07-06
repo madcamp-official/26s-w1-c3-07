@@ -252,16 +252,9 @@ supabase 클라이언트는 앱 시작할 때 딱 한 번만 만들고(`supabase
 
 ## 8. 강의자/수강생 모드 색 구분: `posts.created_mode`
 
-같은 계정이라도 강의자 모드로 쓴 글인지 수강생 모드로 쓴 글인지에 따라 화면에서 색을 다르게 표시해야 해요 (강의를 만든 계정이 수강생 모드로 자기 강의에 들어와서 글을 쓰는 경우도 있으므로, `author_id`가 강의 제작자와 같은지만으론 구분이 안 됩니다). 그래서 헤더가 아니라 **글 작성 시 `posts.created_mode` 컬럼에 값을 직접 넣는 방식**으로 처리해요.
+같은 계정이라도 강의자 모드로 쓴 글인지 수강생 모드로 쓴 글인지에 따라 화면 색을 다르게 표시해야 하는데(`author_id`가 강의 제작자와 같은지만으론 구분 안 됨), 그 판단은 `posts.created_mode` 컬럼 값(`'lecturer'` | `'student'`)만 보면 됩니다. 글 작성 시 이 값을 실어 보내는 건 프론트 로직에서 알아서 처리하면 되고요.
 
-- 게시글/답글 INSERT 시 `created_mode` 컬럼에 `'lecturer'` 또는 `'student'` 값을 같이 보내야 합니다.
-  ```js
-  await supabase
-    .from('posts')
-    .insert({ ...기타컬럼, created_mode: currentMode }) // 'lecturer' | 'student'
-  ```
-- **안 보내면 DB 기본값(`'student'`)이 적용**돼요.
-- `created_mode = 'lecturer'`로 보내려면 실제로 그 강의를 만든 계정이어야만 통과됩니다(RLS가 `auth.uid()`로 검증). 남의 강의에서 `created_mode: 'lecturer'`를 보내면 INSERT 자체가 거부돼요. 자세한 제약 내용은 [DB_DESIGN.md](./DB_DESIGN.md) 참고.
+- **`created_mode: 'lecturer'`로 보냈는데 실제 그 강의를 만든 계정이 아니면 INSERT 자체가 거부됩니다**(RLS가 `auth.uid()`로 검증). 모드 상태 관리 버그로 이 값이 잘못 실릴 경우 조용히 무시되는 게 아니라 요청이 실패하니, 에러 핸들링에 유의하세요. 자세한 제약 내용은 [DB_DESIGN.md](./DB_DESIGN.md) 참고.
 
 ## 9. 테스트용 더미 데이터
 
