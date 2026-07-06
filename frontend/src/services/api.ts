@@ -210,22 +210,48 @@ export async function getStandaloneCourses(): Promise<Course[]> {
   return clone(getActiveDataset().rootCourses)
 }
 
-export async function joinCourse(code: string): Promise<Course> {
-  await delay(400)
+interface NodeWithLectureRow {
+  id: string
+  name: string
+  lectures: { start_time: string; end_time: string; location: string | null; max_participants: number | null } | null
+}
 
+/** 4자리 강의 입장 코드로 실제 강의(nodes+lectures)를 조회합니다. */
+export async function joinCourse(code: string): Promise<Course> {
   if (!/^\d{4}$/.test(code)) {
     throw new Error('4자리 강의 코드를 입력해 주세요.')
   }
 
-  const demoRoom = mockCourseRooms['course-database']
+  const { data: joinCodeRow, error: joinCodeError } = await supabase
+    .from('lecture_join_codes')
+    .select('lecture_id')
+    .eq('code', code)
+    .maybeSingle<{ lecture_id: string }>()
+
+  if (joinCodeError) throw joinCodeError
+  if (!joinCodeRow) throw new Error('유효하지 않은 강의 코드입니다.')
+
+  const { data: node, error: nodeError } = await supabase
+    .from('nodes')
+    .select('id, name, lectures(start_time, end_time, location, max_participants)')
+    .eq('id', joinCodeRow.lecture_id)
+    .single<NodeWithLectureRow>()
+
+  if (nodeError) throw nodeError
+
   const course: Course = {
-    id: 'course-database',
-    title: demoRoom.title,
-    participantCount: demoRoom.participantCount,
-    questionCount: demoRoom.questions.length,
+    id: node.id,
+    title: node.name,
+    participantCount: 0,
+    questionCount: 0,
     updatedAt: '방금 전',
     color: 'blue',
     ownership: 'registered',
+    date: node.lectures?.start_time,
+    startTime: node.lectures?.start_time,
+    endTime: node.lectures?.end_time,
+    location: node.lectures?.location ?? undefined,
+    capacity: node.lectures?.max_participants ?? null,
   }
 
   const { rootCourses } = getActiveDataset()
@@ -460,13 +486,60 @@ export async function deleteCourseItem(input: DeleteItemInput): Promise<void> {
   detachCourse(folders, rootCourses, input.itemId)
 }
 
-export async function getCourseRoom(courseId: string): Promise<CourseRoom> {
-  await delay()
-  const room = mockCourseRooms[courseId]
-  if (!room) {
-    throw new Error('강의실을 찾을 수 없습니다.')
+interface NodeWithLectureAndOwnerRow {
+  id: string
+  name: string
+  created_by: string | null
+  lectures: { start_time: string; end_time: string; location: string | null } | null
+}
+
+function formatLectureDate(startTime: string): string {
+  const date = new Date(startTime)
+  const weekday = ['일', '월', '화', '수', '목', '금', '토'][date.getDay()]
+  return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 (${weekday})`
+}
+
+/** 실제 DB(nodes+lectures)에서 강의 메타데이터만 조회합니다. 질문/답글/피드백은 아직 posts 연동 전이라 빈 값으로 채웁니다. */
+async function getCourseRoomFromDb(courseId: string): Promise<CourseRoom> {
+  const { data: node, error } = await supabase
+    .from('nodes')
+    .select('id, name, created_by, lectures(start_time, end_time, location)')
+    .eq('id', courseId)
+    .eq('node_type', 'lecture')
+    .single<NodeWithLectureAndOwnerRow>()
+
+  if (error || !node) throw new Error('강의실을 찾을 수 없습니다.')
+
+  let lecturerName = '강의자'
+  if (node.created_by) {
+    const { data: owner } = await supabase.from('profiles').select('name').eq('id', node.created_by).maybeSingle<{ name: string | null }>()
+    if (owner?.name) lecturerName = owner.name
   }
-  return clone(applyViewerVotes(room, getViewerKey()))
+
+  return {
+    id: node.id,
+    title: node.name,
+    date: node.lectures ? formatLectureDate(node.lectures.start_time) : '',
+    lecturerName,
+    participantCount: 0,
+    feedbackOptions: [
+      { key: 'cold', label: '추워요', likeCount: 0, dislikeCount: 0, myVote: null },
+      { key: 'hot', label: '더워요', likeCount: 0, dislikeCount: 0, myVote: null },
+      { key: 'quiet', label: '소리가 작아요', likeCount: 0, dislikeCount: 0, myVote: null },
+      { key: 'blurry', label: '잘 안 보여요', likeCount: 0, dislikeCount: 0, myVote: null },
+    ],
+    questions: [],
+  }
+}
+
+export async function getCourseRoom(courseId: string): Promise<CourseRoom> {
+  const room = mockCourseRooms[courseId]
+  if (room) {
+    await delay()
+    return clone(applyViewerVotes(room, getViewerKey()))
+  }
+
+  return getCourseRoomFromDb(courseId)
 }
 
 function isAnsweredByLecturer(question: Question): boolean {
