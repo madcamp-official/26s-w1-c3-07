@@ -95,7 +95,3 @@
 | A | 수학 (폴더) | C | (최상위) | 최상위 |
 
 즐겨찾기 대상(`node_id`)의 실제 `parent_id`는 원래 만든 사람(B/C)의 트리 구조 그대로이고("실제 parent" 컬럼), "내 폴더 어디에 정리했나"는 A 본인의 `my_nodes.folder_id`에만 저장되는 개인적인 값입니다 — 남의 트리 구조를 바꾸는 게 아닙니다.
-
-## 계정 변경 이력
-
-원래는 조준호/Junho Jo/xxx 3개의 임시 테스트 계정(A/B/C)을 재사용해서 만들었는데, 이후 프론트엔드 테스트용으로 새로 만들어진 안소희1/안소희2/안소희3 계정으로 데이터 소유권을 옮겼습니다(`nodes.created_by`, `posts.author_id`, `post_likes`/`lecture_feedback_votes`의 `voter_key`, `my_nodes.user_id` 전부 재할당).
