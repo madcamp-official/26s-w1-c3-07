@@ -1,5 +1,6 @@
 import { Plus, RotateCcw } from 'lucide-react'
-import { useState, type DragEvent } from 'react'
+import { useEffect, useState, type DragEvent } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import CourseCard from '../components/course/CourseCard'
 import CourseJoinForm from '../components/course/CourseJoinForm'
 import CreateItemModal from '../components/course/CreateItemModal'
@@ -7,10 +8,28 @@ import { DRAG_MIME, type DragPayload } from '../components/course/dragPayload'
 import FolderTree from '../components/course/FolderTree'
 import MoveItemModal from '../components/course/MoveItemModal'
 import RegisterByCodeModal from '../components/course/RegisterByCodeModal'
+import ShareCourseModal from '../components/course/ShareCourseModal'
 import Button from '../components/ui/Button'
 import { useStudentCourses } from '../hooks/useStudentCourses'
-import type { SortOrder, TreeItemType } from '../types/course'
+import type { Course, CourseFolder, SortOrder, TreeItemType } from '../types/course'
 import { cn } from '../utils/cn'
+
+interface StudentCoursesLocationState {
+  shareCourseId?: string
+}
+
+function findCourseById(folders: CourseFolder[], rootCourses: Course[], id: string): Course | null {
+  const fromRoot = rootCourses.find((course) => course.id === id)
+  if (fromRoot) return fromRoot
+
+  for (const folder of folders) {
+    const fromFolder = folder.courses.find((course) => course.id === id)
+    if (fromFolder) return fromFolder
+    const fromChildren = findCourseById(folder.children, [], id)
+    if (fromChildren) return fromChildren
+  }
+  return null
+}
 
 const sortOptions: Array<{ value: SortOrder; label: string }> = [
   { value: 'created', label: '생성순' },
@@ -24,15 +43,27 @@ interface ItemTarget {
 }
 
 export default function StudentCoursesPage() {
-  const { user, folders, courses, isLoading, error, sortOrder, setSortOrder, addFolder, addCourse, registerCourse, moveItem, renameItem, deleteItem, reload } = useStudentCourses()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { user, folders, courses, isLoading, error, sortOrder, setSortOrder, addFolder, registerCourse, moveItem, renameItem, deleteItem, reload } = useStudentCourses()
   const [isRegisterOpen, setIsRegisterOpen] = useState(false)
-  const [createInitialType, setCreateInitialType] = useState<'folder' | 'course' | null>(null)
+  const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false)
   const [moveTarget, setMoveTarget] = useState<ItemTarget | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ItemTarget | null>(null)
   const [renameTarget, setRenameTarget] = useState<ItemTarget | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [isRootDragOver, setIsRootDragOver] = useState(false)
+  const [shareCourse, setShareCourse] = useState<Course | null>(null)
   const isInstructor = user?.role === 'instructor'
+
+  const pendingShareCourseId = (location.state as StudentCoursesLocationState | null)?.shareCourseId ?? null
+
+  useEffect(() => {
+    if (!pendingShareCourseId || isLoading) return
+    const course = findCourseById(folders, courses, pendingShareCourseId)
+    if (course) setShareCourse(course)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [pendingShareCourseId, isLoading, folders, courses])
 
   if (isLoading) {
     return <div className="grid min-h-screen place-items-center"><div className="size-10 animate-spin rounded-full border-4 border-violet-100 border-t-violet-600" aria-label="강의 목록 불러오는 중" /></div>
@@ -81,7 +112,7 @@ export default function StudentCoursesPage() {
           <h1 className="shrink-0 pt-2 text-2xl font-extrabold tracking-tight text-slate-900">내 강의</h1>
           {!isInstructor && <div className="w-full xl:max-w-xl"><CourseJoinForm /></div>}
           {isInstructor ? (
-            <Button onClick={() => setCreateInitialType('course')} className="self-start rounded-full"><Plus className="size-5" />강의 만들기</Button>
+            <Button onClick={() => navigate('/student/courses/new')} className="self-start rounded-full"><Plus className="size-5" />강의 만들기</Button>
           ) : (
             <Button onClick={() => setIsRegisterOpen(true)} className="self-start rounded-full"><Plus className="size-5" />폴더/강의 등록</Button>
           )}
@@ -99,7 +130,7 @@ export default function StudentCoursesPage() {
             </div>
           )}
           <div className="flex flex-wrap items-center gap-3">
-            <Button variant="dashed" onClick={() => setCreateInitialType('folder')} className="rounded-full"><Plus className="size-4" />루트 폴더 만들기</Button>
+            <Button variant="dashed" onClick={() => setIsCreateFolderOpen(true)} className="rounded-full"><Plus className="size-4" />루트 폴더 만들기</Button>
             <div className="flex rounded-2xl bg-slate-100 p-1">
               {sortOptions.map((option) => (
                 <button key={option.value} type="button" onClick={() => setSortOrder(option.value)} className={cn('rounded-xl px-4 py-2 text-sm font-bold transition', sortOrder === option.value ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600')}>
@@ -120,7 +151,7 @@ export default function StudentCoursesPage() {
           <FolderTree
             folders={folders}
             isInstructor={isInstructor}
-            onAddSubfolder={() => setCreateInitialType('folder')}
+            onAddSubfolder={() => setIsCreateFolderOpen(true)}
             onRename={startRename}
             onMove={(itemId, itemType, label) => setMoveTarget({ itemId, itemType, label })}
             onDelete={(itemId, itemType, label) => setDeleteTarget({ itemId, itemType, label })}
@@ -150,14 +181,12 @@ export default function StudentCoursesPage() {
       </div>
 
       <CreateItemModal
-        isOpen={createInitialType !== null}
-        initialType={createInitialType ?? 'folder'}
-        allowCourse={isInstructor}
-        onClose={() => setCreateInitialType(null)}
+        isOpen={isCreateFolderOpen}
+        onClose={() => setIsCreateFolderOpen(false)}
         onCreateFolder={addFolder}
-        onCreateCourse={addCourse}
       />
       <RegisterByCodeModal isOpen={isRegisterOpen} onClose={() => setIsRegisterOpen(false)} onRegister={registerCourse} />
+      <ShareCourseModal isOpen={shareCourse !== null} course={shareCourse} onClose={() => setShareCourse(null)} />
       <MoveItemModal
         isOpen={moveTarget !== null}
         itemId={moveTarget?.itemId ?? null}

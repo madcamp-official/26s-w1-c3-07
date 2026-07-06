@@ -9,6 +9,12 @@ export interface Course {
   updatedAt?: string
   color: ItemColor
   ownership: FolderOwnership
+  date?: string
+  startTime?: string
+  endTime?: string
+  location?: string
+  capacity?: number | null
+  joinCode?: string
 }
 
 export interface CourseFolder {
@@ -28,6 +34,12 @@ export interface CreateFolderInput {
 
 export interface CreateCourseInput {
   title: string
+  folderId?: string | null
+  date: string
+  startTime: string
+  endTime: string
+  location?: string
+  capacity?: number | null
 }
 
 export type TreeItemType = 'folder' | 'course'

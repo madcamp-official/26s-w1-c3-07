@@ -62,16 +62,35 @@ export async function createRootFolder(input: CreateFolderInput): Promise<Course
   }
 }
 
+function generateJoinCode(): string {
+  return String(Math.floor(1000 + Math.random() * 9000))
+}
+
 export async function createCourse(input: CreateCourseInput): Promise<Course> {
   await delay(350)
-  return {
+  const course: Course = {
     id: `course-${crypto.randomUUID()}`,
     title: input.title,
-    participantCount: 1,
+    participantCount: 0,
     questionCount: 0,
     color: 'purple',
     ownership: 'owned',
+    date: input.date,
+    startTime: input.startTime,
+    endTime: input.endTime,
+    location: input.location,
+    capacity: input.capacity ?? null,
+    joinCode: generateJoinCode(),
   }
+
+  if (input.folderId) {
+    const folder = findFolder(mockCourseFolders, input.folderId)
+    if (folder) folder.courses.push(course)
+  } else {
+    mockStandaloneCourses.push(course)
+  }
+
+  return course
 }
 
 function findFolder(folders: CourseFolder[], folderId: string): CourseFolder | null {
