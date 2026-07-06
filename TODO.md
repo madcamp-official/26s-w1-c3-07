@@ -14,7 +14,7 @@
   - [join_code 관련](#join_code-관련)
     - [6. `lecture_join_codes` 파기 시점/주체 결정](#6-lecture_join_codes-파기delete-시점주체-결정)
   - [기타 사항](#기타-사항)
-    - [7. 강의 폴더 트리 조회용 RPC (재귀 CTE)](#7-강의-폴더-트리-조회용-rpc-재귀-cte)
+    - [7. 강의 폴더 트리 조회 (내 강의 페이지 / 강의 페이지)](#7-강의-폴더-트리-조회-내-강의-페이지--강의-페이지)
 - [프론트엔드](#프론트엔드)
   - [guest_token 관련](#guest_token-관련-1)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
@@ -64,26 +64,66 @@ AI 교정, 부적절한 내용 필터링, 유사 질문 자동 탐지(#2, #3) �
 
 ### 기타 사항
 
-#### 7. 강의 폴더 트리 조회용 RPC (재귀 CTE)
+#### 7. 강의 폴더 트리 조회 (내 강의 페이지 / 강의 페이지)
 
-`nodes`는 `parent_id` 자기참조로 깊이 무제한 트리를 이루는데, Supabase의 기본 REST API(PostgREST)는 중첩 조회(`nodes(children:nodes(...))`) 시 요청마다 중첩 단계를 직접 지정해야 해서 "깊이 무제한" 요구사항엔 안 맞음. 재귀 CTE(`with recursive`)를 Postgres 함수로 감싸서 RPC로 노출해야 함 (예: `get_node_tree(root_id)`). 아직 함수/마이그레이션 미작성.
+"내 강의"/"강의" 페이지에서 서버에 물어봐야 하는 건 3가지: (1) 강의자 모드로 "내 강의" 접속 시 내가 만든 모든 노드, (2) 수강생 모드로 "내 강의" 접속 시 내가 만든 노드 + 내가 즐겨찾기한 노드 + 그 즐겨찾기 노드들을 조상으로 갖는 모든 노드, (3) 강의 페이지 접속 시 해당 `lecture_id`의 모든 `posts`. 이 중 (1)·(3)은 평평한 필터 조회라 RPC 없이 프론트에서 바로 쿼리하면 되고, (2)만 "즐겨찾기한 노드의 모든 자손"이 depth 무제한 재귀라 RPC가 필요함.
 
-RPC 반환 형태는 두 가지 방식이 있음.
+**(1) 강의자 모드 — RPC 불필요, 프론트에서 직접 쿼리**
+```js
+const { data } = await supabase
+  .from('nodes')
+  .select('*')
+  .eq('created_by', userId)
+  .eq('created_mode', 'lecturer')
+```
 
-1. **평평한 행 목록 방식** — RPC 반환 타입을 `table(...)` 또는 `setof nodes`로 하고, 재귀 CTE 결과를 그대로 반환. 클라이언트는 `parent_id` 기준의 평평한 배열을 받아서 프론트/백엔드 쪽에서 트리로 재조립해야 함.
-2. **중첩 JSON 트리 방식** — 반환 타입을 `jsonb`로 하고, 재귀 CTE 결과를 `jsonb_build_object`/`jsonb_agg`로 계층 구조로 조립해서 반환. 단, Postgres 재귀 CTE 안에서는 집계 함수를 바로 쓸 수 없어서, CTE 밖에서 별도로 재귀 조립 로직이 필요해 구현이 더 복잡함.
+**(3) 강의 페이지 — RPC 불필요, 프론트에서 직접 쿼리**
+```js
+const { data } = await supabase
+  .from('posts_public')
+  .select('*')
+  .eq('lecture_id', lectureId)
+```
+`posts.lecture_id`가 답글까지 포함해 모든 행에 직접 박혀 있어서 트리 depth와 무관하게 평평한 조회로 끝남.
 
-실무적으로는 방식 1(평평한 목록)이 더 흔히 쓰임. `lecture_id` 기준 `posts` 트리 조회도 `nodes`와 동일한 자기참조 구조이므로 같은 패턴을 적용 가능.
+**(2) 수강생 모드 — RPC 필요**: `nodes`는 `parent_id` 자기참조로 깊이 무제한 트리를 이루는데, "즐겨찾기한 노드 자신 + 그 아래 전체 서브트리"를 구하려면 재귀 CTE가 필요하고 Supabase 기본 REST API(중첩 조회)로는 깊이 무제한을 표현할 수 없음. 반환 형태는 **평평한 행 목록**(`setof nodes`) 방식으로 결정 — 중첩 JSON 트리 방식은 재귀 CTE 안에서 집계 함수(`jsonb_agg` 등)를 바로 못 써서 CTE 밖에 depth 역순으로 훑는 별도 조립 루프가 필요해 훨씬 복잡한데, 지금은 이 트리를 조립해서 쓰는 화면이 "내 강의" 하나뿐이라 그 복잡도를 감수할 이득이 없음. 아직 함수/마이그레이션 미작성.
 
-참고로 Supabase(PostgREST)를 쓰는 이상 클라이언트가 받는 응답은 RPC 반환 타입(`table`, `jsonb` 등)과 무관하게 항상 JSON으로 직렬화되어 옴 — 방식 1/2의 차이는 "JSON이냐 아니냐"가 아니라 "평평한 JSON 배열이냐, 이미 중첩된 JSON이냐"의 차이일 뿐임.
+```sql
+create or replace function get_node_descendants(root_ids uuid[])
+returns setof nodes
+language sql
+stable
+as $$
+  with recursive descendants as (
+    select n.*, 0 as depth from nodes n where n.id = any(root_ids)
+    union all
+    select n.*, d.depth + 1 from nodes n
+    join descendants d on n.parent_id = d.id
+    where d.depth < 50  -- 무한루프/과도한 재귀 방지 가드
+  )
+  select id, parent_id, node_type, name, created_by, created_mode, created_at from descendants;
+$$;
+```
 
-일반 테이블 select는 PostgREST의 `db-max-rows` 설정이 응답 행 수를 캡해주므로, RLS만으로도 "한 요청으로 테이블 전체 dump"는 기본적으로 막혀 있음 (이건 인가 문제지 리소스 문제가 아님). 반면 재귀 CTE로 트리를 순회하는 `get_node_tree` 같은 RPC는 얘기가 다름 — depth/범위를 제한하지 않으면 RLS 필터와 무관하게 쿼리 자체가 무거워질 수 있음. 따라서 이 RPC를 구현할 때는 다음을 함께 고려해야 함:
+- `nodes_select_all`이 이미 전체 공개(`using (true)`)라 이 RPC는 `SECURITY DEFINER`가 필요 없음(REST로도 어차피 읽을 수 있는 데이터를 재귀 조회 형태로만 대신 해주는 것).
+- base case가 `root_ids`(즐겨찾기 node_id 목록)에 속한 노드 자신도 포함하므로, "즐겨찾기 노드 자신 + 서브트리"가 한 번의 호출로 다 나옴.
+- 프론트는 (a) `nodes`에서 `created_by = 나 and created_mode = 'student'`로 내가 만든 노드, (b) `my_nodes`에서 내 즐겨찾기 `node_id` 목록, (c) 그 목록으로 위 RPC 호출 — 이 세 결과를 합쳐서(id 기준 중복 제거) 클라이언트에서 트리로 조립. 별도 라이브러리 없이 아래처럼 조립 가능(부모가 조회 결과 안에 없으면 자동으로 최상위 취급 — 즐겨찾기한 노드의 실제 조상은 우리가 안 가져왔으므로 이 fallback이 정확히 원하는 동작).
+  ```js
+  function buildTree(flatNodes) {
+    const byId = new Map(flatNodes.map(n => [n.id, { ...n, children: [] }]))
+    const roots = []
+    for (const node of byId.values()) {
+      const parent = byId.get(node.parent_id)
+      if (parent) parent.children.push(node)
+      else roots.push(node)
+    }
+    return roots
+  }
+  ```
 
-- `root_id`(또는 `lecture_id`) 파라미터를 필수로 받아 특정 서브트리로 범위를 한정
-- 재귀 CTE 안에 최대 depth 제한 조건 추가 (예: `where depth < 20` 같은 가드)
-- 필요시 반환 행 수에 `limit` 적용
+Edge Function은 필요 없음 — 순수 DB 조회라 SQL(RPC)로 완결되고, Edge Function을 끼우면 네트워크 홉만 늘어남 (Edge Function은 LLM 호출처럼 SQL로 못 하는 로직에만 쓸 것, #4 참고).
 
-`posts` 트리도 동일한 자기참조 구조라 같은 가드가 필요함.
+프론트 요청 시점은 로그인 시 한꺼번에 받아두지 않고, 모드 전환/페이지 진입 시점마다 그 모드에 맞는 것만 요청 (안 쓰일 수도 있는 요청을 미리 낭비하지 않고, 세션 중 변경사항도 재요청 때 자연히 반영됨).
 
 ## 프론트엔드
 
