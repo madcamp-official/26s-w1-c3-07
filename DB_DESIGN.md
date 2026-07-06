@@ -242,7 +242,7 @@ for each row execute function set_resolved_at_on_status_change();
 
 #### `reopen_resolved_post_on_question_reply()`
 
-README 필수 기능("해결된 게시글에 질문 답글이 달리면 다시 미해결로 전환")을 구현합니다. 답글의 답글까지 무한 depth를 지원하므로, 재귀 CTE로 답글 트리를 거슬러 올라가 `status`를 들고 있는 최상위 게시글을 찾습니다. 그 게시글이 `resolved` 상태였다면 `app.bypass_status_lock` 플래그를 세팅한 뒤 `status`를 `unresolved`로 되돌립니다(이 플래그가 왜 필요한지는 `block_status_change_by_non_lecturer()` 설명 참고). `SECURITY DEFINER`로 선언한 이유는, 이 UPDATE를 실제로 실행하는 사람은 그 답글을 쓴 수강생인데 `posts` 테이블 직접 SELECT가 `anon`/`authenticated`에서 회수되어 있고(아래 "`posts` 읽기는 테이블이 아니라 뷰로만" 참고) 이 수강생은 `posts_update_own`/`posts_lecturer_update_status` 어느 RLS에도 걸리지 않아(자기 글도, 강의자도 아님) 조상 게시글을 조회·수정할 권한이 원래 없기 때문입니다. `created_mode = 'lecturer'`인 글은 이미 답글+`opinion` 타입만 가능하도록 CHECK로 막혀 있어서, `post_type = 'question'`인 답글은 항상 수강생 글임이 구조적으로 보장됩니다.
+README 필수 기능("해결된 게시글에 질문 답글이 달리면 다시 미해결로 전환")을 구현합니다. 답글의 답글까지 무한 depth를 지원하므로, 재귀 CTE로 답글 트리를 거슬러 올라가 `status`를 들고 있는 최상위 게시글을 찾습니다. 그 게시글이 `resolved` 상태였다면 `app.bypass_status_lock` 플래그를 세팅한 뒤 `status`를 `unresolved`로 되돌립니다(이 플래그가 왜 필요한지는 `block_status_change_by_non_lecturer()` 설명 참고). `SECURITY DEFINER`로 선언한 이유는, 이 UPDATE를 실제로 실행하는 사람은 그 답글을 쓴 수강생인데 `posts` 테이블 직접 SELECT가 `anon`/`authenticated`에서 회수되어 있고(아래 [RLS 정책 → `posts`](#posts) 참고) 이 수강생은 `posts_update_own`/`posts_lecturer_update_status` 어느 RLS에도 걸리지 않아(자기 글도, 강의자도 아님) 조상 게시글을 조회·수정할 권한이 원래 없기 때문입니다. `created_mode = 'lecturer'`인 글은 이미 답글+`opinion` 타입만 가능하도록 CHECK로 막혀 있어서, `post_type = 'question'`인 답글은 항상 수강생 글임이 구조적으로 보장됩니다.
 
 ```sql
 create or replace function reopen_resolved_post_on_question_reply()
@@ -359,8 +359,8 @@ grant execute on function delete_own_account() to authenticated;
 
 > `delete_own_account()`의 개별 동작 설명은 위 [SQL → RPC 함수](#rpc-함수) 섹션 참고.
 
-- **`posts_public` 뷰**: `posts` 테이블 자체는 SELECT 권한이 없어(아래 "읽기는 테이블이 아니라 뷰로만" 참고) 이 뷰로만 조회할 수 있습니다. `guest_token`은 완전히 제외하고, `author_id`(uid)도 통째로 숨긴 뒤 `is_anonymous`가 `false`인 글만 `profiles.name`을 조인해서 보여줍니다. 뷰가 `profiles`를 조인할 수 있는 건 Postgres 뷰가 기본적으로 조회자가 아니라 **뷰 소유자의 권한**으로 실행되기 때문으로, `profiles`가 본인만 조회 가능하도록 좁혀져 있어도 뷰 내부 조인에는 영향이 없습니다(수정/삭제 자체는 여전히 `posts` 테이블의 RLS 정책으로 처리).
-- **`post_likes_counts`/`lecture_feedback_votes_counts` 뷰**: `post_likes`/`lecture_feedback_votes`도 테이블 자체 SELECT는 본인 투표 행(`voter_key` 일치)만 가능하도록 좁혀서(아래 "읽기는 테이블이 아니라 뷰로만" 참고), 남이 무엇을 눌렀는지는 직접 조회할 수 없습니다. 하지만 좋아요/피드백 개수는 누구나 봐야 하는 값이라, `voter_key` 없이 `count(*)`로 집계만 한 별도 뷰로 공개합니다. `post_likes_counts`는 `post_id`별 좋아요 개수, `lecture_feedback_votes_counts`는 `lecture_id`·`feedback_type`별 좋아요/싫어요 개수(`count(*) filter (where value = 1/-1)`)를 보여줍니다. "내가 이미 눌렀는지"는 이 뷰가 아니라 `post_likes`/`lecture_feedback_votes` 테이블에 본인 `voter_key`로 직접 SELECT해서 확인합니다(RLS가 본인 행만 허용하므로 가능).
+- **`posts_public` 뷰**: `posts` 테이블 자체는 SELECT 권한이 없어(아래 [RLS 정책 → `posts`](#posts) 참고) 이 뷰로만 조회할 수 있습니다. `guest_token`은 완전히 제외하고, `author_id`(uid)도 통째로 숨긴 뒤 `is_anonymous`가 `false`인 글만 `profiles.name`을 조인해서 보여줍니다. 뷰가 `profiles`를 조인할 수 있는 건 Postgres 뷰가 기본적으로 조회자가 아니라 **뷰 소유자의 권한**으로 실행되기 때문으로, `profiles`가 본인만 조회 가능하도록 좁혀져 있어도 뷰 내부 조인에는 영향이 없습니다(수정/삭제 자체는 여전히 `posts` 테이블의 RLS 정책으로 처리).
+- **`post_likes_counts`/`lecture_feedback_votes_counts` 뷰**: `post_likes`/`lecture_feedback_votes`도 테이블 자체 SELECT는 본인 투표 행(`voter_key` 일치)만 가능하도록 좁혀서(아래 [RLS 정책 → `post_likes`](#post_likes)/[`lecture_feedback_votes`](#lecture_feedback_votes) 참고), 남이 무엇을 눌렀는지는 직접 조회할 수 없습니다. 하지만 좋아요/피드백 개수는 누구나 봐야 하는 값이라, `voter_key` 없이 `count(*)`로 집계만 한 별도 뷰로 공개합니다. `post_likes_counts`는 `post_id`별 좋아요 개수, `lecture_feedback_votes_counts`는 `lecture_id`·`feedback_type`별 좋아요/싫어요 개수(`count(*) filter (where value = 1/-1)`)를 보여줍니다. "내가 이미 눌렀는지"는 이 뷰가 아니라 `post_likes`/`lecture_feedback_votes` 테이블에 본인 `voter_key`로 직접 SELECT해서 확인합니다(RLS가 본인 행만 허용하므로 가능).
 
 ## 실시간 접속자 수 (강의별)
 
@@ -383,16 +383,22 @@ grant execute on function delete_own_account() to authenticated;
 
 읽기는 테이블마다 성격이 달라 셋으로 나뉩니다: (1) 강의 입장 흐름에 필요한 `nodes`/`lectures`/`lecture_join_codes`는 소유자가 아닌 사람도 읽어야 하므로 그대로 공개(`using (true)`), (2) `profiles`는 본인만, (3) `posts`/`post_likes`/`lecture_feedback_votes`는 테이블 자체 SELECT를 좁히고 민감한 식별자를 뺀 뷰/본인 행으로만 조회하게 합니다. 쓰기는 전부 "본인 것만" 원칙으로 제한합니다.
 
+### `profiles`
+
+본인만 조회/수정할 수 있습니다. INSERT 정책은 없는데, `auth.users` 가입 트리거(`handle_new_user()`)로만 생성되는 경로라 직접 INSERT는 원천 차단됩니다. 본인만 조회 가능하도록 좁혀도, 다른 사람의 `name`은 `posts_public` 뷰가 뷰 소유자 권한으로 내부적으로 조인해서 노출하므로 비익명 글의 작성자 이름 표시는 그대로 동작합니다.
+
 ```sql
--- profiles: 본인만 조회/수정 가능. INSERT는 auth.users 가입 트리거로만 생성되므로 정책 없음(직접 INSERT 차단)
--- (다른 사람의 profiles.name은 posts_public 뷰가 뷰 소유자 권한으로 내부 조인해 노출하므로,
--- 여기서 본인만으로 좁혀도 비익명 글의 작성자 이름 표시는 그대로 동작함)
 alter table profiles enable row level security;
 create policy "profiles_select_self" on profiles for select using (auth.uid() = id);
 create policy "profiles_update_self" on profiles for update
   using (auth.uid() = id) with check (auth.uid() = id);
+```
 
--- nodes: 전체 공개 읽기, 로그인 사용자가 본인 명의로 생성/수정/삭제(강의자/수강생 둘 다 폴더는 만들 수 있음)
+### `nodes`
+
+전체 공개 읽기이고, 로그인한 사용자가 본인 명의로 생성/수정/삭제할 수 있습니다(강의자/수강생 모드 둘 다 폴더를 만들 수 있음).
+
+```sql
 alter table nodes enable row level security;
 create policy "nodes_select_all" on nodes for select using (true);
 create policy "nodes_insert_own" on nodes for insert
@@ -401,32 +407,42 @@ create policy "nodes_update_own" on nodes for update
   using (created_by = auth.uid()) with check (created_by = auth.uid());
 create policy "nodes_delete_own" on nodes for delete
   using (created_by = auth.uid());
+```
 
--- lectures: 전체 공개 읽기, 해당 node의 소유자만 생성/수정/삭제
+### `lectures`
+
+전체 공개 읽기이고, 해당 노드(`nodes.created_by`)의 소유자만 생성/수정/삭제할 수 있습니다.
+
+```sql
 alter table lectures enable row level security;
 create policy "lectures_select_all" on lectures for select using (true);
 create policy "lectures_owner_all" on lectures for all
   using (exists (select 1 from nodes where nodes.id = lectures.node_id and nodes.created_by = auth.uid()))
   with check (exists (select 1 from nodes where nodes.id = lectures.node_id and nodes.created_by = auth.uid()));
+```
 
--- lecture_join_codes: 코드 조회는 공개(입장 시 코드로 찾아야 하므로), 발급/재발급/파기는 강의 소유자만
+### `lecture_join_codes`
+
+코드 조회는 공개입니다(입장 시 코드로 강의를 찾아야 하므로). 발급/재발급/파기는 강의 소유자만 가능합니다.
+
+```sql
 alter table lecture_join_codes enable row level security;
 create policy "lecture_join_codes_select_all" on lecture_join_codes for select using (true);
 create policy "lecture_join_codes_owner_all" on lecture_join_codes for insert
   with check (exists (select 1 from lectures join nodes on nodes.id = lectures.node_id where lectures.node_id = lecture_id and nodes.created_by = auth.uid()));
 create policy "lecture_join_codes_owner_delete" on lecture_join_codes for delete
   using (exists (select 1 from lectures join nodes on nodes.id = lectures.node_id where lectures.node_id = lecture_id and nodes.created_by = auth.uid()));
+```
 
--- my_nodes: 완전히 개인적인 데이터라 본인만 읽기/쓰기 전부 가능
+### `my_nodes`
+
+완전히 개인적인 데이터라 본인만 읽기/쓰기 전부 가능합니다(`my_nodes_owner_all`). 여기에 더해, 즐겨찾기는 "남이 강의자 모드로 만든 노드"만 등록할 수 있어야 합니다(남의 수강생 모드 개인 정리 폴더까지 즐겨찾기할 수 있으면 안 됨). `my_nodes_owner_all`이 이미 `for all`(permissive)로 열려 있어서 여기에 permissive 정책을 추가하면 OR로 합쳐져 오히려 더 넓어지기만 하므로, `RESTRICTIVE`로 만들어 AND로 좁혔습니다. `node_id`는 PK 컬럼이라 이론상 UPDATE도 가능해서 INSERT/UPDATE 둘 다 막습니다.
+
+```sql
 alter table my_nodes enable row level security;
 create policy "my_nodes_owner_all" on my_nodes for all
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 
--- my_nodes: 즐겨찾기는 "남이 강의자 모드로 만든 노드"만 등록 가능해야 함
--- (남의 개인 정리용 수강생 모드 폴더까지 즐겨찾기할 수 있으면 안 됨).
--- my_nodes_owner_all이 이미 for all(permissive)로 열려 있어서, 여기에 permissive
--- 정책을 추가하면 OR로 합쳐져 오히려 더 넓어지기만 함 -- RESTRICTIVE로 만들어서
--- AND로 합쳐지게 함. node_id는 PK 컬럼이라 이론상 UPDATE도 가능해서 INSERT/UPDATE 둘 다 막음.
 create policy "my_nodes_only_favorite_lecturer_mode_insert" on my_nodes as restrictive for insert
   with check (
     exists (select 1 from nodes where nodes.id = node_id and nodes.created_mode = 'lecturer')
@@ -436,11 +452,17 @@ create policy "my_nodes_only_favorite_lecturer_mode_update" on my_nodes as restr
   with check (
     exists (select 1 from nodes where nodes.id = node_id and nodes.created_mode = 'lecturer')
   );
+```
 
--- posts: 테이블 자체 SELECT는 아예 없음(GRANT 회수) — guest_token 노출 문제 + author_id를
--- 익명 여부에 따라 가리기 위해 posts_public 뷰로만 조회하게 함(위 "뷰" 섹션 참고).
--- 회원/비회원 누구나 작성 가능(단 author_id는 본인 것만 주장 가능).
--- 수정/삭제도 post_likes와 같은 방식(x-guest-token 헤더 대조)으로 처리 — 회원은 auth.uid(), 비회원은 헤더 값과 guest_token 일치 확인
+### `posts`
+
+RLS는 "누가 행에 접근 가능한가"만 결정할 뿐, "어떤 테이블/컬럼에 접근 가능한가"는 별도의 GRANT 권한 문제입니다. 전체 공개 SELECT 정책을 열어둔 채로 `guest_token` 컬럼을 그대로 두면, RLS와 무관하게 `posts` 테이블에 직접 `select`를 날리는 것만으로 `guest_token`이 노출되어 남의 글을 수정/삭제할 수 있게 됩니다. 그래서 테이블 자체의 SELECT 권한을 `anon`/`authenticated`에서 회수하고, `guest_token`과 `author_id`를 뺀 `posts_public` 뷰(위 "뷰" 섹션 참고)로만 조회 가능하게 만들었습니다. 회원/비회원 누구나 글을 쓸 수 있지만(단 `author_id`는 본인 것만 주장 가능), 수정/삭제는 `post_likes`와 같은 방식으로 처리합니다 — 회원은 `auth.uid()`, 비회원은 `x-guest-token` 헤더 값과 `guest_token` 일치 여부로 확인합니다.
+
+`created_mode = 'lecturer'`라고 쓰려면 실제로 그 강의의 제작자여야 합니다(제3자가 강의자 답변인 것처럼 위장하는 것 방지). UPDATE 쪽은 `RESTRICTIVE`로 만들어서 아래 `posts_update_own`/`posts_lecturer_update_status` 등 다른 정책과 OR가 아니라 AND로 합쳐지게 했습니다.
+
+강의자는 자기 강의(`lectures.node_id` 소유)에 속한 게시글이면 남의 글이라도 상태 전환(미해결↔해결) 및 삭제(부적절한 글 제거)가 가능합니다. Postgres는 같은 명령어에 정책이 여러 개면 OR로 합쳐지므로, 이 정책은 `posts_update_own`/`posts_delete_own`과 나란히 적용됩니다.
+
+```sql
 alter table posts enable row level security;
 revoke select on posts from anon, authenticated;
 create policy "posts_insert_anyone" on posts for insert
@@ -460,9 +482,6 @@ create policy "posts_delete_own" on posts for delete
     or (author_id is null and guest_token = (current_setting('request.headers', true)::json ->> 'x-guest-token'))
   );
 
--- posts: created_mode = 'lecturer'라고 쓰려면 실제로 그 강의의 제작자여야 함
--- (제3자가 강의자 답변인 것처럼 위장하는 것 방지). update 쪽은 RESTRICTIVE로 만들어서
--- 기존 posts_update_own/posts_lecturer_update_status 등 다른 정책과 OR가 아니라 AND로 합쳐지게 함
 create policy "posts_insert_lecturer_mode_matches_owner" on posts for insert
   with check (
     created_mode <> 'lecturer'
@@ -481,9 +500,6 @@ create policy "posts_update_lecturer_mode_matches_owner" on posts as restrictive
     )
   );
 
--- posts: 강의자는 자기 강의(lectures.node_id 소유)에 속한 게시글이면 남의 글이라도
--- status 전환(미해결<->해결) 및 삭제(부적절한 글 제거)가 가능
--- (Postgres는 같은 명령어에 정책이 여러 개면 OR로 합쳐지므로 위 posts_update_own/posts_delete_own과 나란히 적용됨)
 create policy "posts_lecturer_update_status" on posts for update
   using (exists (
     select 1 from lectures join nodes on nodes.id = lectures.node_id
@@ -499,12 +515,13 @@ create policy "posts_lecturer_delete" on posts for delete
     select 1 from lectures join nodes on nodes.id = lectures.node_id
     where lectures.node_id = posts.lecture_id and nodes.created_by = auth.uid()
   ));
+```
 
--- post_likes / lecture_feedback_votes: 집계는 post_likes_counts/lecture_feedback_votes_counts 뷰로 공개,
--- 조회 자체는 본인 투표 행만 가능(voter_key를 남에게 보여주지 않으면서, 기기가 바뀌어도
--- "내가 이미 눌렀는지"를 서버 기준으로 판단할 수 있게 함). 등록/취소도 본인 voter_key로만
--- 비회원은 auth.uid()가 없으므로, 클라이언트가 보낸 커스텀 헤더(x-guest-token)의 값과 행의 voter_key가
--- 정확히 일치할 때만 허용 (auth.role() = 'anon'이라고 무조건 통과시키면 남의 좋아요까지 지울 수 있어 위험)
+### `post_likes`
+
+집계(좋아요 개수)는 `post_likes_counts` 뷰로 공개하고, 조회 자체는 본인 투표 행만 가능합니다(`voter_key`를 남에게 보여주지 않으면서, 기기가 바뀌어도 "내가 이미 눌렀는지"를 서버 기준으로 판단할 수 있게 함). 등록/취소도 본인 `voter_key`로만 가능합니다. 비회원은 `auth.uid()`가 없으므로, 클라이언트가 보낸 `x-guest-token` 헤더 값과 행의 `voter_key`가 정확히 일치할 때만 허용합니다(`auth.role() = 'anon'`이라고 무조건 통과시키면 남의 좋아요까지 지울 수 있어 위험).
+
+```sql
 alter table post_likes enable row level security;
 create policy "post_likes_select_own" on post_likes for select
   using (voter_key = coalesce(auth.uid(), (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid));
@@ -512,7 +529,13 @@ create policy "post_likes_insert_own" on post_likes for insert
   with check (voter_key = coalesce(auth.uid(), (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid));
 create policy "post_likes_delete_own" on post_likes for delete
   using (voter_key = coalesce(auth.uid(), (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid));
+```
 
+### `lecture_feedback_votes`
+
+`post_likes`와 동일한 원칙(집계는 `lecture_feedback_votes_counts` 뷰로 공개, 조회/등록/취소는 본인 `voter_key`로만)에 더해, 강의자는 자기 강의의 투표 전체를 초기화할 수 있습니다(`lecture_feedback_votes_delete_own`은 본인 투표만 지울 수 있어서, 전체 초기화를 위해 별도 정책이 필요합니다).
+
+```sql
 alter table lecture_feedback_votes enable row level security;
 create policy "lecture_feedback_votes_select_own" on lecture_feedback_votes for select
   using (voter_key = coalesce(auth.uid(), (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid));
@@ -521,18 +544,12 @@ create policy "lecture_feedback_votes_insert_own" on lecture_feedback_votes for 
 create policy "lecture_feedback_votes_delete_own" on lecture_feedback_votes for delete
   using (voter_key = coalesce(auth.uid(), (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid));
 
--- lecture_feedback_votes: 강의자는 자기 강의의 투표 전체를 초기화 가능
--- (lecture_feedback_votes_delete_own은 본인 투표만 지울 수 있어서, 전체 초기화를 위해 별도 정책 필요)
 create policy "lecture_feedback_votes_lecturer_reset" on lecture_feedback_votes for delete
   using (exists (
     select 1 from lectures join nodes on nodes.id = lectures.node_id
     where lectures.node_id = lecture_feedback_votes.lecture_id and nodes.created_by = auth.uid()
   ));
 ```
-
-### `posts` 읽기는 테이블이 아니라 뷰로만 가능해야 함
-
-RLS는 "누가 행에 접근 가능한가"만 결정할 뿐, "어떤 테이블/컬럼에 접근 가능한가"는 별도의 GRANT 권한 문제입니다. `posts_select_all`을 `using (true)`로 열어둔 채로 `guest_token` 컬럼을 그대로 두면, RLS 정책과 무관하게 `posts` 테이블에 직접 `select`를 날리는 것만으로 `guest_token`이 노출되어 남의 글을 수정/삭제할 수 있게 됩니다. 그래서 `posts` 테이블 자체의 SELECT 권한을 `anon`/`authenticated`에서 회수하고, `guest_token`과 `author_id`를 뺀 `posts_public` 뷰(위 "뷰" 섹션 참고)로만 조회 가능하게 만들었습니다 (수정/삭제 자체는 위 `posts_update_own`/`posts_delete_own` 정책으로 처리하며, 별도 RPC 함수는 필요 없음). `post_likes`/`lecture_feedback_votes`도 같은 이유로 테이블 자체 SELECT는 본인 투표 행(`voter_key` 일치)으로만 좁히고, 전체 집계는 `voter_key`가 빠진 `post_likes_counts`/`lecture_feedback_votes_counts` 뷰로 따로 공개합니다.
 
 ## 배포 현황
 
