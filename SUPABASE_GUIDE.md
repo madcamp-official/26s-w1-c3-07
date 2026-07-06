@@ -129,7 +129,7 @@ const { data } = await supabase
 - `posts.guest_token`, `post_likes`/`lecture_feedback_votes`의 `voter_key`, Presence(접속자 수 집계) 키로 전부 동일하게 재사용
 - 서버(Supabase RLS)는 이 값을 **`x-guest-token`이라는 커스텀 HTTP 헤더**로 보내주면, RLS 정책이 그 헤더 값과 DB에 저장된 `guest_token`을 대조해서 "본인 글이 맞는지" 확인
 
-**⚠️ 아직 아무 데도 구현 안 되어 있어요** — `guest_token` 생성/저장 로직도, 헤더를 실어 보내는 코드도 지금 코드베이스 어디에도 없습니다. 앞으로 만들어야 할 부분이에요 ([TODO.md #5, #6](./TODO.md#5-비회원-익명-식별자guest_token-생성-로직) 참고).
+**⚠️ 아직 아무 데도 구현 안 되어 있어요** — `guest_token` 생성/저장 로직도, 헤더를 실어 보내는 코드도 지금 코드베이스 어디에도 없습니다. 앞으로 만들어야 할 부분이에요 ([TODO.md #4, #5](./TODO.md#4-비회원-익명-식별자guest_token-생성-로직) 참고).
 
 **구현 방식: 요청마다 체이닝으로 헤더 설정**
 
@@ -148,6 +148,6 @@ supabase 클라이언트는 앱 시작할 때 딱 한 번만 만들고(`supabase
 
 진행 상황과 설계 고민은 [`TODO.md`](./TODO.md)에서 트래킹하고 있어요. 프론트엔드와 특히 관련된 항목:
 
-- [#5 비회원 익명 식별자(`guest_token`) 생성 로직](./TODO.md#5-비회원-익명-식별자guest_token-생성-로직)
-- [#6 `x-guest-token` 커스텀 헤더를 실제로 보내는 구현](./TODO.md#6-x-guest-token-커스텀-헤더를-실제로-보내는-구현)
-- [#7 `posts_public` 뷰로 조회 대상 전환](./TODO.md#7-posts_public-뷰로-조회-대상-전환)
+- [#4 비회원 익명 식별자(`guest_token`) 생성 로직](./TODO.md#4-비회원-익명-식별자guest_token-생성-로직)
+- [#5 `x-guest-token` 커스텀 헤더를 실제로 보내는 구현](./TODO.md#5-x-guest-token-커스텀-헤더를-실제로-보내는-구현)
+- [#6 `posts_public` 뷰로 조회 대상 전환](./TODO.md#6-posts_public-뷰로-조회-대상-전환)
