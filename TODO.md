@@ -16,12 +16,8 @@
   - [기타 사항](#기타-사항)
     - [7. 강의 폴더 트리 조회용 RPC (재귀 CTE)](#7-강의-폴더-트리-조회용-rpc-재귀-cte)
 - [프론트엔드](#프론트엔드)
-  - [RLS 설정 및 guest_token 관련](#rls-설정-및-guest_token-관련)
-    - [1. 비회원 익명 식별자(`guest_token`) 생성 로직](#1-비회원-익명-식별자guest_token-생성-로직)
-    - [2. `x-guest-token` 커스텀 헤더를 실제로 보내는 구현](#2-x-guest-token-커스텀-헤더를-실제로-보내는-구현)
-    - [3. `posts_public` 뷰로 조회 대상 전환](#3-posts_public-뷰로-조회-대상-전환)
-  - [기타 사항](#기타-사항-1)
-    - [4. 게시글 작성 시 `created_mode` 실제로 채워서 보내는 구현](#4-게시글-작성-시-created_mode-실제로-채워서-보내는-구현)
+  - [guest_token 관련](#guest_token-관련-1)
+    - [1. `guest_token` 생성/저장 및 `x-guest-token` 헤더 전송 구현](#1-guest_token-생성저장-및-x-guest-token-헤더-전송-구현)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
 
 ## 백엔드
@@ -83,25 +79,11 @@ RPC 반환 형태는 두 가지 방식이 있음.
 
 ## 프론트엔드
 
-### RLS 설정 및 guest_token 관련
+### guest_token 관련
 
-#### 1. 비회원 익명 식별자(`guest_token`) 생성 로직
+#### 1. `guest_token` 생성/저장 및 `x-guest-token` 헤더 전송 구현
 
-정확히 언제/어떻게 생성하는지(강의 최초 입장 시 1회 생성 등) 확정 필요. `localStorage`에 저장하고 재사용.
-
-#### 2. `x-guest-token` 커스텀 헤더를 실제로 보내는 구현
-
-`posts`, `post_likes`, `lecture_feedback_votes` 관련 요청을 보낼 때마다 이 헤더를 실어 보내도록 구현 (supabase-js 클라이언트에 요청별 커스텀 헤더 설정, `SUPABASE_GUIDE.md` 참고).
-
-#### 3. `posts_public` 뷰로 조회 대상 전환
-
-`posts_public` 뷰는 이미 만들어져 있음(`backend/supabase/migrations/20260705064427_lecturer_permissions.sql`, "해결된 것" 참고). 프론트에서 `posts` 테이블이 아니라 이 뷰를 조회하도록 변경하는 작업만 남음.
-
-### 기타 사항
-
-#### 4. 게시글 작성 시 `created_mode` 실제로 채워서 보내는 구현
-
-강의를 만든 계정이 수강생 모드로 자기 강의에 들어와도 일반 수강생처럼 글을 쓸 수 있고, 화면에서 강의자/수강생 글을 색으로 구분할 수 있도록 `posts.created_mode` 컬럼 + 제약(`check`)/RLS 정책이 이미 반영됨(`backend/supabase/migrations/20260706075425_posts_created_mode_replaces_trigger.sql`). 근데 프론트에 지금 모드(강의자/수강생) 상태를 관리하고, 게시글 INSERT 시 `created_mode`에 그 값을 실제로 채워 보내는 구현은 아직 없음 (`SUPABASE_GUIDE.md` 참고). 안 보내면 DB 기본값(`student`)이 적용되니 당장 급한 이슈는 아님.
+정확히 언제/어떻게 생성하는지(강의 최초 입장 시 1회 생성 등) 확정 필요. `localStorage`에 저장하고 재사용. 이후 `posts`, `post_likes`, `lecture_feedback_votes` 관련 요청을 보낼 때마다 이 값을 `x-guest-token` 헤더로 실어 보내도록 구현 (supabase-js 클라이언트에 요청별 커스텀 헤더 설정, `SUPABASE_GUIDE.md` 참고).
 
 ## 해결된 것 (참고용 기록)
 
