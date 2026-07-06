@@ -3,7 +3,7 @@
 ## 목차
 
 - [백엔드](#백엔드)
-  - [RLS 설정 및 guest_token 관련](#rls-설정-및-guest_token-관련)
+  - [guest_token 관련](#guest_token-관련)
     - [1. `guest_token` 무효화 조건](#1-guest_token-무효화-조건-강의-종료-후)
   - [AI 보조 기능 관련 (Edge Function vs Express 서버 미결정)](#ai-보조-기능-관련-edge-function-vs-express-서버-미결정)
     - [2. 유사도 검사 비교 대상 범위](#2-유사도-검사-비교-대상-범위-미해결-게시글만-답글도-포함)
@@ -16,7 +16,7 @@
   - [기타 사항](#기타-사항)
     - [7. 강의 폴더 트리 조회용 RPC (재귀 CTE)](#7-강의-폴더-트리-조회용-rpc-재귀-cte)
 - [프론트엔드](#프론트엔드)
-  - [RLS 설정 및 guest_token 관련](#rls-설정-및-guest_token-관련-1)
+  - [RLS 설정 및 guest_token 관련](#rls-설정-및-guest_token-관련)
     - [1. 비회원 익명 식별자(`guest_token`) 생성 로직](#1-비회원-익명-식별자guest_token-생성-로직)
     - [2. `x-guest-token` 커스텀 헤더를 실제로 보내는 구현](#2-x-guest-token-커스텀-헤더를-실제로-보내는-구현)
     - [3. `posts_public` 뷰로 조회 대상 전환](#3-posts_public-뷰로-조회-대상-전환)
@@ -26,7 +26,7 @@
 
 ## 백엔드
 
-### RLS 설정 및 guest_token 관련
+### guest_token 관련
 
 #### 1. `guest_token` 무효화 조건 (강의 종료 후)
 
