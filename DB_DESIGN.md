@@ -99,7 +99,8 @@ create table posts (
   created_mode text not null default 'student' check (created_mode in ('lecturer', 'student')), -- 강의자 모드/수강생 모드 중 어느 화면에서 썼는지 (화면에서 색 구분용)
   check (author_id is not null or is_anonymous = true), -- 작성자가 없으면(비회원) 반드시 익명이어야 함
   check ((parent_id is null) = (status is not null)), -- 최상위 게시글은 status 필수, 답글은 status 필수 null
-  check (created_mode <> 'lecturer' or (parent_id is not null and post_type = 'opinion')) -- 강의자 모드로 쓴 글은 답글+opinion 타입만 가능
+  check (created_mode <> 'lecturer' or (parent_id is not null and post_type = 'opinion')), -- 강의자 모드로 쓴 글은 답글+opinion 타입만 가능
+  check ((status = 'resolved') = (resolved_at is not null)) -- resolved일 때만 resolved_at 존재, 양방향 강제
 );
 
 -- 좋아요 (게시글/답글 공용, 중복 방지)
@@ -189,6 +190,24 @@ create trigger trg_block_status_change
 before update on posts
 for each row execute function block_status_change_by_non_lecturer();
 
+-- status가 resolved로 바뀌면 resolved_at을 자동으로 찍고, resolved가 아니게 되면
+-- (다시 unresolved로 돌아가거나 답글이라 status가 null인 경우) resolved_at도 null로 되돌림
+create or replace function set_resolved_at_on_status_change()
+returns trigger as $$
+begin
+  if new.status = 'resolved' and old.status is distinct from 'resolved' then
+    new.resolved_at := now();
+  elsif new.status is distinct from 'resolved' then
+    new.resolved_at := null;
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trg_set_resolved_at
+before update on posts
+for each row execute function set_resolved_at_on_status_change();
+
 -- 회원 가입(Google OAuth 포함) 시 auth.users에 행이 생기면 profiles도 자동 생성
 -- profiles는 INSERT 정책이 없어(RLS로 직접 INSERT 차단) 이 트리거가 유일한 생성 경로.
 -- 일반 role은 public.profiles에 INSERT 권한이 없으므로 SECURITY DEFINER로 우회.
@@ -261,6 +280,7 @@ grant execute on function delete_own_account() to authenticated;
 
 - **탈퇴와 익명 표시 체크 제약의 충돌 방지**: `posts`엔 `check (author_id is not null or is_anonymous = true)`(작성자가 없으면 반드시 익명)가 걸려 있는데, 실명으로 쓴 글의 작성자가 탈퇴하면 `author_id`가 `null`로 바뀌면서 이 체크를 위반할 뻔합니다. `trg_anonymize_posts_before_profile_delete` 트리거가 `profiles` 삭제 **직전**에 해당 작성자의 글을 먼저 `is_anonymous = true`로 바꿔둬서 이 충돌을 막습니다.
 - **강의자 권한(상태 전환/삭제/피드백 초기화)**: `posts_lecturer_update_status`/`posts_lecturer_delete`/`feedback_lecturer_reset` 정책으로 강의자가 남의 게시글 `status`를 바꾸거나, 부적절한 글을 삭제하거나, 실시간 피드백 투표를 전체 초기화할 수 있습니다(`nodes.created_by = auth.uid()`로 해당 강의 소유자인지 확인). `trg_block_status_change` 트리거가 이와 짝을 이뤄 "강의자가 아니면 `status`를 절대 못 바꾼다"를 강제합니다 — 정책은 허용 조건, 트리거는 차단 조건을 맡는 구조입니다.
+- **`resolved_at` 자동 설정/해제**: `status`가 `resolved`로 바뀌는 순간 `trg_set_resolved_at` 트리거가 `resolved_at`을 `now()`로 채우고, 다시 `unresolved`로 돌아가거나(또는 애초에 답글이라 `status`가 `null`인 경우) `null`로 되돌립니다. `check ((status = 'resolved') = (resolved_at is not null))` 제약이 이 관계를 양방향으로 강제해서, 트리거를 거치지 않은 직접 INSERT/UPDATE에 대한 안전장치 역할도 합니다. 같은 테이블의 `BEFORE UPDATE` 트리거는 이름 알파벳순으로 실행되므로, "강의자가 아니면 `status` 변경 자체를 차단"하는 `trg_block_status_change`(b)가 `trg_set_resolved_at`(s)보다 먼저 실행되어 순서 문제가 없습니다.
 - **회원가입 시 `profiles` 자동 생성**: `profiles`는 별도 INSERT 정책이 없어 RLS가 직접 INSERT를 막습니다. 그래서 `auth.users`에 새 행이 생길 때(Google OAuth 로그인 포함) `on_auth_user_created` 트리거가 `handle_new_user()`를 호출해 `profiles` 행을 자동으로 만드는 게 유일한 생성 경로입니다. 이 함수는 일반 role에게 없는 `public.profiles` INSERT 권한을 얻기 위해 `SECURITY DEFINER`로 선언했고, `search_path`를 `public`으로 고정해 스키마 하이재킹을 방지합니다. `display_name`은 구글 계정의 `full_name`/`name`(없으면 이메일)을 `raw_user_meta_data`에서 꺼내 자동으로 채웁니다.
 
 ### RPC·뷰 동작
@@ -431,3 +451,5 @@ create policy "feedback_lecturer_reset" on lecture_feedback_votes for delete
   - `20260706063127_feedback_votes_allow_like_and_dislike.sql` — `lecture_feedback_votes`의 PK에 `value`를 추가해, 한 사람이 같은 feedback_type에 좋아요/싫어요를 동시에 누를 수 있게 변경
   - `20260706073501_restrict_lecturer_post_rules_by_mode.sql` — `restrict_lecturer_post_rules()`가 `x-mode` 헤더를 확인해, 강의를 만든 계정이 수강생 모드로 들어왔을 땐 게시글 작성 제한을 적용하지 않도록 변경 (아래 마이그레이션으로 대체됨)
   - `20260706075425_posts_created_mode_replaces_trigger.sql` — `restrict_lecturer_post_rules` 트리거/`x-mode` 헤더 방식을 폐기하고, `posts.created_mode` 컬럼 + 테이블 `check` 제약(답글+opinion 타입) + RLS 정책(`posts_insert_lecturer_mode_matches_owner`, `posts_update_lecturer_mode_matches_owner`)으로 대체
+  - `20260706081432_posts_resolved_at_trigger_and_check.sql` — `status`가 `resolved`로 바뀌면 `resolved_at`을 자동으로 채우는 `trg_set_resolved_at` 트리거 추가, `check ((status = 'resolved') = (resolved_at is not null))` 제약으로 양방향 강제
+  - `20260706081432_posts_resolved_at_trigger_and_check.sql` — `status`가 `resolved`로 바뀌면 `resolved_at`을 자동으로 채우고 되돌아가면 `null`로 되돌리는 `trg_set_resolved_at` 트리거 추가, `check ((status = 'resolved') = (resolved_at is not null))` 양방향 제약 추가
