@@ -148,7 +148,7 @@
 
 Supabase 연동 방법(URL/API 키, 클라이언트 설정, 코드 예시)은 [SUPABASE_GUIDE.md](./SUPABASE_GUIDE.md) 참고
 
-일반 테이블 조회/작성(select/insert 등)은 Supabase REST API 표준 패턴을 그대로 따르고, 테이블 구조는 [DB_SCHEMA.md](./DB_SCHEMA.md)에 정리되어 있어 아래 표에는 따로 안 적음. 이 표는 이름만으로는 파라미터/반환값을 알 수 없는 **RPC/Edge Function 전용**.
+일반 테이블 조회/작성(select/insert 등)은 Supabase REST API 표준 패턴을 그대로 따르고, 테이블 구조는 [DB_SCHEMA.md](./DB_SCHEMA.md)에 정리되어 있어 아래 표에는 따로 표기하지 않음. 이 표는 이름만으로는 파라미터/반환값을 알 수 없는 **RPC/Edge Function 전용**.
 
 | Method | Endpoint | 설명 | 요청 | 응답 |
 |---|---|---|---|---|
