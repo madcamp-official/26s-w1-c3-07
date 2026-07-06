@@ -2,6 +2,7 @@ import { BookOpen, Hash, Search, UserRound } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import BrandLogo from '../components/BrandLogo'
+import GoogleIcon from '../components/GoogleIcon'
 import Button from '../components/ui/Button'
 import { getCurrentUser, joinCourse, signInWithGoogle } from '../services/api'
 
@@ -55,7 +56,7 @@ export default function LandingPage() {
         </form>
 
         <Button onClick={() => void handleGoogleSignIn()} disabled={isSigningIn} variant="secondary" className="mt-6 w-full py-4 text-base">
-          <span className="text-lg font-black text-blue-500">G</span>{isSigningIn ? '이동 중...' : 'Google로 계속하기'}
+          <GoogleIcon className="size-5" />{isSigningIn ? '이동 중...' : 'Google로 계속하기'}
         </Button>
 
         <div className="mt-10 rounded-3xl border border-violet-100 bg-violet-50 p-5">
