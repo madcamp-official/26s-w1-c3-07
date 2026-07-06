@@ -92,10 +92,10 @@ function App() {
             <p className="hint">로그인됨</p>
             <div className="profile-box">
               <div>
-                <strong>{profile?.display_name ?? session.user.email}</strong>
+                <strong>{profile?.name ?? session.user.email}</strong>
               </div>
               <div className="mode-badge">
-                모드: {profile?.last_mode ?? 'student'}
+                모드: {profile?.mode ?? 'student'}
               </div>
               <div className="uid">uid: {session.user.id}</div>
             </div>
