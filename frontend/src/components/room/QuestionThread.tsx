@@ -18,7 +18,6 @@ export default function QuestionThread({ question, canResolve = false, onLike, o
   const [isResolving, setIsResolving] = useState(false)
   const isOpinion = question.postType === 'opinion'
   const isLecturer = question.authorRole === 'lecturer'
-  const hasLecturerReply = question.replies.some((reply) => reply.authorRole === 'lecturer')
 
   const handleResolve = async () => {
     if (!onResolve) return
@@ -31,7 +30,7 @@ export default function QuestionThread({ question, canResolve = false, onLike, o
   }
 
   return (
-    <article className={cn('rounded-3xl border bg-white p-5 shadow-sm sm:p-6', question.isResolved ? 'border-slate-100' : (isLecturer || hasLecturerReply) ? 'border-blue-200' : isOpinion ? 'border-rose-200' : 'border-violet-200')}>
+    <article className={cn('rounded-3xl border-2 bg-white p-5 shadow-sm sm:p-6', isOpinion ? 'border-rose-400' : 'border-violet-400')}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 text-sm text-slate-400">
           <span className={cn('font-bold', isLecturer ? 'text-blue-700' : 'text-slate-600')}>{question.authorName}</span>
