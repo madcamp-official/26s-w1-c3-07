@@ -176,17 +176,17 @@ const { data: created } = await supabase
   .eq('created_mode', 'student')
 ```
 
-**b. 내 즐겨찾기 목록(`node_id` ↔ `folder_id` 매핑)**: 직접 조회 (RLS로 본인 행만 보임)
+**b. 내 즐겨찾기 목록(`node_id` ↔ `anchor_id` 매핑)**: 직접 조회 (RLS로 본인 행만 보임)
 ```js
-const { data: myNodes } = await supabase
-  .from('my_nodes')
-  .select('node_id, folder_id')
+const { data: myFavorites } = await supabase
+  .from('favorites')
+  .select('node_id, anchor_id')
 ```
 
 **c. 즐겨찾기한 노드들의 서브트리**: RPC 호출
 ```js
 const { data: favoriteRows } = await supabase.rpc('get_my_favorite_subtrees')
-// 각 행: { id, parent_id, node_type, name, created_by, created_mode, created_at, anchor_node_id }
+// 각 행: { id, parent_id, type, name, created_by, created_mode, created_at, anchor_node_id }
 ```
 
 **⚠️ 주의: `created`와 `favoriteRows`를 하나의 `Map`으로 합쳐서 `id` 기준으로 중복 제거하면 안 됩니다.** 폴더 A와 그 하위 강의 B를 각각 따로 즐겨찾기한 경우, B는 "A의 서브트리 안 자손"이면서 동시에 "B 자신의 즐겨찾기 루트"로 **화면 두 자리에 각각 독립적으로 나타나야** 하는데, 전역 `id`로 합치면 하나로 뭉개져 버려요. 그래서 `favoriteRows`는 `anchor_node_id`(어느 즐겨찾기 루트에서 나온 행인지)로 그룹핑해서, 즐겨찾기 루트별로 독립된 서브트리를 각각 조립해야 합니다.
@@ -213,13 +213,13 @@ function buildTree(flatNodes) {
 }
 
 // created는 그 자체로 이미 하나의 진짜 트리(내 소유 nodes.parent_id 체인)라 buildTree(created)로 바로 조립.
-// 즐겨찾기는 anchor마다 독립적으로 조립해서, my_nodes에서 얻은 folder_id 위치에 각각 붙임(서로 합치지 않음).
-const favoriteRootsByFolder = new Map() // folder_id -> 붙일 서브트리 배열 (null이면 최상위)
+// 즐겨찾기는 anchor마다 독립적으로 조립해서, favorites에서 얻은 anchor_id 위치에 각각 붙임(서로 합치지 않음).
+const favoriteRootsByAnchor = new Map() // anchor_id -> 붙일 서브트리 배열 (null이면 최상위)
 for (const [anchorNodeId, rows] of groupByAnchor(favoriteRows)) {
   const [subtreeRoot] = buildTree(rows) // rows엔 anchor 자기 자신도 포함되어 있어서 루트 하나만 나옴
-  const { folder_id } = myNodes.find(m => m.node_id === anchorNodeId)
-  if (!favoriteRootsByFolder.has(folder_id)) favoriteRootsByFolder.set(folder_id, [])
-  favoriteRootsByFolder.get(folder_id).push(subtreeRoot)
+  const { anchor_id } = myFavorites.find(m => m.node_id === anchorNodeId)
+  if (!favoriteRootsByAnchor.has(anchor_id)) favoriteRootsByAnchor.set(anchor_id, [])
+  favoriteRootsByAnchor.get(anchor_id).push(subtreeRoot)
 }
 ```
 
