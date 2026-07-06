@@ -19,6 +19,7 @@
   - [11. `lecture_join_codes` 파기 시점/주체 결정](#11-lecture_join_codes-파기delete-시점주체-결정)
 - [기타 사항](#기타-사항)
   - [12. 강의 폴더 트리 조회용 RPC (재귀 CTE)](#12-강의-폴더-트리-조회용-rpc-재귀-cte)
+  - [13. `x-mode` 커스텀 헤더를 실제로 보내는 구현](#13-x-mode-커스텀-헤더를-실제로-보내는-구현)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
 
 ## RLS 설정 및 guest_token 관련
@@ -100,6 +101,10 @@ RPC 반환 형태는 두 가지 방식이 있음.
 - 필요시 반환 행 수에 `limit` 적용
 
 `posts` 트리도 동일한 자기참조 구조라 같은 가드가 필요함.
+
+### 13. `x-mode` 커스텀 헤더를 실제로 보내는 구현
+
+`restrict_lecturer_post_rules` 트리거가 `x-mode`(lecturer/student) 헤더를 확인해서, 강의를 만든 계정이 수강생 모드로 들어왔을 땐 게시글 작성 제한을 풀어주도록 이미 반영됨(`backend/supabase/migrations/20260706073501_restrict_lecturer_post_rules_by_mode.sql`). 근데 프론트에 모드 전환 상태를 관리하고 매 요청마다 이 헤더를 실어 보내는 구현은 아직 없음 (`x-guest-token`과 동일한 방식, `SUPABASE_GUIDE.md` 참고). 헤더를 안 보내면 서버가 안전하게 `lecturer`로 간주하니 당장 급한 이슈는 아님.
 
 ## 해결된 것 (참고용 기록)
 
