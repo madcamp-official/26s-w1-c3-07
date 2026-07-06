@@ -10,7 +10,59 @@ export const mockCurrentUser: User = {
   avatarText: '안',
 }
 
-export const mockCourseFolders: CourseFolder[] = [
+/**
+ * 안소희는 한 계정으로 이 플랫폼을 강의자로도, 수강생으로도 사용합니다.
+ * "역할 전환"은 다른 사람인 척 보는 게 아니라, 같은 사람이 "내가 만든 강의"
+ * (강의자)와 "내가 등록한 강의"(수강생)를 오가며 보는 것이므로, 두 역할의
+ * 강의 목록은 서로 겹치지 않는 완전히 별개의 데이터입니다.
+ */
+
+// 강의자로서 안소희가 직접 만든 강의/폴더
+export const mockInstructorFolders: CourseFolder[] = [
+  {
+    id: 'folder-graph-theory',
+    name: '그래프 이론 강의',
+    ownership: 'owned',
+    expandedByDefault: true,
+    children: [],
+    courses: [
+      {
+        id: 'course-tree',
+        title: '트리와 그래프',
+        participantCount: 34,
+        questionCount: 8,
+        updatedAt: '1일 전',
+        color: 'purple',
+        ownership: 'owned',
+        date: '2026-07-03',
+        startTime: '10:00',
+        endTime: '11:30',
+        location: '공학관 201호',
+        capacity: null,
+      },
+    ],
+  },
+]
+
+export const mockInstructorCourses: Course[] = [
+  {
+    id: 'course-database',
+    title: '데이터베이스 설계 입문',
+    participantCount: 41,
+    questionCount: 5,
+    color: 'purple',
+    ownership: 'owned',
+    date: '2026-07-06',
+    startTime: '09:00',
+    endTime: '10:30',
+    location: '공학관 401호',
+    capacity: 60,
+    joinCode: '7421',
+  },
+]
+
+// 수강생으로서 안소희가 등록해서 듣고 있는 강의/폴더
+export const mockStudentFolders: CourseFolder[] = [
   {
     id: 'folder-computer-science',
     name: '컴퓨터 과학',
@@ -34,20 +86,6 @@ export const mockCourseFolders: CourseFolder[] = [
             color: 'blue',
             ownership: 'registered',
             date: '2026-07-01',
-            startTime: '10:00',
-            endTime: '11:30',
-            location: '공학관 201호',
-            capacity: null,
-          },
-          {
-            id: 'course-tree',
-            title: '트리와 그래프',
-            participantCount: 34,
-            questionCount: 8,
-            updatedAt: '1일 전',
-            color: 'blue',
-            ownership: 'registered',
-            date: '2026-07-03',
             startTime: '10:00',
             endTime: '11:30',
             location: '공학관 201호',
@@ -77,6 +115,48 @@ export const mockCourseFolders: CourseFolder[] = [
     ownership: 'registered',
     children: [],
     courses: [],
+  },
+]
+
+export const mockStudentCourses: Course[] = [
+  {
+    id: 'course-ai-seminar',
+    title: 'AI 세미나: 파운데이션 모델',
+    participantCount: 88,
+    questionCount: 31,
+    color: 'blue',
+    ownership: 'registered',
+    date: '2026-07-10',
+    startTime: '14:00',
+    endTime: '16:00',
+    location: '대강당',
+    capacity: 100,
+  },
+  {
+    id: 'course-career-talk',
+    title: '커리어 토크: 대기업 취업 전략',
+    participantCount: 56,
+    questionCount: 7,
+    color: 'blue',
+    ownership: 'registered',
+    date: '2026-07-15',
+    startTime: '18:00',
+    endTime: '19:30',
+    location: '온라인 (Zoom)',
+    capacity: null,
+  },
+  {
+    id: 'course-python',
+    title: '파이썬 워크샵: 고급 패턴',
+    participantCount: 44,
+    questionCount: 18,
+    color: 'blue',
+    ownership: 'registered',
+    date: '2026-07-08',
+    startTime: '13:00',
+    endTime: '15:00',
+    location: '공학관 305호',
+    capacity: 50,
   },
 ]
 
@@ -194,46 +274,31 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
       },
     ],
   },
+  'course-database': {
+    id: 'course-database',
+    title: '데이터베이스 설계 입문',
+    date: '2026년 7월 6일 (월)',
+    lecturerName: mockCurrentUser.name,
+    participantCount: 41,
+    feedbackOptions: [
+      { key: 'cold', label: '추워요', likeCount: 2, dislikeCount: 0, myVote: null },
+      { key: 'hot', label: '더워요', likeCount: 0, dislikeCount: 0, myVote: null },
+      { key: 'quiet', label: '소리가 작아요', likeCount: 1, dislikeCount: 0, myVote: null },
+      { key: 'blurry', label: '잘 안 보여요', likeCount: 0, dislikeCount: 0, myVote: null },
+    ],
+    questions: [
+      {
+        id: 'question-5',
+        authorName: '익명',
+        authorRole: 'anonymous',
+        postType: 'question',
+        createdAt: '30분 전',
+        content: '정규화 3단계(3NF)까지만 해도 충분한 경우와 그렇지 않은 경우의 기준이 궁금합니다.',
+        likeCount: 5,
+        isLikedByMe: false,
+        isResolved: false,
+        replies: [],
+      },
+    ],
+  },
 }
-
-export const mockStandaloneCourses: Course[] = [
-  {
-    id: 'course-ai-seminar',
-    title: 'AI 세미나: 파운데이션 모델',
-    participantCount: 88,
-    questionCount: 31,
-    color: 'blue',
-    ownership: 'registered',
-    date: '2026-07-10',
-    startTime: '14:00',
-    endTime: '16:00',
-    location: '대강당',
-    capacity: 100,
-  },
-  {
-    id: 'course-career-talk',
-    title: '커리어 토크: 대기업 취업 전략',
-    participantCount: 56,
-    questionCount: 7,
-    color: 'blue',
-    ownership: 'registered',
-    date: '2026-07-15',
-    startTime: '18:00',
-    endTime: '19:30',
-    location: '온라인 (Zoom)',
-    capacity: null,
-  },
-  {
-    id: 'course-python',
-    title: '파이썬 워크샵: 고급 패턴',
-    participantCount: 44,
-    questionCount: 18,
-    color: 'blue',
-    ownership: 'registered',
-    date: '2026-07-08',
-    startTime: '13:00',
-    endTime: '15:00',
-    location: '공학관 305호',
-    capacity: 50,
-  },
-]

@@ -1,4 +1,11 @@
-import { mockCourseFolders, mockCourseRooms, mockCurrentUser, mockStandaloneCourses } from '../mock/data'
+import {
+  mockCourseRooms,
+  mockCurrentUser,
+  mockInstructorCourses,
+  mockInstructorFolders,
+  mockStudentCourses,
+  mockStudentFolders,
+} from '../mock/data'
 import type { Course, CourseFolder, CreateCourseInput, CreateFolderInput, DeleteItemInput, MoveItemInput, RenameItemInput, UpdateCourseInput } from '../types/course'
 import type { ComposerSubmission, CourseRoom, FeedbackKey, Question, QuestionReply, UnansweredFolderNode, UnansweredQuestion } from '../types/room'
 import type { User, UserRole } from '../types/user'
@@ -101,12 +108,12 @@ export async function updateUserName(name: string): Promise<User> {
 
 export async function getCourseFolders(): Promise<CourseFolder[]> {
   await delay()
-  return clone(mockCourseFolders)
+  return clone(getActiveDataset().folders)
 }
 
 export async function getStandaloneCourses(): Promise<Course[]> {
   await delay()
-  return clone(mockStandaloneCourses)
+  return clone(getActiveDataset().rootCourses)
 }
 
 export async function joinCourse(code: string): Promise<Course> {
@@ -116,9 +123,9 @@ export async function joinCourse(code: string): Promise<Course> {
     throw new Error('4자리 강의 코드를 입력해 주세요.')
   }
 
-  const demoRoom = mockCourseRooms['course-tree']
-  return {
-    id: 'course-tree',
+  const demoRoom = mockCourseRooms['course-database']
+  const course: Course = {
+    id: 'course-database',
     title: demoRoom.title,
     participantCount: demoRoom.participantCount,
     questionCount: demoRoom.questions.length,
@@ -126,17 +133,24 @@ export async function joinCourse(code: string): Promise<Course> {
     color: 'blue',
     ownership: 'registered',
   }
+
+  const { rootCourses } = getActiveDataset()
+  if (!rootCourses.some((item) => item.id === course.id)) rootCourses.unshift(course)
+
+  return course
 }
 
 export async function createRootFolder(input: CreateFolderInput): Promise<CourseFolder> {
   await delay(350)
-  return {
+  const folder: CourseFolder = {
     id: `folder-${crypto.randomUUID()}`,
     name: input.name,
     ownership: 'owned',
     children: [],
     courses: [],
   }
+  getActiveDataset().folders.push(folder)
+  return folder
 }
 
 function generateJoinCode(): string {
@@ -160,11 +174,12 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
     joinCode: generateJoinCode(),
   }
 
+  const { folders, rootCourses } = getActiveDataset()
   if (input.folderId) {
-    const folder = findFolder(mockCourseFolders, input.folderId)
+    const folder = findFolder(folders, input.folderId)
     if (folder) folder.courses.push(course)
   } else {
-    mockStandaloneCourses.push(course)
+    rootCourses.push(course)
   }
 
   return course
@@ -173,7 +188,8 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
 /** 강의의 기본 정보를 수정합니다. 강의자는 본인의 모든 강의를, 수강생은 본인이 만든 강의만 수정할 수 있습니다. */
 export async function updateCourse(input: UpdateCourseInput): Promise<Course> {
   await delay(350)
-  const course = findCourse(mockCourseFolders, mockStandaloneCourses, input.id)
+  const { folders, rootCourses } = getActiveDataset()
+  const course = findCourse(folders, rootCourses, input.id)
   if (!course) throw new Error('강의를 찾을 수 없습니다.')
   if (course.ownership !== 'owned' && !isPrivilegedEditor()) throw new Error('내가 만든 강의만 수정할 수 있습니다.')
 
@@ -230,6 +246,16 @@ function isPrivilegedEditor(): boolean {
 }
 
 /**
+ * 강의자 역할일 때는 "내가 만든 강의", 수강생 역할일 때는 "내가 등록한 강의"를
+ * 보여줘야 하므로 역할에 따라 완전히 다른 폴더/강의 목록을 사용합니다.
+ */
+function getActiveDataset(): { folders: CourseFolder[]; rootCourses: Course[] } {
+  return isPrivilegedEditor()
+    ? { folders: mockInstructorFolders, rootCourses: mockInstructorCourses }
+    : { folders: mockStudentFolders, rootCourses: mockStudentCourses }
+}
+
+/**
  * 폴더/강의를 다른 폴더 또는 최상위로 이동합니다. (강의자 본인은 소유권 제한 없이 자유롭게 이동 가능)
  * 수강생 기준: 등록된(파란) 폴더 자체는 이동할 수 없고, 등록된 폴더 안으로는 아무것도 넣을 수 없습니다.
  * 단, 등록된(파란) 개별 강의는 위치 정리를 위해 내가 만든(보라) 폴더로 이동할 수 있습니다 (소유권은 유지되어 여전히 수정/삭제 불가).
@@ -237,45 +263,46 @@ function isPrivilegedEditor(): boolean {
 export async function moveCourseItem(input: MoveItemInput): Promise<void> {
   await delay(300)
   const canBypassOwnership = isPrivilegedEditor()
+  const { folders, rootCourses } = getActiveDataset()
 
   if (input.targetFolderId !== null) {
-    const target = findFolder(mockCourseFolders, input.targetFolderId)
+    const target = findFolder(folders, input.targetFolderId)
     if (!target) throw new Error('대상 폴더를 찾을 수 없습니다.')
     if (target.ownership === 'registered' && !canBypassOwnership) throw new Error('강의자가 공유한 폴더 안으로는 이동할 수 없습니다.')
   }
 
   if (input.itemType === 'folder') {
-    const folder = findFolder(mockCourseFolders, input.itemId)
+    const folder = findFolder(folders, input.itemId)
     if (!folder) throw new Error('폴더를 찾을 수 없습니다.')
     if (folder.ownership === 'registered' && !canBypassOwnership) throw new Error('강의자가 공유한 폴더는 이동할 수 없습니다.')
 
-    const detached = detachFolder(mockCourseFolders, input.itemId)
+    const detached = detachFolder(folders, input.itemId)
     if (!detached) return
 
     if (input.targetFolderId === null) {
-      mockCourseFolders.push(detached)
+      folders.push(detached)
     } else {
-      const target = findFolder(mockCourseFolders, input.targetFolderId)
+      const target = findFolder(folders, input.targetFolderId)
       if (!target) throw new Error('대상 폴더를 찾을 수 없습니다.')
       target.children.push(detached)
     }
     return
   }
 
-  const allCourses = [...mockStandaloneCourses, ...flattenCourses(mockCourseFolders)]
+  const allCourses = [...rootCourses, ...flattenCourses(folders)]
   const course = allCourses.find((item) => item.id === input.itemId)
   if (!course) throw new Error('강의를 찾을 수 없습니다.')
-  if (!canBypassOwnership && isInsideRegisteredFolder(mockCourseFolders, input.itemId)) {
+  if (!canBypassOwnership && isInsideRegisteredFolder(folders, input.itemId)) {
     throw new Error('등록된 폴더 안의 강의는 폴더 단위로만 관리할 수 있습니다.')
   }
 
-  const detached = detachCourse(mockCourseFolders, mockStandaloneCourses, input.itemId)
+  const detached = detachCourse(folders, rootCourses, input.itemId)
   if (!detached) return
 
   if (input.targetFolderId === null) {
-    mockStandaloneCourses.push(detached)
+    rootCourses.push(detached)
   } else {
-    const target = findFolder(mockCourseFolders, input.targetFolderId)
+    const target = findFolder(folders, input.targetFolderId)
     if (!target) throw new Error('대상 폴더를 찾을 수 없습니다.')
     target.courses.push(detached)
   }
@@ -302,16 +329,17 @@ function isInsideRegisteredFolder(folders: CourseFolder[], courseId: string): bo
 export async function renameCourseItem(input: RenameItemInput): Promise<void> {
   await delay(250)
   const canBypassOwnership = isPrivilegedEditor()
+  const { folders, rootCourses } = getActiveDataset()
 
   if (input.itemType === 'folder') {
-    const folder = findFolder(mockCourseFolders, input.itemId)
+    const folder = findFolder(folders, input.itemId)
     if (!folder) throw new Error('폴더를 찾을 수 없습니다.')
     if (folder.ownership === 'registered' && !canBypassOwnership) throw new Error('강의자가 공유한 폴더는 이름을 변경할 수 없습니다.')
     folder.name = input.name
     return
   }
 
-  const course = findCourse(mockCourseFolders, mockStandaloneCourses, input.itemId)
+  const course = findCourse(folders, rootCourses, input.itemId)
   if (!course) throw new Error('강의를 찾을 수 없습니다.')
   if (course.ownership === 'registered' && !canBypassOwnership) throw new Error('강의자가 공유한 강의는 이름을 변경할 수 없습니다.')
   course.title = input.name
@@ -321,20 +349,21 @@ export async function renameCourseItem(input: RenameItemInput): Promise<void> {
 export async function deleteCourseItem(input: DeleteItemInput): Promise<void> {
   await delay(250)
   const canBypassOwnership = isPrivilegedEditor()
+  const { folders, rootCourses } = getActiveDataset()
 
   if (input.itemType === 'folder') {
-    const folder = findFolder(mockCourseFolders, input.itemId)
+    const folder = findFolder(folders, input.itemId)
     if (!folder) throw new Error('폴더를 찾을 수 없습니다.')
-    detachFolder(mockCourseFolders, input.itemId)
+    detachFolder(folders, input.itemId)
     return
   }
 
-  const course = findCourse(mockCourseFolders, mockStandaloneCourses, input.itemId)
+  const course = findCourse(folders, rootCourses, input.itemId)
   if (!course) throw new Error('강의를 찾을 수 없습니다.')
-  if (!canBypassOwnership && isInsideRegisteredFolder(mockCourseFolders, input.itemId)) {
+  if (!canBypassOwnership && isInsideRegisteredFolder(folders, input.itemId)) {
     throw new Error('등록된 폴더 안의 강의는 폴더 단위로만 등록취소할 수 있습니다.')
   }
-  detachCourse(mockCourseFolders, mockStandaloneCourses, input.itemId)
+  detachCourse(folders, rootCourses, input.itemId)
 }
 
 export async function getCourseRoom(courseId: string): Promise<CourseRoom> {
@@ -385,8 +414,9 @@ function buildUnansweredTree(folders: CourseFolder[]): UnansweredFolderNode[] {
 export async function getUnansweredQuestions(): Promise<{ folders: UnansweredFolderNode[]; standaloneCourses: Array<{ id: string; title: string; questions: UnansweredQuestion[] }>; totalCount: number }> {
   await delay()
 
-  const folders = buildUnansweredTree(mockCourseFolders)
-  const standaloneCourses = findUnansweredInCourses(mockStandaloneCourses)
+  const { folders: activeFolders, rootCourses } = getActiveDataset()
+  const folders = buildUnansweredTree(activeFolders)
+  const standaloneCourses = findUnansweredInCourses(rootCourses)
   const totalCount = folders.reduce((sum, folder) => sum + folder.count, 0) + standaloneCourses.reduce((sum, group) => sum + group.questions.length, 0)
 
   return { folders, standaloneCourses, totalCount }
