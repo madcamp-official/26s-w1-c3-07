@@ -253,7 +253,7 @@ from posts;
 
 - `nodes`는 자기참조(`parent_id`)로 트리를 이루며, `node_type`이 `folder`면 강의 폴더, `lecture`면 강의입니다.
 - `lectures`는 `node_type = 'lecture'`인 노드 하나당 한 행씩 붙는 부가 속성 테이블입니다 (1:1).
-- `lecture_join_codes`는 강의 "입장"에만 쓰는 4자리 코드로, `my_nodes` 등록(즐겨찾기)에 쓰는 `nodes.id` 코드와는 별개입니다. `nodes.id`만 쓰면 PK라 유출 시 재발급이 불가능하다는 한계가 있어, 자유롭게 재발급/파기 가능한 별도 코드로 분리했습니다. `code`가 PK라 발급된 동안만 유일하고, 파기(DELETE)되면 그 번호를 다른 강의가 바로 재사용할 수 있습니다.
+- `lecture_join_codes`는 강의 "입장"에만 쓰는 4자리 코드로, `my_nodes` 등록(즐겨찾기)에 쓰는 `nodes.id` 코드와는 별개입니다. 목적은 손으로 입력하기 편한 짧은 코드를 제공하는 것이지, `nodes.id` 유출에 대응하려는 기능이 아닙니다 — 입장 URL/QR은 `nodes.id`(UUID)를 그대로 쓰기 때문에, 이 링크 자체가 유출되면 `lecture_join_codes`를 재발급해도 URL/QR은 그대로라 막을 방법이 없고, 새 강의(새 노드)를 다시 만드는 것 외에는 대응 수단이 없습니다. `code`가 PK라 발급된 동안만 유일하고, 파기(DELETE)되면 그 번호를 다른 강의가 바로 재사용할 수 있습니다.
 - **재발급 방식**: `code`는 UPDATE로 값을 바꾸지 않고, **기존 행 DELETE 후 새 코드로 INSERT**하는 방식으로 처리합니다 (UPDATE 정책은 만들지 않음, INSERT/DELETE 정책만 있음). PK 성격의 식별자는 값 자체를 바꾸기보다 "기존 것 폐기 + 새로 발급"이 원칙에 맞고, `issued_at`도 재발급 시점 기준으로 자연스럽게 새로 찍힙니다.
 - `posts`는 `lecture_id`로 특정 강의에 속하고, `parent_id`로 자기 자신을 참조해 답글의 답글까지 무한 depth를 지원합니다. `parent_id`가 `null`이면 최상위 게시글, 값이 있으면 답글입니다. `check ((parent_id is null) = (status is not null))` 제약으로 "최상위 게시글은 `status` 필수, 답글은 `status` 반드시 `null`"이 DB 레벨에서 강제됩니다.
 - 좋아요/피드백 투표는 각각 `post_likes`, `lecture_feedback_votes`로 분리해 중복 투표를 기본키로 방지합니다.
