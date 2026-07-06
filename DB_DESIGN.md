@@ -167,7 +167,8 @@ before delete on profiles
 for each row execute function anonymize_posts_before_profile_delete();
 
 -- 강의자는 게시글(최상위 글)을 작성할 수 없고, 답글만 작성 가능하며 그 답글은 반드시 opinion 타입이어야 함
--- author_id가 해당 강의(lecture_id)의 강의자(nodes.created_by)와 일치하는 경우에만 적용
+-- author_id가 해당 강의(lecture_id)의 강의자(nodes.created_by)와 일치하면서,
+-- 동시에 지금 "강의자 모드"로 요청한 경우에만 적용 (x-mode 헤더, 아래 설명 참고)
 create or replace function restrict_lecturer_post_rules()
 returns trigger as $$
 begin
@@ -175,6 +176,7 @@ begin
     select 1 from lectures join nodes on nodes.id = lectures.node_id
     where lectures.node_id = new.lecture_id and nodes.created_by = new.author_id
   )
+  and coalesce(current_setting('request.headers', true)::json ->> 'x-mode', 'lecturer') = 'lecturer'
   then
     if new.parent_id is null then
       raise exception '강의자는 게시글(최상위 글)을 작성할 수 없습니다. 답글만 작성 가능합니다';
@@ -282,6 +284,7 @@ grant execute on function delete_own_account() to authenticated;
 ### 트리거 함수 동작
 
 - **탈퇴와 익명 표시 체크 제약의 충돌 방지**: `posts`엔 `check (author_id is not null or is_anonymous = true)`(작성자가 없으면 반드시 익명)가 걸려 있는데, 실명으로 쓴 글의 작성자가 탈퇴하면 `author_id`가 `null`로 바뀌면서 이 체크를 위반할 뻔합니다. `trg_anonymize_posts_before_profile_delete` 트리거가 `profiles` 삭제 **직전**에 해당 작성자의 글을 먼저 `is_anonymous = true`로 바꿔둬서 이 충돌을 막습니다.
+- **`restrict_lecturer_post_rules`는 "누구인지"뿐 아니라 "지금 어느 모드로 요청했는지"까지 봄**: 강의를 만든 계정이라도 수강생 모드로 자기 강의에 들어오면 일반 수강생처럼 게시글/질문을 자유롭게 쓸 수 있어야 하므로, `author_id`가 강의자(`nodes.created_by`)와 일치하는지뿐 아니라 프론트가 매 요청마다 실어 보내는 `x-mode` 커스텀 헤더(`lecturer`/`student`)까지 같이 확인합니다. 헤더가 없으면 기존 동작과 동일하게 안전한 기본값으로 `lecturer`로 간주합니다. `x-mode`는 `guest_token`과 달리 위변조 방지가 목적이 아니라 "지금 어떤 화면에서 왔는지"를 서버에 알려주는 자율 신고값이라, 강의자 본인이 헤더를 `student`로 보내 이 제한을 우회하는 것 자체는 허용된 동작으로 간주합니다.
 - **강의자 권한(상태 전환/삭제/피드백 초기화)**: `posts_lecturer_update_status`/`posts_lecturer_delete`/`feedback_lecturer_reset` 정책으로 강의자가 남의 게시글 `status`를 바꾸거나, 부적절한 글을 삭제하거나, 실시간 피드백 투표를 전체 초기화할 수 있습니다(`nodes.created_by = auth.uid()`로 해당 강의 소유자인지 확인). `trg_block_status_change` 트리거가 이와 짝을 이뤄 "강의자가 아니면 `status`를 절대 못 바꾼다"를 강제합니다 — 정책은 허용 조건, 트리거는 차단 조건을 맡는 구조입니다.
 - **회원가입 시 `profiles` 자동 생성**: `profiles`는 별도 INSERT 정책이 없어 RLS가 직접 INSERT를 막습니다. 그래서 `auth.users`에 새 행이 생길 때(Google OAuth 로그인 포함) `on_auth_user_created` 트리거가 `handle_new_user()`를 호출해 `profiles` 행을 자동으로 만드는 게 유일한 생성 경로입니다. 이 함수는 일반 role에게 없는 `public.profiles` INSERT 권한을 얻기 위해 `SECURITY DEFINER`로 선언했고, `search_path`를 `public`으로 고정해 스키마 하이재킹을 방지합니다. `display_name`은 구글 계정의 `full_name`/`name`(없으면 이메일)을 `raw_user_meta_data`에서 꺼내 자동으로 채웁니다.
 
@@ -430,3 +433,4 @@ create policy "feedback_lecturer_reset" on lecture_feedback_votes for delete
   - `20260706032608_lectures_max_participants_check.sql` — `lectures.max_participants`는 `null` 또는 0 이상만 허용하는 체크 제약 추가
   - `20260706053322_unify_language_clause_position.sql` — 함수 정의의 `language plpgsql` 절 위치를 본문 뒤로 통일 (동작 변화 없음)
   - `20260706063127_feedback_votes_allow_like_and_dislike.sql` — `lecture_feedback_votes`의 PK에 `value`를 추가해, 한 사람이 같은 feedback_type에 좋아요/싫어요를 동시에 누를 수 있게 변경
+  - `20260706073501_restrict_lecturer_post_rules_by_mode.sql` — `restrict_lecturer_post_rules()`가 `x-mode` 헤더를 확인해, 강의를 만든 계정이 수강생 모드로 들어왔을 땐 게시글 작성 제한을 적용하지 않도록 변경
