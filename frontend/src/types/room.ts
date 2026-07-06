@@ -57,3 +57,16 @@ export interface ComposerSubmission {
   postType: PostType
   isAnonymous: boolean
 }
+
+export interface UnansweredQuestion extends Question {
+  courseId: string
+  courseTitle: string
+}
+
+export interface UnansweredFolderNode {
+  id: string
+  name: string
+  count: number
+  children: UnansweredFolderNode[]
+  courses: Array<{ id: string; title: string; questions: UnansweredQuestion[] }>
+}

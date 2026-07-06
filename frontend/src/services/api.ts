@@ -1,6 +1,6 @@
 import { mockCourseFolders, mockCourseRooms, mockCurrentUser, mockStandaloneCourses } from '../mock/data'
 import type { Course, CourseFolder, CreateCourseInput, CreateFolderInput, DeleteItemInput, MoveItemInput, RenameItemInput } from '../types/course'
-import type { ComposerSubmission, CourseRoom, FeedbackKey, Question, QuestionReply } from '../types/room'
+import type { ComposerSubmission, CourseRoom, FeedbackKey, Question, QuestionReply, UnansweredFolderNode, UnansweredQuestion } from '../types/room'
 import type { User, UserRole } from '../types/user'
 
 const MOCK_DELAY = 250
@@ -303,6 +303,52 @@ export async function getCourseRoom(courseId: string): Promise<CourseRoom> {
   return clone(applyViewerVotes(room, getViewerKey()))
 }
 
+function isAnsweredByLecturer(question: Question): boolean {
+  return question.replies.some((reply) => reply.authorRole === 'lecturer')
+}
+
+function findUnansweredInCourses(courses: Course[]): Array<{ id: string; title: string; questions: UnansweredQuestion[] }> {
+  const groups: Array<{ id: string; title: string; questions: UnansweredQuestion[] }> = []
+
+  for (const course of courses) {
+    const room = mockCourseRooms[course.id]
+    if (!room) continue
+
+    const questions = room.questions
+      .filter((question) => question.postType === 'question' && !isAnsweredByLecturer(question))
+      .map((question) => ({ ...question, courseId: course.id, courseTitle: course.title }))
+
+    if (questions.length > 0) groups.push({ id: course.id, title: course.title, questions })
+  }
+
+  return groups
+}
+
+function buildUnansweredTree(folders: CourseFolder[]): UnansweredFolderNode[] {
+  const nodes: UnansweredFolderNode[] = []
+
+  for (const folder of folders) {
+    const courses = findUnansweredInCourses(folder.courses)
+    const children = buildUnansweredTree(folder.children)
+    const count = courses.reduce((sum, group) => sum + group.questions.length, 0) + children.reduce((sum, child) => sum + child.count, 0)
+
+    if (count > 0) nodes.push({ id: folder.id, name: folder.name, count, children, courses })
+  }
+
+  return nodes
+}
+
+/** 강의자의 모든 강의에서 강의자 본인이 아직 답변하지 않은 '질문' 유형 게시글만 폴더 구조로 모아 반환합니다. */
+export async function getUnansweredQuestions(): Promise<{ folders: UnansweredFolderNode[]; standaloneCourses: Array<{ id: string; title: string; questions: UnansweredQuestion[] }>; totalCount: number }> {
+  await delay()
+
+  const folders = buildUnansweredTree(mockCourseFolders)
+  const standaloneCourses = findUnansweredInCourses(mockStandaloneCourses)
+  const totalCount = folders.reduce((sum, folder) => sum + folder.count, 0) + standaloneCourses.reduce((sum, group) => sum + group.questions.length, 0)
+
+  return { folders, standaloneCourses, totalCount }
+}
+
 export function refineWithAi(content: string): string {
   const trimmed = content.trim()
   if (!trimmed) return trimmed
@@ -316,13 +362,21 @@ export function containsInappropriateContent(content: string): boolean {
   return BLOCKED_WORDS.some((word) => normalized.includes(word))
 }
 
+function resolveAuthor(submission: ComposerSubmission): { authorName: string; authorRole: 'lecturer' | 'anonymous' | 'student' } {
+  if (isPrivilegedEditor()) return { authorName: mockCurrentUser.name, authorRole: 'lecturer' }
+  if (submission.isAnonymous) return { authorName: '익명', authorRole: 'anonymous' }
+  return { authorName: mockCurrentUser.name, authorRole: 'student' }
+}
+
 export async function createQuestion(courseId: string, submission: ComposerSubmission): Promise<Question> {
   await delay(300)
-  const authorName = submission.isAnonymous ? '익명' : mockCurrentUser.name
+  if (isPrivilegedEditor()) throw new Error('강의자는 답글만 작성할 수 있습니다.')
+
+  const { authorName, authorRole } = resolveAuthor(submission)
   const question: Question = {
     id: `question-${crypto.randomUUID()}`,
     authorName,
-    authorRole: submission.isAnonymous ? 'anonymous' : 'student',
+    authorRole,
     postType: submission.postType,
     createdAt: '방금 전',
     content: submission.content,
@@ -340,11 +394,11 @@ export async function createQuestion(courseId: string, submission: ComposerSubmi
 
 export async function createReply(courseId: string, questionId: string, submission: ComposerSubmission): Promise<QuestionReply> {
   await delay(300)
-  const authorName = submission.isAnonymous ? '익명' : mockCurrentUser.name
+  const { authorName, authorRole } = resolveAuthor(submission)
   const reply: QuestionReply = {
     id: `reply-${crypto.randomUUID()}`,
     authorName,
-    authorRole: submission.isAnonymous ? 'anonymous' : 'student',
+    authorRole,
     postType: submission.postType,
     isEditable: true,
     createdAt: '방금 전',

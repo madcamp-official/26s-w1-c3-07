@@ -5,6 +5,7 @@ import CreateCoursePage from './pages/CreateCoursePage'
 import LandingPage from './pages/LandingPage'
 import PostWritePage from './pages/PostWritePage'
 import StudentCoursesPage from './pages/StudentCoursesPage'
+import UnansweredQuestionsPage from './pages/UnansweredQuestionsPage'
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
       <Route element={<DashboardLayout />}>
         <Route path="/student/courses" element={<StudentCoursesPage />} />
         <Route path="/student/courses/new" element={<CreateCoursePage />} />
+        <Route path="/student/questions" element={<UnansweredQuestionsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

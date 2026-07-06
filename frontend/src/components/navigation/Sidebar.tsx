@@ -1,4 +1,4 @@
-import { BookOpen, Settings, UserRound } from 'lucide-react'
+import { BookOpen, MessageCircleQuestion, Settings, UserRound } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import type { User, UserRole } from '../../types/user'
 import { cn } from '../../utils/cn'
@@ -10,12 +10,20 @@ interface SidebarProps {
   onSwitchRole?: (role: UserRole) => void
 }
 
-const navigation = [
+const studentNavigation = [
   { label: '내 강의', to: '/student/courses', Icon: BookOpen },
   { label: '설정', to: '/student/settings', Icon: Settings },
 ]
 
+const instructorNavigation = [
+  { label: '내 강의', to: '/student/courses', Icon: BookOpen },
+  { label: '미답변 질문', to: '/student/questions', Icon: MessageCircleQuestion },
+  { label: '설정', to: '/student/settings', Icon: Settings },
+]
+
 export default function Sidebar({ user, onNavigate, onSwitchRole }: SidebarProps) {
+  const navigation = user.role === 'instructor' ? instructorNavigation : studentNavigation
+
   return (
     <div className="flex h-full flex-col bg-white px-5 py-7">
       <BrandLogo compact to="/student/courses" />
