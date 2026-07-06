@@ -119,7 +119,6 @@ create table lecture_feedback_votes (
 -- 호출 컨텍스트와 무관하게 항상 동작하도록 자체적으로 고정.
 create or replace function anonymize_posts_before_profile_delete()
 returns trigger
-language plpgsql
 set search_path = public
 as $$
 begin
@@ -128,7 +127,7 @@ begin
   where author_id = old.id;
   return old;
 end;
-$$;
+$$ language plpgsql;
 
 create trigger trg_anonymize_posts_before_profile_delete
 before delete on profiles
@@ -186,7 +185,6 @@ for each row execute function block_status_change_by_non_lecturer();
 -- search_path를 명시적으로 고정해 스키마 하이재킹(함수 실행 중 다른 스키마의 동명 객체가 끼어드는 것)을 방지.
 create or replace function handle_new_user()
 returns trigger
-language plpgsql
 security definer
 set search_path = public
 as $$
@@ -198,7 +196,7 @@ begin
   );
   return new;
 end;
-$$;
+$$ language plpgsql;
 
 create trigger on_auth_user_created
 after insert on auth.users
@@ -214,14 +212,13 @@ for each row execute function handle_new_user();
 -- search_path를 비워 모든 참조를 완전한 스키마 경로로 강제(스키마 하이재킹 방지).
 create or replace function delete_own_account()
 returns void
-language plpgsql
 security definer
 set search_path = ''
 as $$
 begin
   delete from auth.users where id = auth.uid();
 end;
-$$;
+$$ language plpgsql;
 
 revoke all on function delete_own_account() from public;
 grant execute on function delete_own_account() to authenticated;
