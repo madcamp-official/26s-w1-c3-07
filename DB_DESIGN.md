@@ -42,8 +42,8 @@
 -- 회원 부가정보 (Supabase Auth 사용자 확장)
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade, -- 탈퇴 시 프로필도 같이 삭제
-  display_name text,
-  last_mode text not null default 'student' check (last_mode in ('lecturer', 'student')) -- 로그인 시 자동 진입할 모드
+  name text,
+  mode text not null default 'student' check (mode in ('lecturer', 'student')) -- 로그인 시 자동 진입할 모드
 );
 
 -- 트리 구조: 강의 폴더 / 강의, 깊이 무제한
@@ -132,13 +132,13 @@ create table lecture_feedback_votes (
 ```sql
 -- posts는 테이블 자체 SELECT 권한이 없어 이 뷰로만 조회 가능(아래 RLS 정책 참고).
 -- guest_token은 완전히 제외하고, author_id(uid)도 통째로 숨긴 뒤
--- is_anonymous가 false인 글만 profiles.display_name을 조인해서 보여줌
+-- is_anonymous가 false인 글만 profiles.name을 조인해서 보여줌
 create view posts_public as
 select
   p.id,
   p.lecture_id,
   p.parent_id,
-  case when p.is_anonymous then null else pr.display_name end as author_display_name,
+  case when p.is_anonymous then null else pr.name end as author_display_name,
   p.is_anonymous,
   p.post_type,
   p.status,
@@ -284,7 +284,7 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (id, display_name)
+  insert into public.profiles (id, name)
   values (
     new.id,
     coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name', new.email)
@@ -347,13 +347,13 @@ grant execute on function delete_own_account() to authenticated;
 - **탈퇴와 익명 표시 체크 제약의 충돌 방지**: `posts`엔 `check (author_id is not null or is_anonymous = true)`(작성자가 없으면 반드시 익명)가 걸려 있는데, 실명으로 쓴 글의 작성자가 탈퇴하면 `author_id`가 `null`로 바뀌면서 이 체크를 위반할 뻔합니다. `trg_anonymize_posts_before_profile_delete` 트리거가 `profiles` 삭제 **직전**에 해당 작성자의 글을 먼저 `is_anonymous = true`로 바꿔둬서 이 충돌을 막습니다.
 - **강의자 권한(상태 전환/삭제/피드백 초기화)**: `posts_lecturer_update_status`/`posts_lecturer_delete`/`lecture_feedback_votes_lecturer_reset` 정책으로 강의자가 남의 게시글 `status`를 바꾸거나, 부적절한 글을 삭제하거나, 실시간 피드백 투표를 전체 초기화할 수 있습니다(`nodes.created_by = auth.uid()`로 해당 강의 소유자인지 확인). `trg_block_status_change_by_non_lecturer` 트리거가 이와 짝을 이뤄 "강의자가 아니면 `status`를 절대 못 바꾼다"를 강제합니다 — 정책은 허용 조건, 트리거는 차단 조건을 맡는 구조입니다.
 - **`resolved_at` 자동 설정/해제**: `status`가 `resolved`로 바뀌는 순간 `trg_set_resolved_at_on_status_change` 트리거가 `resolved_at`을 `now()`로 채우고, 다시 `unresolved`로 돌아가거나(또는 애초에 답글이라 `status`가 `null`인 경우) `null`로 되돌립니다. `check ((status = 'resolved') = (resolved_at is not null))` 제약이 이 관계를 양방향으로 강제해서, 트리거를 거치지 않은 직접 INSERT/UPDATE에 대한 안전장치 역할도 합니다. 같은 테이블의 `BEFORE UPDATE` 트리거는 이름 알파벳순으로 실행되므로, "강의자가 아니면 `status` 변경 자체를 차단"하는 `trg_block_status_change_by_non_lecturer`(b)가 `trg_set_resolved_at_on_status_change`(s)보다 먼저 실행되어 순서 문제가 없습니다.
-- **회원가입 시 `profiles` 자동 생성**: `profiles`는 별도 INSERT 정책이 없어 RLS가 직접 INSERT를 막습니다. 그래서 `auth.users`에 새 행이 생길 때(Google OAuth 로그인 포함) `trg_handle_new_user` 트리거가 `handle_new_user()`를 호출해 `profiles` 행을 자동으로 만드는 게 유일한 생성 경로입니다. 이 함수는 일반 role에게 없는 `public.profiles` INSERT 권한을 얻기 위해 `SECURITY DEFINER`로 선언했고, `search_path`를 `public`으로 고정해 스키마 하이재킹을 방지합니다. `display_name`은 구글 계정의 `full_name`/`name`(없으면 이메일)을 `raw_user_meta_data`에서 꺼내 자동으로 채웁니다.
+- **회원가입 시 `profiles` 자동 생성**: `profiles`는 별도 INSERT 정책이 없어 RLS가 직접 INSERT를 막습니다. 그래서 `auth.users`에 새 행이 생길 때(Google OAuth 로그인 포함) `trg_handle_new_user` 트리거가 `handle_new_user()`를 호출해 `profiles` 행을 자동으로 만드는 게 유일한 생성 경로입니다. 이 함수는 일반 role에게 없는 `public.profiles` INSERT 권한을 얻기 위해 `SECURITY DEFINER`로 선언했고, `search_path`를 `public`으로 고정해 스키마 하이재킹을 방지합니다. `name`은 구글 계정의 `full_name`/`name`(없으면 이메일)을 `raw_user_meta_data`에서 꺼내 자동으로 채웁니다.
 - **해결된 게시글 자동 재오픈(`reopen_resolved_post_on_question_reply`)**: README 필수 기능("해결된 게시글에 질문 답글이 달리면 다시 미해결로 전환")은 수강생의 답글 INSERT로 촉발되어 부모(정확히는 트리의 최상위) 게시글의 `status`를 UPDATE해야 하는데, 이걸 막는 장애물이 두 겹 있었습니다: (1) `trg_block_status_change_by_non_lecturer`가 "강의자가 아니면 `status` 변경 불가"를 검사하는데, 이건 `auth.uid()`(세션 JWT) 기반 검사라 `SECURITY DEFINER`로도 우회가 안 돼서(함수 실행 권한을 바꿔도 `auth.uid()`가 가리키는 실제 요청자는 안 바뀜) `app.bypass_status_lock`이라는 **트랜잭션 로컬 플래그**로 예외 처리했습니다. (2) `posts` 테이블 직접 SELECT가 `anon`/`authenticated`에서 회수돼 있고, 이 UPDATE를 실행하는 수강생은 `posts_update_own`/`posts_lecturer_update_status` 어느 RLS에도 안 걸려서(자기 글도 강의자도 아님) 조상 게시글을 조회도 갱신도 못 하는데, 이건 `auth.uid()` 문제가 아니라 순수 GRANT/RLS 권한 문제라 `SECURITY DEFINER`로 해결됩니다 — 같은 "우회"라도 무엇을 우회하려는지에 따라 통하는 방법이 다르다는 걸 보여주는 사례입니다. `created_mode='lecturer'`인 글은 이미 `opinion` 타입만 가능하도록 CHECK로 막혀 있어서, `post_type='question'`인 답글은 항상 수강생 글임이 구조적으로 보장됩니다.
 
 ### RPC·뷰 동작
 
 - **회원 탈퇴 RPC(`delete_own_account`)**: `auth.users` 행을 `auth.uid()` 본인 것만 삭제하도록 `SECURITY DEFINER` + `search_path=''`로 만든 RPC입니다. `profiles.id`가 `auth.users(id)`를 `on delete cascade`로 참조하고 있어서, 이 RPC 실행 시 `profiles` 행도 연쇄 삭제되며 `trg_anonymize_posts_before_profile_delete`가 자동으로 발동됩니다. 이때 트리거 함수가 자체 `search_path`를 고정해두지 않으면 `delete_own_account`의 빈 `search_path`를 그대로 물려받아 `posts`(스키마 미지정) 참조가 깨지는 버그가 있었고, `anonymize_posts_before_profile_delete()`에 `set search_path = public`을 명시해 수정했습니다 — `SECURITY DEFINER` 함수 안에서 다른 함수/트리거가 연쇄 호출될 때는 각자 자기 `search_path`를 스스로 고정해둬야 호출 컨텍스트에 안전하다는 걸 보여주는 사례입니다.
-- **`posts_public` 뷰**: `posts` 테이블 자체는 SELECT 권한이 없어(아래 "읽기는 테이블이 아니라 뷰로만" 참고) 이 뷰로만 조회할 수 있습니다. `guest_token`은 완전히 제외하고, `author_id`(uid)도 통째로 숨긴 뒤 `is_anonymous`가 `false`인 글만 `profiles.display_name`을 조인해서 보여줍니다. 뷰가 `profiles`를 조인할 수 있는 건 Postgres 뷰가 기본적으로 조회자가 아니라 **뷰 소유자의 권한**으로 실행되기 때문으로, `profiles`가 본인만 조회 가능하도록 좁혀져 있어도 뷰 내부 조인에는 영향이 없습니다(수정/삭제 자체는 여전히 `posts` 테이블의 RLS 정책으로 처리).
+- **`posts_public` 뷰**: `posts` 테이블 자체는 SELECT 권한이 없어(아래 "읽기는 테이블이 아니라 뷰로만" 참고) 이 뷰로만 조회할 수 있습니다. `guest_token`은 완전히 제외하고, `author_id`(uid)도 통째로 숨긴 뒤 `is_anonymous`가 `false`인 글만 `profiles.name`을 조인해서 보여줍니다. 뷰가 `profiles`를 조인할 수 있는 건 Postgres 뷰가 기본적으로 조회자가 아니라 **뷰 소유자의 권한**으로 실행되기 때문으로, `profiles`가 본인만 조회 가능하도록 좁혀져 있어도 뷰 내부 조인에는 영향이 없습니다(수정/삭제 자체는 여전히 `posts` 테이블의 RLS 정책으로 처리).
 - **`post_likes_counts`/`lecture_feedback_votes_counts` 뷰**: `post_likes`/`lecture_feedback_votes`도 테이블 자체 SELECT는 본인 투표 행(`voter_key` 일치)만 가능하도록 좁혀서(아래 "읽기는 테이블이 아니라 뷰로만" 참고), 남이 무엇을 눌렀는지는 직접 조회할 수 없습니다. 하지만 좋아요/피드백 개수는 누구나 봐야 하는 값이라, `voter_key` 없이 `count(*)`로 집계만 한 별도 뷰로 공개합니다. `post_likes_counts`는 `post_id`별 좋아요 개수, `lecture_feedback_votes_counts`는 `lecture_id`·`feedback_type`별 좋아요/싫어요 개수(`count(*) filter (where value = 1/-1)`)를 보여줍니다. "내가 이미 눌렀는지"는 이 뷰가 아니라 `post_likes`/`lecture_feedback_votes` 테이블에 본인 `voter_key`로 직접 SELECT해서 확인합니다(RLS가 본인 행만 허용하므로 가능).
 
 ## 실시간 접속자 수 (강의별)
@@ -379,7 +379,7 @@ grant execute on function delete_own_account() to authenticated;
 
 ```sql
 -- profiles: 본인만 조회/수정 가능. INSERT는 auth.users 가입 트리거로만 생성되므로 정책 없음(직접 INSERT 차단)
--- (다른 사람의 profiles.display_name은 posts_public 뷰가 뷰 소유자 권한으로 내부 조인해 노출하므로,
+-- (다른 사람의 profiles.name은 posts_public 뷰가 뷰 소유자 권한으로 내부 조인해 노출하므로,
 -- 여기서 본인만으로 좁혀도 비익명 글의 작성자 이름 표시는 그대로 동작함)
 alter table profiles enable row level security;
 create policy "profiles_select_self" on profiles for select using (auth.uid() = id);
@@ -529,6 +529,7 @@ RLS는 "누가 행에 접근 가능한가"만 결정할 뿐, "어떤 테이블/�
   - `20260706075425_posts_created_mode_replaces_trigger.sql` — `restrict_lecturer_post_rules` 트리거/`x-mode` 헤더 방식을 폐기하고, `posts.created_mode` 컬럼 + 테이블 `check` 제약(답글+opinion 타입) + RLS 정책(`posts_insert_lecturer_mode_matches_owner`, `posts_update_lecturer_mode_matches_owner`)으로 대체
   - `20260706081432_posts_resolved_at_trigger_and_check.sql` — `status`가 `resolved`로 바뀌면 `resolved_at`을 자동으로 채우고 되돌아가면 `null`로 되돌리는 `trg_set_resolved_at` 트리거 추가, `check ((status = 'resolved') = (resolved_at is not null))` 양방향 제약 추가
   - `20260706084256_unify_trigger_and_policy_names.sql` — 트리거 이름을 함수 이름 축약 없이 그대로 쓰도록 통일(`on_auth_user_created` → `trg_handle_new_user`, `trg_block_status_change` → `trg_block_status_change_by_non_lecturer`, `trg_set_resolved_at` → `trg_set_resolved_at_on_status_change`), RLS 정책 이름의 테이블 접두사를 축약 없이 통일(`join_codes_*` → `lecture_join_codes_*`, `feedback_*` → `lecture_feedback_votes_*`)
-  - `20260706093000_restrict_public_read_access.sql` — `profiles`를 본인만 조회 가능하게 좁히고, `posts`/`post_likes`/`lecture_feedback_votes`의 테이블 자체 SELECT를 회수(`posts`)하거나 본인 행만(`post_likes`/`lecture_feedback_votes`) 조회 가능하도록 제한. `posts_public` 뷰에서 `author_id`를 숨기고 `is_anonymous`에 따라 `profiles.display_name`만 조건부로 노출하도록 재정의, 좋아요/피드백 집계용 `post_likes_counts`/`lecture_feedback_votes_counts` 뷰 추가. `nodes`/`lectures`/`lecture_join_codes`/`my_nodes`는 강의 입장 흐름상 소유자가 아닌 사람도 읽어야 해서 기존 정책 유지
+  - `20260706093000_restrict_public_read_access.sql` — `profiles`를 본인만 조회 가능하게 좁히고, `posts`/`post_likes`/`lecture_feedback_votes`의 테이블 자체 SELECT를 회수(`posts`)하거나 본인 행만(`post_likes`/`lecture_feedback_votes`) 조회 가능하도록 제한. `posts_public` 뷰에서 `author_id`를 숨기고 `is_anonymous`에 따라 `profiles.name`만 조건부로 노출하도록 재정의, 좋아요/피드백 집계용 `post_likes_counts`/`lecture_feedback_votes_counts` 뷰 추가. `nodes`/`lectures`/`lecture_join_codes`/`my_nodes`는 강의 입장 흐름상 소유자가 아닌 사람도 읽어야 해서 기존 정책 유지
   - `20260706101235_reopen_resolved_post_on_question_reply.sql` — 해결된 게시글에 질문 타입 답글이 달리면 다시 미해결로 전환하는 `trg_reopen_resolved_post_on_question_reply` 트리거 추가, `trg_block_status_change_by_non_lecturer`에 `app.bypass_status_lock` 플래그 우회 로직 추가
   - `20260706101723_reopen_resolved_post_security_definer.sql` — `posts` 직접 SELECT 회수/RLS 때문에 `reopen_resolved_post_on_question_reply()`가 조상 게시글을 조회·갱신 못 하던 문제를 `SECURITY DEFINER` + `search_path` 고정으로 수정
+  - `20260706110000_profiles_rename_columns.sql` — `profiles` 컬럼 이름을 단순화(`display_name` → `name`, `last_mode` → `mode`). `posts_public` 뷰와 체크 제약은 컬럼을 attnum으로 참조해 자동으로 따라가고, `handle_new_user()` 함수만 새 컬럼명에 맞춰 갱신
