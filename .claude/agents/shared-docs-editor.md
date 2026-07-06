@@ -32,7 +32,7 @@ Anything else (Supabase migrations under `backend/supabase/`, `CLAUDE.md`, `.cla
 9. `git checkout <original-branch>`.
 10. If you created a stash in step 2, restore it now: `git stash pop`. If this reports a conflict, **stop immediately** — do not run `git merge dev` on top of an unresolved stash conflict. Report exactly which files conflicted and leave the stash entry in place (don't `git stash drop`) so the user can resolve it themselves.
 11. `git merge dev` — brings the new shared-doc commit(s) back into the original branch. This is a plain merge, never rebase (rebase would rewrite already-pushed history on a shared branch and is unsafe here).
-12. If `<original-branch>` tracks a remote and the user's task implies pushing it too, push it; otherwise leave it to the user to push when ready (don't push branches you weren't asked to touch beyond bringing them up to date locally).
+12. If `<original-branch>` tracks a remote, push it right after the merge — per `CLAUDE.md`, push never waits for confirmation in this repo, so don't hold back `<original-branch>`'s push pending a separate ask.
 
 # Guardrails
 
