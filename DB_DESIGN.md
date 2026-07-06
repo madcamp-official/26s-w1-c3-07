@@ -303,6 +303,32 @@ after insert on auth.users
 for each row execute function handle_new_user();
 ```
 
+#### `enforce_nodes_parent_ownership()`
+
+`nodes_insert_own`/`nodes_update_own` RLS는 새로 쓰는 행 자신의 `created_by = auth.uid()`만 검사할 뿐, `parent_id`가 가리키는 부모 행의 소유자·모드는 검사하지 않습니다. 그래서 다른 사람 폴더 밑에 내 노드를 끼워 넣거나(INSERT), 같은 계정이라도 강의자 모드 폴더를 수강생 모드 폴더 밑으로 옮기는 것(UPDATE, "위치 이동" 기능)이 막혀 있지 않았습니다. 이 트리거는 `parent_id`가 가리키는 부모 노드와 `created_by`/`created_mode`가 반드시 일치하도록 강제해, `nodes.parent_id` 체인이 항상 한 사람·한 모드의 트리 안에서만 이어지게 합니다. 다른 행(부모 행)을 참조해야 해서 `check` 제약으로는 표현할 수 없어(서브쿼리 금지) 트리거로 구현했습니다.
+
+```sql
+create or replace function enforce_nodes_parent_ownership()
+returns trigger as $$
+begin
+  if new.parent_id is not null and exists (
+    select 1 from nodes parent
+    where parent.id = new.parent_id
+      and (parent.created_by is distinct from new.created_by
+           or parent.created_mode is distinct from new.created_mode)
+  )
+  then
+    raise exception '부모 폴더와 소유자/모드가 일치해야 합니다';
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trg_enforce_nodes_parent_ownership
+before insert or update on nodes
+for each row execute function enforce_nodes_parent_ownership();
+```
+
 ### RPC 함수
 
 #### `delete_own_account()`
@@ -511,6 +537,7 @@ create policy "lecture_feedback_votes_lecturer_reset" on lecture_feedback_votes 
 - **`posts.created_mode`(강의자 모드/수강생 모드 색 구분)**: 강의를 만든 계정이라도 강의자 모드로 쓸 때도, 수강생 모드로 쓸 때도 있어서, `author_id`가 강의 제작자와 같은지만으론 "이 글을 어느 화면에서 썼는지" 색으로 구분할 수 없습니다. 그래서 그 순간의 모드를 `created_mode`에 직접 저장합니다. 이 값 자체는 프론트가 정하는 자기신고값이고, 계정 본인이 뭘 선택하든(강의자가 자기 강의에 수강생처럼 참여하는 것도 정상 시나리오) 막을 이유가 없습니다. 다만 "제3자가 `created_mode = 'lecturer'`를 붙여 강의자 답변인 것처럼 위장"하는 건 막아야 합니다(구현 방식은 위 [SQL → 테이블](#테이블)의 `check` 제약과 [RLS 정책 → `posts`](#posts) 참고). 이전엔 트리거 + `x-mode` 헤더로 구현했었으나, 색 구분을 위해 값을 직접 저장하는 이 방식으로 대체했습니다.
 - 좋아요/피드백 투표는 각각 `post_likes`, `lecture_feedback_votes`로 분리해 중복 투표를 기본키로 방지합니다. `lecture_feedback_votes`는 PK에 `value`까지 포함해서(`lecture_id`, `feedback_type`, `voter_key`, `value`), 같은 사람이 같은 `feedback_type`에 좋아요와 싫어요를 동시에 독립적으로 남길 수 있습니다(둘 다 완전히 별개의 행이라 "좋아요 취소"와 "싫어요 취소"도 서로 영향 없이 따로 처리됨).
 - "내가 만든 강의/폴더"는 `nodes.created_by = 내 user_id`로 조회하되, 어느 모드의 "내 강의" 페이지인지에 따라 `created_mode`로 한 번 더 걸러야 합니다: 강의자 모드는 `created_mode = 'lecturer'`, 수강생 모드(개인 정리 폴더)는 `created_mode = 'student'`. 같은 계정이라도 두 모드에서 만든 폴더가 섞이지 않도록 하는 용도입니다.
+- **`nodes.parent_id`는 항상 같은 소유자·같은 모드의 트리 안에서만 이어짐**: `nodes_insert_own`/`nodes_update_own` RLS는 새로 쓰는 행 자신의 `created_by`만 확인할 뿐 부모 노드는 확인하지 않아서, 그대로 두면 남의 폴더 밑에 내 노드를 끼워 넣거나 내 강의자 모드 폴더를 내 수강생 모드 폴더 밑으로 옮기는 것(위치 이동)이 막히지 않습니다. `enforce_nodes_parent_ownership()` 트리거로 부모 노드와 `created_by`/`created_mode`가 일치하는지 강제합니다(구현 방식은 [SQL → 트리거 함수](#트리거-함수) 참고).
 - `my_nodes`는 "남이 만든 강의/폴더를 즐겨찾기"하는 기록이며, `folder_id`로 그 즐겨찾기를 내가 만든 어떤 개인 폴더 아래에 정리해뒀는지 나타냅니다(`null`이면 정리 안 하고 최상위). 즐겨찾기 대상(`node_id`)의 실제 `parent_id`는 원래 만든 사람의 트리 구조 그대로이며, 이 개인 정리 구조 때문에 바뀌지 않습니다.
 - **즐겨찾기는 강의자 모드로 만든 노드만 가능**: 남의 수강생 모드 개인 정리 폴더까지 즐겨찾기할 수 있으면 안 되기 때문입니다(구현 방식은 [RLS 정책 → `my_nodes`](#my_nodes) 참고).
 
@@ -566,3 +593,4 @@ create policy "lecture_feedback_votes_lecturer_reset" on lecture_feedback_votes 
   - `20260706122114_my_nodes_only_favorite_lecturer_mode.sql` — `my_nodes`(즐겨찾기)는 남이 강의자 모드로 만든 노드만 등록 가능하도록 `RESTRICTIVE` RLS 정책(`my_nodes_only_favorite_lecturer_mode_insert`/`_update`) 추가
   - `20260706110000_profiles_rename_columns.sql` — `profiles` 컬럼 이름을 단순화(`display_name` → `name`, `last_mode` → `mode`). `posts_public` 뷰와 체크 제약은 컬럼을 attnum으로 참조해 자동으로 따라가고, `handle_new_user()` 함수만 새 컬럼명에 맞춰 갱신
   - `20260706130000_delete_own_account_use_sql_language.sql` — `delete_own_account()`를 `plpgsql`에서 `sql` 언어로 변경 (분기/변수 없는 단순 `DELETE` 한 줄이라 트리거 함수들과 달리 `plpgsql`이 필요 없음)
+  - `20260706150816_nodes_parent_ownership_mode_match.sql` — `nodes.parent_id`가 가리키는 부모 노드와 `created_by`/`created_mode`가 일치해야 함을 강제하는 `trg_enforce_nodes_parent_ownership` 트리거 추가
