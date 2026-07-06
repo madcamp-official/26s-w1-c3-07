@@ -186,7 +186,7 @@ begin
 end;
 $$ language plpgsql;
 
-create trigger trg_block_status_change
+create trigger trg_block_status_change_by_non_lecturer
 before update on posts
 for each row execute function block_status_change_by_non_lecturer();
 
@@ -204,7 +204,7 @@ begin
 end;
 $$ language plpgsql;
 
-create trigger trg_set_resolved_at
+create trigger trg_set_resolved_at_on_status_change
 before update on posts
 for each row execute function set_resolved_at_on_status_change();
 
@@ -227,7 +227,7 @@ begin
 end;
 $$ language plpgsql;
 
-create trigger on_auth_user_created
+create trigger trg_handle_new_user
 after insert on auth.users
 for each row execute function handle_new_user();
 ```
@@ -279,9 +279,9 @@ grant execute on function delete_own_account() to authenticated;
 ### 트리거 함수 동작
 
 - **탈퇴와 익명 표시 체크 제약의 충돌 방지**: `posts`엔 `check (author_id is not null or is_anonymous = true)`(작성자가 없으면 반드시 익명)가 걸려 있는데, 실명으로 쓴 글의 작성자가 탈퇴하면 `author_id`가 `null`로 바뀌면서 이 체크를 위반할 뻔합니다. `trg_anonymize_posts_before_profile_delete` 트리거가 `profiles` 삭제 **직전**에 해당 작성자의 글을 먼저 `is_anonymous = true`로 바꿔둬서 이 충돌을 막습니다.
-- **강의자 권한(상태 전환/삭제/피드백 초기화)**: `posts_lecturer_update_status`/`posts_lecturer_delete`/`feedback_lecturer_reset` 정책으로 강의자가 남의 게시글 `status`를 바꾸거나, 부적절한 글을 삭제하거나, 실시간 피드백 투표를 전체 초기화할 수 있습니다(`nodes.created_by = auth.uid()`로 해당 강의 소유자인지 확인). `trg_block_status_change` 트리거가 이와 짝을 이뤄 "강의자가 아니면 `status`를 절대 못 바꾼다"를 강제합니다 — 정책은 허용 조건, 트리거는 차단 조건을 맡는 구조입니다.
-- **`resolved_at` 자동 설정/해제**: `status`가 `resolved`로 바뀌는 순간 `trg_set_resolved_at` 트리거가 `resolved_at`을 `now()`로 채우고, 다시 `unresolved`로 돌아가거나(또는 애초에 답글이라 `status`가 `null`인 경우) `null`로 되돌립니다. `check ((status = 'resolved') = (resolved_at is not null))` 제약이 이 관계를 양방향으로 강제해서, 트리거를 거치지 않은 직접 INSERT/UPDATE에 대한 안전장치 역할도 합니다. 같은 테이블의 `BEFORE UPDATE` 트리거는 이름 알파벳순으로 실행되므로, "강의자가 아니면 `status` 변경 자체를 차단"하는 `trg_block_status_change`(b)가 `trg_set_resolved_at`(s)보다 먼저 실행되어 순서 문제가 없습니다.
-- **회원가입 시 `profiles` 자동 생성**: `profiles`는 별도 INSERT 정책이 없어 RLS가 직접 INSERT를 막습니다. 그래서 `auth.users`에 새 행이 생길 때(Google OAuth 로그인 포함) `on_auth_user_created` 트리거가 `handle_new_user()`를 호출해 `profiles` 행을 자동으로 만드는 게 유일한 생성 경로입니다. 이 함수는 일반 role에게 없는 `public.profiles` INSERT 권한을 얻기 위해 `SECURITY DEFINER`로 선언했고, `search_path`를 `public`으로 고정해 스키마 하이재킹을 방지합니다. `display_name`은 구글 계정의 `full_name`/`name`(없으면 이메일)을 `raw_user_meta_data`에서 꺼내 자동으로 채웁니다.
+- **강의자 권한(상태 전환/삭제/피드백 초기화)**: `posts_lecturer_update_status`/`posts_lecturer_delete`/`lecture_feedback_votes_lecturer_reset` 정책으로 강의자가 남의 게시글 `status`를 바꾸거나, 부적절한 글을 삭제하거나, 실시간 피드백 투표를 전체 초기화할 수 있습니다(`nodes.created_by = auth.uid()`로 해당 강의 소유자인지 확인). `trg_block_status_change_by_non_lecturer` 트리거가 이와 짝을 이뤄 "강의자가 아니면 `status`를 절대 못 바꾼다"를 강제합니다 — 정책은 허용 조건, 트리거는 차단 조건을 맡는 구조입니다.
+- **`resolved_at` 자동 설정/해제**: `status`가 `resolved`로 바뀌는 순간 `trg_set_resolved_at_on_status_change` 트리거가 `resolved_at`을 `now()`로 채우고, 다시 `unresolved`로 돌아가거나(또는 애초에 답글이라 `status`가 `null`인 경우) `null`로 되돌립니다. `check ((status = 'resolved') = (resolved_at is not null))` 제약이 이 관계를 양방향으로 강제해서, 트리거를 거치지 않은 직접 INSERT/UPDATE에 대한 안전장치 역할도 합니다. 같은 테이블의 `BEFORE UPDATE` 트리거는 이름 알파벳순으로 실행되므로, "강의자가 아니면 `status` 변경 자체를 차단"하는 `trg_block_status_change_by_non_lecturer`(b)가 `trg_set_resolved_at_on_status_change`(s)보다 먼저 실행되어 순서 문제가 없습니다.
+- **회원가입 시 `profiles` 자동 생성**: `profiles`는 별도 INSERT 정책이 없어 RLS가 직접 INSERT를 막습니다. 그래서 `auth.users`에 새 행이 생길 때(Google OAuth 로그인 포함) `trg_handle_new_user` 트리거가 `handle_new_user()`를 호출해 `profiles` 행을 자동으로 만드는 게 유일한 생성 경로입니다. 이 함수는 일반 role에게 없는 `public.profiles` INSERT 권한을 얻기 위해 `SECURITY DEFINER`로 선언했고, `search_path`를 `public`으로 고정해 스키마 하이재킹을 방지합니다. `display_name`은 구글 계정의 `full_name`/`name`(없으면 이메일)을 `raw_user_meta_data`에서 꺼내 자동으로 채웁니다.
 
 ### RPC·뷰 동작
 
@@ -335,10 +335,10 @@ create policy "lectures_owner_all" on lectures for all
 
 -- lecture_join_codes: 코드 조회는 공개(입장 시 코드로 찾아야 하므로), 발급/재발급/파기는 강의 소유자만
 alter table lecture_join_codes enable row level security;
-create policy "join_codes_select_all" on lecture_join_codes for select using (true);
-create policy "join_codes_owner_all" on lecture_join_codes for insert
+create policy "lecture_join_codes_select_all" on lecture_join_codes for select using (true);
+create policy "lecture_join_codes_owner_all" on lecture_join_codes for insert
   with check (exists (select 1 from lectures join nodes on nodes.id = lectures.node_id where lectures.node_id = lecture_id and nodes.created_by = auth.uid()));
-create policy "join_codes_owner_delete" on lecture_join_codes for delete
+create policy "lecture_join_codes_owner_delete" on lecture_join_codes for delete
   using (exists (select 1 from lectures join nodes on nodes.id = lectures.node_id where lectures.node_id = lecture_id and nodes.created_by = auth.uid()));
 
 -- my_nodes: 완전히 개인적인 데이터라 본인만 읽기/쓰기 전부 가능
@@ -418,15 +418,15 @@ create policy "post_likes_delete_own" on post_likes for delete
   using (voter_key = coalesce(auth.uid(), (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid));
 
 alter table lecture_feedback_votes enable row level security;
-create policy "feedback_select_all" on lecture_feedback_votes for select using (true);
-create policy "feedback_insert_own" on lecture_feedback_votes for insert
+create policy "lecture_feedback_votes_select_all" on lecture_feedback_votes for select using (true);
+create policy "lecture_feedback_votes_insert_own" on lecture_feedback_votes for insert
   with check (voter_key = coalesce(auth.uid(), (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid));
-create policy "feedback_delete_own" on lecture_feedback_votes for delete
+create policy "lecture_feedback_votes_delete_own" on lecture_feedback_votes for delete
   using (voter_key = coalesce(auth.uid(), (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid));
 
 -- lecture_feedback_votes: 강의자는 자기 강의의 투표 전체를 초기화 가능
--- (feedback_delete_own은 본인 투표만 지울 수 있어서, 전체 초기화를 위해 별도 정책 필요)
-create policy "feedback_lecturer_reset" on lecture_feedback_votes for delete
+-- (lecture_feedback_votes_delete_own은 본인 투표만 지울 수 있어서, 전체 초기화를 위해 별도 정책 필요)
+create policy "lecture_feedback_votes_lecturer_reset" on lecture_feedback_votes for delete
   using (exists (
     select 1 from lectures join nodes on nodes.id = lectures.node_id
     where lectures.node_id = lecture_feedback_votes.lecture_id and nodes.created_by = auth.uid()
@@ -452,3 +452,4 @@ create policy "feedback_lecturer_reset" on lecture_feedback_votes for delete
   - `20260706073501_restrict_lecturer_post_rules_by_mode.sql` — `restrict_lecturer_post_rules()`가 `x-mode` 헤더를 확인해, 강의를 만든 계정이 수강생 모드로 들어왔을 땐 게시글 작성 제한을 적용하지 않도록 변경 (아래 마이그레이션으로 대체됨)
   - `20260706075425_posts_created_mode_replaces_trigger.sql` — `restrict_lecturer_post_rules` 트리거/`x-mode` 헤더 방식을 폐기하고, `posts.created_mode` 컬럼 + 테이블 `check` 제약(답글+opinion 타입) + RLS 정책(`posts_insert_lecturer_mode_matches_owner`, `posts_update_lecturer_mode_matches_owner`)으로 대체
   - `20260706081432_posts_resolved_at_trigger_and_check.sql` — `status`가 `resolved`로 바뀌면 `resolved_at`을 자동으로 채우고 되돌아가면 `null`로 되돌리는 `trg_set_resolved_at` 트리거 추가, `check ((status = 'resolved') = (resolved_at is not null))` 양방향 제약 추가
+  - `20260706084256_unify_trigger_and_policy_names.sql` — 트리거 이름을 함수 이름 축약 없이 그대로 쓰도록 통일(`on_auth_user_created` → `trg_handle_new_user`, `trg_block_status_change` → `trg_block_status_change_by_non_lecturer`, `trg_set_resolved_at` → `trg_set_resolved_at_on_status_change`), RLS 정책 이름의 테이블 접두사를 축약 없이 통일(`join_codes_*` → `lecture_join_codes_*`, `feedback_*` → `lecture_feedback_votes_*`)
