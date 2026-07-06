@@ -62,6 +62,10 @@ AI 교정, 부적절한 내용 필터링, 유사 질문 자동 탐지(#2, #3) �
 
 ## 프론트엔드
 
+### 트리 구조 데이터 조회 관련
+
+"내 강의"/"강의" 페이지에서 트리 조회 3가지(내가 만든 노드, 즐겨찾기 서브트리, 강의 페이지 게시글) 아직 구현 안 됨. 백엔드 쪽(RPC/RLS)은 완료되어 원격 DB에 반영되어 있음 — 실제 구현 방법은 [SUPABASE_GUIDE.md의 6번 항목](./SUPABASE_GUIDE.md#6-트리-구조-데이터-조회-내-강의-페이지--강의-페이지) 참고.
+
 ### guest_token 관련
 
 정확히 언제/어떻게 생성하는지(강의 최초 입장 시 1회 생성 등) 확정 필요. `localStorage`에 저장하고 재사용. 이후 `posts`, `post_likes`, `lecture_feedback_votes` 관련 요청을 보낼 때마다 이 값을 `x-guest-token` 헤더로 실어 보내도록 구현 (supabase-js 클라이언트에 요청별 커스텀 헤더 설정, `SUPABASE_GUIDE.md` 참고).
@@ -80,7 +84,7 @@ AI 교정, 부적절한 내용 필터링, 유사 질문 자동 탐지(#2, #3) �
 - "해결된 게시글에 질문 답글이 달리면 자동 미해결 전환"과 status 트리거의 충돌 → `reopen_resolved_post_on_question_reply` 트리거(`AFTER INSERT on posts`)가 재귀 CTE로 트리 최상위 게시글을 찾아 자동 전환. `trg_block_status_change_by_non_lecturer`는 `app.bypass_status_lock` 트랜잭션 로컬 플래그가 켜져 있으면 통과하도록 수정(이건 `auth.uid()` 기반 검사라 `SECURITY DEFINER`로는 못 우회함). 반면 자동 전환 함수 자체는 `posts` 직접 SELECT가 회수돼 있고 이 UPDATE를 실행하는 수강생이 기존 RLS 어디에도 안 걸려서, 이건 `SECURITY DEFINER`로 우회 → `backend/supabase/migrations/20260706101235_reopen_resolved_post_on_question_reply.sql`, `20260706101723_reopen_resolved_post_security_definer.sql`.
 - `profiles` 컬럼 이름을 단순화: `display_name` → `name`, `last_mode` → `mode`. `posts_public` 뷰와 체크 제약은 컬럼을 attnum으로 참조해 자동으로 따라가고, `handle_new_user()` 함수만 새 컬럼명에 맞춰 갱신 → `backend/supabase/migrations/20260706110000_profiles_rename_columns.sql`.
 - 즐겨찾기(`my_nodes`)가 남의 수강생 모드 개인 정리 폴더까지 등록 가능했던 문제 발견 → 강의자 모드로 만든 노드만 즐겨찾기 가능하도록 `RESTRICTIVE` RLS 정책 추가, 더미 데이터도 이 규칙에 맞게 수정(B/C가 수강생 모드로 만들었던 "운영체제"/"수학" 폴더를 강의자 모드로 바꾸고 그 밑에 강의들을 옮김) → `backend/supabase/migrations/20260706122114_my_nodes_only_favorite_lecturer_mode.sql`.
-- **강의 폴더 트리 조회(내 강의 페이지 / 강의 페이지)** — 서버에 물어봐야 하는 건 3가지: (1) 강의자 모드 "내 강의" 접속 시 내가 만든 모든 노드, (2) 수강생 모드 "내 강의" 접속 시 내가 만든 노드 + 즐겨찾기한 노드들의 서브트리, (3) 강의 페이지 접속 시 해당 `lecture_id`의 모든 `posts`. (1)·(3)은 평평한 필터 조회라 RPC 없이 프론트에서 직접 쿼리(`nodes.eq(created_by, userId).eq(created_mode, 'lecturer')`, `posts_public.eq(lecture_id, lectureId)`)하면 되고, (2)만 재귀가 필요해 RPC로 뺌.
+- **트리 구조 데이터 조회(내 강의 페이지 / 강의 페이지)** — 서버에 물어봐야 하는 건 3가지: (1) 강의자 모드 "내 강의" 접속 시 내가 만든 모든 노드, (2) 수강생 모드 "내 강의" 접속 시 내가 만든 노드 + 즐겨찾기한 노드들의 서브트리, (3) 강의 페이지 접속 시 해당 `lecture_id`의 모든 `posts`. (1)·(3)은 평평한 필터 조회라 RPC 없이 프론트에서 직접 쿼리(`nodes.eq(created_by, userId).eq(created_mode, 'lecturer')`, `posts_public.eq(lecture_id, lectureId)`)하면 되고, (2)만 재귀가 필요해 RPC로 뺌.
   - 처음엔 `get_node_descendants(root_ids)` RPC로 즐겨찾기 서브트리를 가져온 뒤, `created`(내가 만든 노드) + 이 결과를 **하나의 `byId` Map으로 합쳐서** 중복 제거하고 트리를 조립하는 방식을 생각했으나, 검토 중 문제 발견: 폴더 A와 그 하위 강의 B를 각각 따로 즐겨찾기한 경우, B는 "A의 서브트리 안의 자손"이자 "B 자신의 즐겨찾기 루트"로 **두 자리에 각각 독립적으로 나타나야 하는데**, 전역 `id` 기준으로 합치면 하나로 뭉개져 버림(자기 자신을 즐겨찾기하는 경우엔 오히려 `created_mode` 필터 덕분에 겹칠 일이 없다는 것도 확인함).
   - 그래서 `get_node_descendants` 대신 `get_my_favorite_subtrees()` RPC로 교체: 즐겨찾기 루트(`my_nodes.node_id`)마다 재귀로 서브트리를 구하되, 결과 행마다 `anchor_node_id`(어느 즐겨찾기 루트에서 나온 행인지)를 태그하고, `union`이 아니라 `union all`로 중복 행을 일부러 유지. 프론트는 `anchor_node_id`로 그룹핑해서 즐겨찾기 루트별로 독립된 서브트리를 조립·렌더링하고(React `key`도 전역 `id`가 아니라 "어느 anchor에서 나온 사본인지"까지 포함해야 충돌 안 남), 서로 다른 anchor의 결과를 하나의 `byId` Map으로 합치지 않음. 즐겨찾기가 정리된 개인 폴더(`folder_id`)는 이 RPC에 안 담고, 프론트가 `my_nodes`를 직접 조회해서(RLS로 본인 행만 허용) 얻음.
   - 이 설계를 뒷받침하기 위해 두 가지 RLS/제약도 같이 정리: `nodes.parent_id`가 가리키는 부모와 `created_by`/`created_mode`가 항상 일치하도록 강제하는 `enforce_nodes_parent_ownership` 트리거(안 그러면 남의 트리 밑에 내 노드를 끼워 넣거나 내 강의자/수강생 모드 트리가 섞일 수 있었음), `my_nodes.folder_id`가 실제로 내가 수강생 모드로 만든 폴더인지 확인하는 `RESTRICTIVE` RLS 정책 → `backend/supabase/migrations/20260706150816_nodes_parent_ownership_mode_match.sql`, `20260706154459_my_nodes_folder_must_be_own_student_folder.sql`, `20260706154910_unify_my_nodes_policy_names.sql`, `20260706161208_get_my_favorite_subtrees_rpc.sql`.
