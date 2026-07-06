@@ -37,7 +37,7 @@ export default function CourseRow({ course, isInstructor = false, isInBlockedFol
     <div draggable={isInteractive} onDragStart={handleDragStart} className="group relative flex w-full items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-violet-200 hover:shadow-md sm:p-5">
       <button type="button" onClick={() => navigate(`/room/${course.id}`)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
         <GripVertical className={cn('size-4 shrink-0 text-slate-200', isInteractive && 'group-hover:text-violet-300')} />
-        <CourseIcon color={course.color} />
+        <CourseIcon color={isOwned ? 'purple' : course.color} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-base font-extrabold text-slate-900 sm:text-lg">{course.title}</span>
           <span className="mt-1.5 block"><CourseMeta participantCount={course.participantCount} questionCount={course.questionCount} updatedAt={course.updatedAt} /></span>
@@ -51,7 +51,7 @@ export default function CourseRow({ course, isInstructor = false, isInBlockedFol
           </button>
           {isMenuOpen && (
             <ItemActionsMenu
-              onEdit={isInstructor && course.ownership === 'owned' && onEdit ? () => onEdit(course.id) : undefined}
+              onEdit={isOwned && onEdit ? () => onEdit(course.id) : undefined}
               onRename={isOwned ? () => onRename(course.id, 'course', course.title) : undefined}
               onMove={() => onMove(course.id, 'course', course.title)}
               onDelete={() => onDelete(course.id, 'course', course.title)}

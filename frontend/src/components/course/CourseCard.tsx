@@ -30,7 +30,7 @@ export default function CourseCard({ course, isInstructor = false, onEdit, onRen
     <div draggable onDragStart={handleDragStart} className="group relative flex min-w-0 items-start gap-3 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md sm:p-6">
       <button type="button" onClick={() => navigate(`/room/${course.id}`)} className="flex min-w-0 flex-1 items-start gap-3 text-left">
         <GripVertical className="mt-3 size-4 shrink-0 text-slate-200 transition group-hover:text-violet-300" />
-        <CourseIcon color={course.color} />
+        <CourseIcon color={isOwned ? 'purple' : course.color} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-base font-extrabold text-slate-900">{course.title}</span>
           <span className="mt-5 block"><CourseMeta participantCount={course.participantCount} questionCount={course.questionCount} /></span>
@@ -43,7 +43,7 @@ export default function CourseCard({ course, isInstructor = false, onEdit, onRen
         </button>
         {isMenuOpen && (
           <ItemActionsMenu
-            onEdit={isInstructor && course.ownership === 'owned' && onEdit ? () => onEdit(course.id) : undefined}
+            onEdit={isOwned && onEdit ? () => onEdit(course.id) : undefined}
             onRename={isOwned ? () => onRename(course.id, 'course', course.title) : undefined}
             onMove={() => onMove(course.id, 'course', course.title)}
             onDelete={() => onDelete(course.id, 'course', course.title)}

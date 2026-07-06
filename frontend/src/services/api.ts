@@ -144,12 +144,12 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
   return course
 }
 
-/** 강의자 본인이 만든 강의의 기본 정보를 수정합니다. */
+/** 강의의 기본 정보를 수정합니다. 강의자는 본인의 모든 강의를, 수강생은 본인이 만든 강의만 수정할 수 있습니다. */
 export async function updateCourse(input: UpdateCourseInput): Promise<Course> {
   await delay(350)
   const course = findCourse(mockCourseFolders, mockStandaloneCourses, input.id)
   if (!course) throw new Error('강의를 찾을 수 없습니다.')
-  if (course.ownership !== 'owned') throw new Error('내가 만든 강의만 수정할 수 있습니다.')
+  if (course.ownership !== 'owned' && !isPrivilegedEditor()) throw new Error('내가 만든 강의만 수정할 수 있습니다.')
 
   course.title = input.title
   course.date = input.date
