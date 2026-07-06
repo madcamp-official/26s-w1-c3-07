@@ -19,9 +19,8 @@
 - [join_code 관련](#join_code-관련)
   - [12. `lecture_join_codes` 파기 시점/주체 결정](#12-lecture_join_codes-파기delete-시점주체-결정)
 - [기타 사항](#기타-사항)
-  - [13. 강의자 강의 페이지에 글 삭제 버튼 추가](#13-강의자-강의-페이지에-글-삭제-버튼-추가)
-  - [14. 닉네임(display_name) 수정 기능 추가](#14-닉네임display_name-수정-기능-추가)
-  - [15. 강의 폴더 트리 조회용 RPC (재귀 CTE)](#15-강의-폴더-트리-조회용-rpc-재귀-cte)
+  - [13. 닉네임(display_name) 수정 기능 추가](#13-닉네임display_name-수정-기능-추가)
+  - [14. 강의 폴더 트리 조회용 RPC (재귀 CTE)](#14-강의-폴더-트리-조회용-rpc-재귀-cte)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
 
 ## RLS 설정 및 guest_token 관련
@@ -87,15 +86,11 @@ AI 교정, 부적절한 내용 필터링, 유사 질문 자동 탐지(#8, #9) �
 
 ## 기타 사항
 
-### 13. 강의자 강의 페이지에 글 삭제 버튼 추가
-
-README 기능명세서(강의자 - 강의 페이지, "부적절한 글 삭제")에 대응하는 UI가 아직 없음 (백엔드 `posts_lecturer_delete` 정책은 이미 반영 완료, "해결된 것" 참고).
-
-### 14. 닉네임(display_name) 수정 기능 추가
+### 13. 닉네임(display_name) 수정 기능 추가
 
 회원가입(Google OAuth) 시 `handle_new_user` 트리거가 구글 계정 이름(`full_name`/`name`)을 `profiles.display_name`에 자동으로 채워주는데, 이후 사용자가 원하는 닉네임으로 직접 바꿀 수 있는 UI가 아직 없음. 백엔드는 이미 `profiles_update_self` 정책으로 본인 수정이 허용되어 있으니, 프론트에서 설정 화면에 닉네임 수정 폼만 추가하면 됨.
 
-### 15. 강의 폴더 트리 조회용 RPC (재귀 CTE)
+### 14. 강의 폴더 트리 조회용 RPC (재귀 CTE)
 
 `nodes`는 `parent_id` 자기참조로 깊이 무제한 트리를 이루는데, Supabase의 기본 REST API(PostgREST)는 중첩 조회(`nodes(children:nodes(...))`) 시 요청마다 중첩 단계를 직접 지정해야 해서 "깊이 무제한" 요구사항엔 안 맞음. 재귀 CTE(`with recursive`)를 Postgres 함수로 감싸서 RPC로 노출해야 함 (예: `get_node_tree(root_id)`). 아직 함수/마이그레이션 미작성.
 
