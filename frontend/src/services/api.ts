@@ -27,26 +27,26 @@ function avatarTextOf(name: string): string {
 
 interface ProfileRow {
   id: string
-  display_name: string | null
-  last_mode: DbMode
+  name: string | null
+  mode: DbMode
 }
 
 /** Supabase 세션 + profiles 행을 프론트에서 쓰는 User 모양으로 합칩니다. */
 async function loadUserFromSession(authUser: { id: string; email?: string }): Promise<User> {
   const { data: profile, error } = await supabase
     .from('profiles')
-    .select('id, display_name, last_mode')
+    .select('id, name, mode')
     .eq('id', authUser.id)
     .single<ProfileRow>()
 
   if (error) throw error
 
-  const name = profile.display_name ?? authUser.email ?? '이름 없음'
+  const name = profile.name ?? authUser.email ?? '이름 없음'
   const user: User = {
     id: profile.id,
     name,
     email: authUser.email ?? '',
-    role: modeToRole(profile.last_mode),
+    role: modeToRole(profile.mode),
     avatarText: avatarTextOf(name),
   }
 
@@ -175,7 +175,7 @@ export async function switchUserRole(role: UserRole): Promise<User> {
 
   const { error } = await supabase
     .from('profiles')
-    .update({ last_mode: roleToMode(role) })
+    .update({ mode: roleToMode(role) })
     .eq('id', authUser.id)
   if (error) throw error
 
@@ -193,7 +193,7 @@ export async function updateUserName(name: string): Promise<User> {
 
   const { error } = await supabase
     .from('profiles')
-    .update({ display_name: trimmed })
+    .update({ name: trimmed })
     .eq('id', authUser.id)
   if (error) throw error
 

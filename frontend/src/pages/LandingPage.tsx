@@ -13,9 +13,13 @@ export default function LandingPage() {
   const [isSigningIn, setIsSigningIn] = useState(false)
 
   useEffect(() => {
-    void getCurrentUser().then((user) => {
-      if (user) navigate('/student/courses', { replace: true })
-    })
+    void getCurrentUser()
+      .then((user) => {
+        if (user) navigate('/student/courses', { replace: true })
+      })
+      .catch((error) => {
+        setMessage(error instanceof Error ? error.message : '로그인 정보를 불러오지 못했습니다.')
+      })
   }, [navigate])
 
   const submitCode = async (event: FormEvent<HTMLFormElement>) => {
