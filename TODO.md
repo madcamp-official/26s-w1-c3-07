@@ -19,7 +19,7 @@
   - [11. `lecture_join_codes` 파기 시점/주체 결정](#11-lecture_join_codes-파기delete-시점주체-결정)
 - [기타 사항](#기타-사항)
   - [12. 강의 폴더 트리 조회용 RPC (재귀 CTE)](#12-강의-폴더-트리-조회용-rpc-재귀-cte)
-  - [13. `x-mode` 커스텀 헤더를 실제로 보내는 구현](#13-x-mode-커스텀-헤더를-실제로-보내는-구현)
+  - [13. 게시글 작성 시 `created_mode` 실제로 채워서 보내는 구현](#13-게시글-작성-시-created_mode-실제로-채워서-보내는-구현)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
 
 ## RLS 설정 및 guest_token 관련
@@ -102,9 +102,9 @@ RPC 반환 형태는 두 가지 방식이 있음.
 
 `posts` 트리도 동일한 자기참조 구조라 같은 가드가 필요함.
 
-### 13. `x-mode` 커스텀 헤더를 실제로 보내는 구현
+### 13. 게시글 작성 시 `created_mode` 실제로 채워서 보내는 구현
 
-`restrict_lecturer_post_rules` 트리거가 `x-mode`(lecturer/student) 헤더를 확인해서, 강의를 만든 계정이 수강생 모드로 들어왔을 땐 게시글 작성 제한을 풀어주도록 이미 반영됨(`backend/supabase/migrations/20260706073501_restrict_lecturer_post_rules_by_mode.sql`). 근데 프론트에 모드 전환 상태를 관리하고 매 요청마다 이 헤더를 실어 보내는 구현은 아직 없음 (`x-guest-token`과 동일한 방식, `SUPABASE_GUIDE.md` 참고). 헤더를 안 보내면 서버가 안전하게 `lecturer`로 간주하니 당장 급한 이슈는 아님.
+강의를 만든 계정이 수강생 모드로 자기 강의에 들어와도 일반 수강생처럼 글을 쓸 수 있고, 화면에서 강의자/수강생 글을 색으로 구분할 수 있도록 `posts.created_mode` 컬럼 + 제약(`check`)/RLS 정책이 이미 반영됨(`backend/supabase/migrations/20260706075425_posts_created_mode_replaces_trigger.sql`). 근데 프론트에 지금 모드(강의자/수강생) 상태를 관리하고, 게시글 INSERT 시 `created_mode`에 그 값을 실제로 채워 보내는 구현은 아직 없음 (`SUPABASE_GUIDE.md` 참고). 안 보내면 DB 기본값(`student`)이 적용되니 당장 급한 이슈는 아님.
 
 ## 해결된 것 (참고용 기록)
 
@@ -115,3 +115,4 @@ RPC 반환 형태는 두 가지 방식이 있음.
 - 강의자가 게시글 미해결↔해결됨 전환(`posts_lecturer_update_status`), 실시간 피드백 초기화(`feedback_lecturer_reset`), 게시글 status는 강의자만 변경 가능(`trg_block_status_change`), 강의자 글 삭제 권한(`posts_lecturer_delete`), `guest_token` 제외 공개 뷰(`posts_public`) → `backend/supabase/migrations/20260705064427_lecturer_permissions.sql`.
 - 회원 탈퇴 버튼 + RPC(`delete_own_account`) → `backend/supabase/migrations/20260705090000_delete_own_account_rpc.sql`, `backend/test-frontend`에 반영. 탈퇴 시 cascade로 발동되는 `anonymize_posts_before_profile_delete` 트리거가 `search_path` 문제로 실패하던 버그는 `20260705132633_fix_anonymize_posts_search_path.sql`로 수정.
 - `voter_key`(회원/비회원 겸용 단일 컬럼)를 `user_id`/`guest_token` 두 컬럼으로 분리하지 않고 현재 구조 그대로 유지하기로 결정. 회원 탈퇴 시에도 좋아요/피드백 투표 기록을 삭제하지 않고 그대로 보존하는 쪽을 택함 (자동 정리보다 기록 보존 우선).
+- 강의자 게시글 작성 제한(`restrict_lecturer_post_rules` 트리거 + `x-mode` 헤더)을 `posts.created_mode` 컬럼 + 테이블 `check` 제약 + RLS 정책 조합으로 재설계. 강의를 만든 계정이 수강생 모드로 자기 강의에 들어오면 일반 수강생처럼 글을 쓸 수 있어야 하고, 동시에 화면에서 강의자/수강생 글을 색으로 구분해야 해서 그 순간의 모드를 글에 직접 저장하는 방식으로 변경 → `backend/supabase/migrations/20260706075425_posts_created_mode_replaces_trigger.sql`.
