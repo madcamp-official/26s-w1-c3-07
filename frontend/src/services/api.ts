@@ -22,6 +22,18 @@ const clone = <T,>(value: T): T => structuredClone(value)
 const feedbackVotesByUser = new Map<string, Map<FeedbackKey, 'like' | 'dislike'>>()
 const questionLikesByUser = new Map<string, Set<string>>()
 
+/**
+ * 답글의 "수정하기"는 실제로 그 글을 작성한 사람에게만 보여야 합니다.
+ * 데모 계정은 역할 전환으로 수강생/강의자를 오가므로, 답글을 작성할 때의
+ * 뷰어 키(`id:role`)를 기록해 두었다가 현재 뷰어와 비교해 판단합니다.
+ * 시드 데이터의 답글은 mockCurrentUser 명의로 작성된 것으로 간주해
+ * 아래에서 초기값을 채워 넣습니다.
+ */
+const replyAuthorKeyById = new Map<string, string>([
+  ['reply-1', 'user-1:instructor'],
+  ['reply-3', 'user-1:instructor'],
+])
+
 function getViewerKey(): string {
   return `${mockCurrentUser.id}:${mockCurrentUser.role}`
 }
@@ -51,7 +63,11 @@ function applyViewerVotes(room: CourseRoom, voterKey: string): CourseRoom {
   const applyToQuestion = (question: Question): Question => ({
     ...question,
     isLikedByMe: likes.has(question.id),
-    replies: question.replies.map((reply) => ({ ...reply, isLikedByMe: likes.has(reply.id) })),
+    replies: question.replies.map((reply) => ({
+      ...reply,
+      isLikedByMe: likes.has(reply.id),
+      isEditable: replyAuthorKeyById.get(reply.id) === voterKey,
+    })),
   })
 
   return {
@@ -424,6 +440,7 @@ export async function createReply(courseId: string, questionId: string, submissi
     isLikedByMe: false,
     depth: 0,
   }
+  replyAuthorKeyById.set(reply.id, getViewerKey())
 
   const room = mockCourseRooms[courseId]
   const question = room?.questions.find((item) => item.id === questionId)
@@ -432,17 +449,17 @@ export async function createReply(courseId: string, questionId: string, submissi
   return reply
 }
 
-/** 답글을 수정합니다. 작성자 본인(강의자 본인 포함)만 수정할 수 있습니다. */
+/** 답글을 수정합니다. 실제로 그 답글을 작성한 본인만 수정할 수 있습니다. */
 export async function updateReply(courseId: string, questionId: string, replyId: string, content: string): Promise<QuestionReply> {
   await delay(250)
   const room = mockCourseRooms[courseId]
   const question = room?.questions.find((item) => item.id === questionId)
   const reply = question?.replies.find((item) => item.id === replyId)
   if (!reply) throw new Error('답글을 찾을 수 없습니다.')
-  if (!reply.isEditable) throw new Error('수정할 수 없는 답글입니다.')
+  if (replyAuthorKeyById.get(replyId) !== getViewerKey()) throw new Error('내가 작성한 답글만 수정할 수 있습니다.')
 
   reply.content = content
-  return clone(reply)
+  return clone({ ...reply, isEditable: true })
 }
 
 export async function toggleQuestionLike(courseId: string, questionId: string): Promise<Question> {
