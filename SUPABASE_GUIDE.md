@@ -10,7 +10,7 @@
 - [4. `.env` / `.env.example` 사용법](#4-env--envexample-사용법)
 - [5. 실제로 쓸 코드 패턴](#5-실제로-쓸-코드-패턴)
 - [6. 비회원 인증: `guest_token` + `x-guest-token` 헤더](#6-비회원-인증-guest_token--x-guest-token-헤더)
-- [7. 강의자/수강생 모드 신호: `x-mode` 헤더](#7-강의자수강생-모드-신호-x-mode-헤더)
+- [7. 강의자/수강생 모드 색 구분: `posts.created_mode`](#7-강의자수강생-모드-색-구분-postscreated_mode)
 - [8. 아직 안 된 것 / 앞으로 할 일](#8-아직-안-된-것--앞으로-할-일)
 
 ## 1. Supabase URL / API 키가 뭔가요?
@@ -145,22 +145,18 @@ supabase 클라이언트는 앱 시작할 때 딱 한 번만 만들고(`supabase
 
 **왜 이 방식인지**: `createClient(...)` 옵션(`global.headers`)으로 헤더를 고정하는 방법도 있지만, 그건 클라이언트를 만드는 시점에 값이 한 번 박혀버려요. `guest_token`은 앱이 로드된 *이후에* `localStorage`에서 읽히는 값이라 클라이언트 생성 시점엔 아직 없을 수 있고, 로그인 여부에 따라 이 헤더가 필요 없는 요청도 있어서(회원은 `author_id`로 처리) 요청마다 동적으로 판단해야 해요. 그래서 매 요청 시점에 값을 읽어 붙이는 `.setHeader()` 방식으로 가요.
 
-## 7. 강의자/수강생 모드 신호: `x-mode` 헤더
+## 7. 강의자/수강생 모드 색 구분: `posts.created_mode`
 
-같은 계정이라도 강의자 모드로 들어왔는지 수강생 모드로 들어왔는지에 따라 서버 쪽 동작이 달라지는 경우가 있어요 (예: 강의를 만든 계정이 수강생 모드로 자기 강의에 들어오면 일반 수강생처럼 게시글을 자유롭게 쓸 수 있어야 함 — `restrict_lecturer_post_rules` 트리거, 자세한 건 [DB_DESIGN.md](./DB_DESIGN.md) 참고).
+같은 계정이라도 강의자 모드로 쓴 글인지 수강생 모드로 쓴 글인지에 따라 화면에서 색을 다르게 표시해야 해요 (강의를 만든 계정이 수강생 모드로 자기 강의에 들어와서 글을 쓰는 경우도 있으므로, `author_id`가 강의 제작자와 같은지만으론 구분이 안 됨). 그래서 헤더가 아니라 **글 작성 시 `posts.created_mode` 컬럼에 값을 직접 넣는 방식**으로 처리해요.
 
-- 매 요청마다 **`x-mode`**라는 커스텀 헤더에 `lecturer` 또는 `student` 값을 실어 보내야 해요.
-- 사용법은 `x-guest-token`과 동일하게 요청마다 체이닝으로 설정:
+- 게시글/답글 INSERT 시 `created_mode` 컬럼에 `'lecturer'` 또는 `'student'` 값을 같이 보내야 해요.
   ```js
   await supabase
     .from('posts')
-    .insert({ ... })
-    .setHeader('x-mode', currentMode) // 'lecturer' | 'student'
+    .insert({ ...기타컬럼, created_mode: currentMode }) // 'lecturer' | 'student'
   ```
-- **헤더를 안 보내면 서버는 안전한 기본값으로 `lecturer`로 간주**해요 (기존 동작과 동일하게 제한이 적용됨). 즉 이 헤더는 "수강생 모드니까 제한을 풀어달라"는 요청에만 의미가 있어요.
-- ⚠️ 이 헤더는 위변조 방지용이 아니라 클라이언트 자율 신고값이에요. `guest_token`처럼 "본인 확인" 목적이 아니라 "지금 어느 화면에서 왔는지"를 서버에 알려주는 용도라, 값이 정확한지는 프론트가 책임져야 해요.
-
-**⚠️ 아직 아무 데도 구현 안 되어 있어요** — 지금 코드베이스엔 모드 전환 상태를 관리하는 로직도, 이 헤더를 실어 보내는 코드도 없습니다.
+- **안 보내면 DB 기본값(`'student'`)이 적용**돼요.
+- `created_mode = 'lecturer'`로 보내려면 실제로 그 강의를 만든 계정이어야만 통과돼요(RLS가 `auth.uid()`로 검증). 남의 강의에서 `created_mode: 'lecturer'`를 보내면 INSERT 자체가 거부됩니다. 자세한 제약 내용은 [DB_DESIGN.md](./DB_DESIGN.md) 참고.
 
 ## 8. 아직 안 된 것 / 앞으로 할 일
 
@@ -169,4 +165,3 @@ supabase 클라이언트는 앱 시작할 때 딱 한 번만 만들고(`supabase
 - [#4 비회원 익명 식별자(`guest_token`) 생성 로직](./TODO.md#4-비회원-익명-식별자guest_token-생성-로직)
 - [#5 `x-guest-token` 커스텀 헤더를 실제로 보내는 구현](./TODO.md#5-x-guest-token-커스텀-헤더를-실제로-보내는-구현)
 - [#6 `posts_public` 뷰로 조회 대상 전환](./TODO.md#6-posts_public-뷰로-조회-대상-전환)
-- [#13 `x-mode` 커스텀 헤더를 실제로 보내는 구현](./TODO.md#13-x-mode-커스텀-헤더를-실제로-보내는-구현)
