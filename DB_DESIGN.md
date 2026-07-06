@@ -7,13 +7,7 @@
   - [테이블](#테이블)
   - [뷰](#뷰)
   - [트리거 함수](#트리거-함수)
-    - [`anonymize_posts_before_profile_delete()`](#anonymize_posts_before_profile_delete)
-    - [`block_status_change_by_non_lecturer()`](#block_status_change_by_non_lecturer)
-    - [`set_resolved_at_on_status_change()`](#set_resolved_at_on_status_change)
-    - [`reopen_resolved_post_on_question_reply()`](#reopen_resolved_post_on_question_reply)
-    - [`handle_new_user()`](#handle_new_user)
   - [RPC 함수](#rpc-함수)
-    - [`delete_own_account()`](#delete_own_account)
 - [설계 노트](#설계-노트)
   - [테이블 관계 및 트리 구조](#테이블-관계-및-트리-구조)
   - [삭제 전파 (cascade)](#삭제-전파-cascade)
@@ -316,6 +310,8 @@ for each row execute function handle_new_user();
 
 로그인한 본인만 자기 `auth.users` 행을 삭제할 수 있게 하는 회원 탈퇴 RPC입니다. `auth.users` DELETE는 일반 role(`anon`/`authenticated`)에게 권한이 없어 `SECURITY DEFINER`로 우회하고, `auth.uid()`로 삭제 대상을 "요청자 본인"으로 못박아 다른 사람 계정을 삭제하는 걸 원천 차단합니다. `search_path`를 빈 문자열로 비워 모든 참조를 완전한 스키마 경로(`auth.users`)로 강제해 스키마 하이재킹을 방지합니다. 함수 생성 직후 `PUBLIC`에게 자동으로 부여되는 기본 실행 권한을 전부 회수(`revoke all`)하고 `authenticated`에게만 다시 실행 권한을 부여해, 로그인하지 않은 사용자는 아예 호출조차 못 하게 막습니다.
 
+프론트에서는 `supabase.rpc('delete_own_account')`로 호출합니다.
+
 ```sql
 create or replace function delete_own_account()
 returns void
@@ -330,8 +326,6 @@ $$ language plpgsql;
 revoke all on function delete_own_account() from public;
 grant execute on function delete_own_account() to authenticated;
 ```
-
-프론트에서는 `supabase.rpc('delete_own_account')`로 호출합니다.
 
 ## 설계 노트
 
