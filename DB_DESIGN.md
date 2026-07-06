@@ -307,20 +307,19 @@ for each row execute function handle_new_user();
 
 #### `delete_own_account()`
 
-로그인한 본인만 자기 `auth.users` 행을 삭제할 수 있게 하는 회원 탈퇴 RPC입니다. `auth.users` DELETE는 일반 role(`anon`/`authenticated`)에게 권한이 없어 `SECURITY DEFINER`로 우회하고, `auth.uid()`로 삭제 대상을 "요청자 본인"으로 못박아 다른 사람 계정을 삭제하는 걸 원천 차단합니다. `search_path`를 빈 문자열로 비워 모든 참조를 완전한 스키마 경로(`auth.users`)로 강제해 스키마 하이재킹을 방지합니다. 함수 생성 직후 `PUBLIC`에게 자동으로 부여되는 기본 실행 권한을 전부 회수(`revoke all`)하고 `authenticated`에게만 다시 실행 권한을 부여해, 로그인하지 않은 사용자는 아예 호출조차 못 하게 막습니다.
+로그인한 본인만 자기 `auth.users` 행을 삭제할 수 있게 하는 회원 탈퇴 RPC입니다. `auth.users` DELETE는 일반 role(`anon`/`authenticated`)에게 권한이 없어 `SECURITY DEFINER`로 우회하고, `auth.uid()`로 삭제 대상을 "요청자 본인"으로 못박아 다른 사람 계정을 삭제하는 걸 원천 차단합니다. `search_path`를 빈 문자열로 비워 모든 참조를 완전한 스키마 경로(`auth.users`)로 강제해 스키마 하이재킹을 방지합니다. 함수 생성 직후 `PUBLIC`에게 자동으로 부여되는 기본 실행 권한을 전부 회수(`revoke all`)하고 `authenticated`에게만 다시 실행 권한을 부여해, 로그인하지 않은 사용자는 아예 호출조차 못 하게 막습니다. 본문이 분기/변수 없는 단순 `DELETE` 한 줄이라 트리거 함수들과 달리 `plpgsql`이 필요 없어 `sql` 언어로 정의했습니다.
 
 프론트에서는 `supabase.rpc('delete_own_account')`로 호출합니다.
 
 ```sql
 create or replace function delete_own_account()
 returns void
+language sql
 security definer
 set search_path = ''
 as $$
-begin
   delete from auth.users where id = auth.uid();
-end;
-$$ language plpgsql;
+$$;
 
 revoke all on function delete_own_account() from public;
 grant execute on function delete_own_account() to authenticated;
@@ -566,3 +565,4 @@ create policy "lecture_feedback_votes_lecturer_reset" on lecture_feedback_votes 
   - `20260706101723_reopen_resolved_post_security_definer.sql` — `posts` 직접 SELECT 회수/RLS 때문에 `reopen_resolved_post_on_question_reply()`가 조상 게시글을 조회·갱신 못 하던 문제를 `SECURITY DEFINER` + `search_path` 고정으로 수정
   - `20260706122114_my_nodes_only_favorite_lecturer_mode.sql` — `my_nodes`(즐겨찾기)는 남이 강의자 모드로 만든 노드만 등록 가능하도록 `RESTRICTIVE` RLS 정책(`my_nodes_only_favorite_lecturer_mode_insert`/`_update`) 추가
   - `20260706110000_profiles_rename_columns.sql` — `profiles` 컬럼 이름을 단순화(`display_name` → `name`, `last_mode` → `mode`). `posts_public` 뷰와 체크 제약은 컬럼을 attnum으로 참조해 자동으로 따라가고, `handle_new_user()` 함수만 새 컬럼명에 맞춰 갱신
+  - `20260706130000_delete_own_account_use_sql_language.sql` — `delete_own_account()`를 `plpgsql`에서 `sql` 언어로 변경 (분기/변수 없는 단순 `DELETE` 한 줄이라 트리거 함수들과 달리 `plpgsql`이 필요 없음)
