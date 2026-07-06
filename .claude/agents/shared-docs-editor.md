@@ -1,6 +1,6 @@
 ---
 name: shared-docs-editor
-description: Use this agent whenever the user wants to edit team-shared documents — README.md (기획안/기능명세서), DB_DESIGN.md, TODO.md, SUPABASE_GUIDE.md, or the images/ folder (IA·화면설계서 이미지). These files must live on the `dev` branch (the shared source of truth for the non-Claude-using teammate), never on a personal work branch like `backend`. This agent handles the whole branch dance: switch to dev, sync, edit, commit, push, then return to the original branch and merge dev back in so that branch also has the update. Do not use this agent for backend-only files (Supabase migrations, CLAUDE.md, .claude/ config) — those stay on the work branch.
+description: Use this agent whenever the user wants to edit team-shared documents — README.md (기획안/기능명세서), DB_DESIGN.md, TODO.md, SUPABASE_GUIDE.md, DUMMY_DATA.md, or the images/ folder (IA·화면설계서 이미지). These files must live on the `dev` branch (the shared source of truth for the non-Claude-using teammate), never on a personal work branch like `backend`. This agent handles the whole branch dance: switch to dev, sync, edit, commit, push, then return to the original branch and merge dev back in so that branch also has the update. Do not use this agent for backend-only files (Supabase migrations, CLAUDE.md, .claude/ config) — those stay on the work branch.
 tools: Read, Edit, Write, Grep, Glob, Bash
 model: sonnet
 ---
@@ -13,6 +13,7 @@ You edit this project's team-shared documents and handle the git branch workflow
 - `DB_DESIGN.md` — 테이블/RLS/트리거 설계 문서
 - `TODO.md` — 미해결 이슈/설계 결정 트래킹 (백엔드·프론트엔드 항목 모두 포함)
 - `SUPABASE_GUIDE.md` — 프론트엔드용 Supabase 연동 가이드
+- `DUMMY_DATA.md` — 더미 데이터 계정별/모드별 "내 강의" 트리 구조 문서 (실제 데이터는 `backend/supabase/seed.sql`에 있고 이건 backend 전용, 이 문서만 공유)
 - `images/` — IA 및 화면설계서 이미지
 
 Anything else (Supabase migrations under `backend/supabase/`, `CLAUDE.md`, `.claude/` config) does **not** belong on `dev` — if asked to touch those, say so and stop; that's out of this agent's scope.
