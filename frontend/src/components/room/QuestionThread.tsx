@@ -1,4 +1,4 @@
-import { ChevronDown, MessageSquare, ThumbsUp } from 'lucide-react'
+import { CheckCircle2, ChevronDown, MessageSquare, ThumbsUp } from 'lucide-react'
 import { useState } from 'react'
 import type { Question } from '../../types/room'
 import { cn } from '../../utils/cn'
@@ -6,13 +6,26 @@ import ReplyItem from './ReplyItem'
 
 interface QuestionThreadProps {
   question: Question
+  canResolve?: boolean
   onLike: (questionId: string) => Promise<void>
+  onResolve?: (questionId: string) => Promise<void>
   onReply: (questionId: string, label: string) => void
 }
 
-export default function QuestionThread({ question, onLike, onReply }: QuestionThreadProps) {
+export default function QuestionThread({ question, canResolve = false, onLike, onResolve, onReply }: QuestionThreadProps) {
   const [isExpanded, setIsExpanded] = useState(true)
+  const [isResolving, setIsResolving] = useState(false)
   const isOpinion = question.postType === 'opinion'
+
+  const handleResolve = async () => {
+    if (!onResolve || question.isResolved) return
+    setIsResolving(true)
+    try {
+      await onResolve(question.id)
+    } finally {
+      setIsResolving(false)
+    }
+  }
 
   return (
     <article className={cn('rounded-3xl border bg-white p-5 shadow-sm sm:p-6', question.isResolved ? 'border-slate-100' : isOpinion ? 'border-rose-200' : 'border-violet-200')}>
@@ -22,9 +35,24 @@ export default function QuestionThread({ question, onLike, onReply }: QuestionTh
           <span>·</span>
           <span>{question.createdAt}</span>
         </div>
-        <button type="button" onClick={() => setIsExpanded((current) => !current)} className="rounded-lg p-1 text-slate-300 hover:bg-slate-50 hover:text-slate-500" aria-label={isExpanded ? '접기' : '펼치기'}>
-          <ChevronDown className={cn('size-5 transition', !isExpanded && '-rotate-90')} />
-        </button>
+        <div className="flex items-center gap-2">
+          {canResolve && (
+            <button
+              type="button"
+              onClick={() => void handleResolve()}
+              disabled={question.isResolved || isResolving}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition disabled:cursor-not-allowed',
+                question.isResolved ? 'bg-emerald-500 text-white' : 'border border-slate-200 text-slate-500 hover:border-emerald-300 hover:text-emerald-600',
+              )}
+            >
+              <CheckCircle2 className="size-3.5" />{question.isResolved ? '해결됨' : '해결 완료'}
+            </button>
+          )}
+          <button type="button" onClick={() => setIsExpanded((current) => !current)} className="rounded-lg p-1 text-slate-300 hover:bg-slate-50 hover:text-slate-500" aria-label={isExpanded ? '접기' : '펼치기'}>
+            <ChevronDown className={cn('size-5 transition', !isExpanded && '-rotate-90')} />
+          </button>
+        </div>
       </div>
 
       <p className="mt-2 text-base font-bold text-slate-900">{question.content}</p>

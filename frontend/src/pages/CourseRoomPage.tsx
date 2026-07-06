@@ -16,7 +16,7 @@ import { cn } from '../utils/cn'
 export default function CourseRoomPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const navigate = useNavigate()
-  const { room, isLoading, error, reload, likeQuestion, voteFeedback } = useCourseRoom(courseId)
+  const { room, isLoading, error, reload, likeQuestion, voteFeedback, resetFeedback, resolveQuestion } = useCourseRoom(courseId)
   const [user, setUser] = useState<User | null>(null)
   const [filter, setFilter] = useState<QuestionFilter>('unresolved')
 
@@ -81,7 +81,12 @@ export default function CourseRoomPage() {
         />
 
         <div className="mt-5">
-          <FeedbackBar options={sortedFeedbackOptions} canVote={!isInstructor} onVote={(key, vote) => void voteFeedback(key, vote)} />
+          <FeedbackBar
+            options={sortedFeedbackOptions}
+            canVote={!isInstructor}
+            onVote={(key, vote) => void voteFeedback(key, vote)}
+            onAcknowledge={isInstructor ? (key) => void resetFeedback(key) : undefined}
+          />
         </div>
 
         <div className="mt-6 flex items-center justify-between gap-3">
@@ -106,7 +111,9 @@ export default function CourseRoomPage() {
             <QuestionThread
               key={question.id}
               question={question}
+              canResolve={isInstructor}
               onLike={likeQuestion}
+              onResolve={resolveQuestion}
               onReply={(questionId, label) => navigate(`/room/${courseId}/write`, { state: { target: { questionId, label } } })}
             />
           ))}

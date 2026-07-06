@@ -10,6 +10,57 @@ const delay = (ms = MOCK_DELAY): Promise<void> =>
 
 const clone = <T,>(value: T): T => structuredClone(value)
 
+/**
+ * mock 데이터의 likeCount/dislikeCount는 모든 사용자의 합산 값이고,
+ * "내가 누른 투표"는 사용자별로 별도 관리해야 다른 사용자(예: 강의자)에게
+ * 내 투표 상태가 그대로 보이는 문제를 막을 수 있습니다.
+ *
+ * 데모 환경에는 계정이 하나뿐이고 "역할 전환"으로 수강생/강의자 화면을
+ * 오가므로, 계정 id만으로는 두 역할을 구분할 수 없습니다. 따라서
+ * `id:role`을 투표자 키로 사용해 역할별로 다른 사람처럼 취급합니다.
+ */
+const feedbackVotesByUser = new Map<string, Map<FeedbackKey, 'like' | 'dislike'>>()
+const questionLikesByUser = new Map<string, Set<string>>()
+
+function getViewerKey(): string {
+  return `${mockCurrentUser.id}:${mockCurrentUser.role}`
+}
+
+function getFeedbackVotes(voterKey: string): Map<FeedbackKey, 'like' | 'dislike'> {
+  let votes = feedbackVotesByUser.get(voterKey)
+  if (!votes) {
+    votes = new Map()
+    feedbackVotesByUser.set(voterKey, votes)
+  }
+  return votes
+}
+
+function getQuestionLikes(voterKey: string): Set<string> {
+  let likes = questionLikesByUser.get(voterKey)
+  if (!likes) {
+    likes = new Set()
+    questionLikesByUser.set(voterKey, likes)
+  }
+  return likes
+}
+
+function applyViewerVotes(room: CourseRoom, voterKey: string): CourseRoom {
+  const votes = getFeedbackVotes(voterKey)
+  const likes = getQuestionLikes(voterKey)
+
+  const applyToQuestion = (question: Question): Question => ({
+    ...question,
+    isLikedByMe: likes.has(question.id),
+    replies: question.replies.map((reply) => ({ ...reply, isLikedByMe: likes.has(reply.id) })),
+  })
+
+  return {
+    ...room,
+    feedbackOptions: room.feedbackOptions.map((option) => ({ ...option, myVote: votes.get(option.key) ?? null })),
+    questions: room.questions.map(applyToQuestion),
+  }
+}
+
 /** Supabase 연동 시 함수 시그니처는 유지하고 내부 구현만 교체합니다. */
 export async function getCurrentUser(): Promise<User> {
   await delay()
@@ -249,7 +300,7 @@ export async function getCourseRoom(courseId: string): Promise<CourseRoom> {
   if (!room) {
     throw new Error('강의실을 찾을 수 없습니다.')
   }
-  return clone(room)
+  return clone(applyViewerVotes(room, getViewerKey()))
 }
 
 export function refineWithAi(content: string): string {
@@ -316,8 +367,25 @@ export async function toggleQuestionLike(courseId: string, questionId: string): 
   const question = room?.questions.find((item) => item.id === questionId)
   if (!question) throw new Error('질문을 찾을 수 없습니다.')
 
-  question.isLikedByMe = !question.isLikedByMe
-  question.likeCount += question.isLikedByMe ? 1 : -1
+  const likes = getQuestionLikes(getViewerKey())
+  const isLikedByMe = !likes.has(questionId)
+  if (isLikedByMe) likes.add(questionId)
+  else likes.delete(questionId)
+  question.likeCount += isLikedByMe ? 1 : -1
+
+  return clone({ ...question, isLikedByMe })
+}
+
+/** 강의자가 질문을 해결 완료로 표시합니다. */
+export async function resolveQuestion(courseId: string, questionId: string): Promise<Question> {
+  await delay(200)
+  if (!isPrivilegedEditor()) throw new Error('강의자만 질문을 해결 처리할 수 있습니다.')
+
+  const room = mockCourseRooms[courseId]
+  const question = room?.questions.find((item) => item.id === questionId)
+  if (!question) throw new Error('질문을 찾을 수 없습니다.')
+
+  question.isResolved = true
   return clone(question)
 }
 
@@ -331,17 +399,38 @@ export async function toggleFeedback(courseId: string, key: FeedbackKey, vote: '
   const option = room.feedbackOptions.find((item) => item.key === key)
   if (!option) throw new Error('피드백 항목을 찾을 수 없습니다.')
 
-  if (option.myVote === vote) {
+  const votes = getFeedbackVotes(getViewerKey())
+  const myVote = votes.get(key) ?? null
+
+  if (myVote === vote) {
     if (vote === 'like') option.likeCount -= 1
     else option.dislikeCount -= 1
-    option.myVote = null
+    votes.delete(key)
   } else {
-    if (option.myVote === 'like') option.likeCount -= 1
-    if (option.myVote === 'dislike') option.dislikeCount -= 1
+    if (myVote === 'like') option.likeCount -= 1
+    if (myVote === 'dislike') option.dislikeCount -= 1
     if (vote === 'like') option.likeCount += 1
     else option.dislikeCount += 1
-    option.myVote = vote
+    votes.set(key, vote)
   }
 
-  return clone(room)
+  return clone(applyViewerVotes(room, getViewerKey()))
+}
+
+/** 강의자가 실시간 피드백 항목을 확인/반영 처리하여 해당 항목의 집계를 초기화합니다. */
+export async function resetFeedbackOption(courseId: string, key: FeedbackKey): Promise<CourseRoom> {
+  await delay(150)
+  if (!isPrivilegedEditor()) throw new Error('강의자만 피드백을 초기화할 수 있습니다.')
+
+  const room = mockCourseRooms[courseId]
+  if (!room) throw new Error('강의실을 찾을 수 없습니다.')
+
+  const option = room.feedbackOptions.find((item) => item.key === key)
+  if (!option) throw new Error('피드백 항목을 찾을 수 없습니다.')
+
+  option.likeCount = 0
+  option.dislikeCount = 0
+  for (const votes of feedbackVotesByUser.values()) votes.delete(key)
+
+  return clone(applyViewerVotes(room, getViewerKey()))
 }
