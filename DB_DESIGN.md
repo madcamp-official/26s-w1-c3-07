@@ -108,14 +108,18 @@ create table post_likes (
 );
 
 -- 실시간 피드백(추워요/더워요/소리 작아요/잘 안 보여요)의 좋아요/싫어요
+-- PK에 value까지 포함시켜, 한 사람이 같은 feedback_type에 좋아요/싫어요를
+-- 동시에 독립적으로 누를 수 있게 함 (voter_key만으로 PK를 잡으면 둘 중 하나만 가능해짐)
 create table lecture_feedback_votes (
   lecture_id uuid references lectures(node_id) on delete cascade,
   feedback_type text not null check (feedback_type in ('cold', 'hot', 'quiet', 'dark')),
   voter_key uuid not null,
   value smallint not null check (value in (1, -1)), -- 좋아요/싫어요
-  primary key (lecture_id, feedback_type, voter_key)
+  primary key (lecture_id, feedback_type, voter_key, value)
 );
--- 집계는 SUM(value)로 계산, 강의자가 "초기화" 누르면 해당 lecture_id의 행을 전부 delete
+-- 좋아요/싫어요 개수는 각각 count(*) filter (where value = 1) / count(*) filter (where value = -1)로 집계해 화면에 따로 표시.
+-- 4개 피드백 유형을 정렬할 때는 sum(value)(좋아요 - 싫어요 순수 점수)를 기준으로 사용.
+-- 강의자가 "초기화" 누르면 해당 lecture_id의 행을 전부 delete
 ```
 
 ### 뷰
@@ -425,3 +429,4 @@ create policy "feedback_lecturer_reset" on lecture_feedback_votes for delete
   - `20260705132633_fix_anonymize_posts_search_path.sql` — `anonymize_posts_before_profile_delete()`에 `search_path` 고정 (탈퇴 시 발생하던 버그 수정)
   - `20260706032608_lectures_max_participants_check.sql` — `lectures.max_participants`는 `null` 또는 0 이상만 허용하는 체크 제약 추가
   - `20260706053322_unify_language_clause_position.sql` — 함수 정의의 `language plpgsql` 절 위치를 본문 뒤로 통일 (동작 변화 없음)
+  - `20260706063127_feedback_votes_allow_like_and_dislike.sql` — `lecture_feedback_votes`의 PK에 `value`를 추가해, 한 사람이 같은 feedback_type에 좋아요/싫어요를 동시에 누를 수 있게 변경
