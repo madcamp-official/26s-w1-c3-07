@@ -20,20 +20,21 @@ insert into nodes (id, parent_id, node_type, name, created_by, created_mode, cre
   ('f0000000-0000-0000-0000-000000000005', 'f0000000-0000-0000-0000-000000000004', 'folder', '자료구조', '6785527b-6fd4-4c61-b8ba-f1dcd0692c03', 'student', now() - interval '9 days'),
   ('f0000000-0000-0000-0000-000000000007', 'f0000000-0000-0000-0000-000000000004', 'folder', '알고리즘', '6785527b-6fd4-4c61-b8ba-f1dcd0692c03', 'student', now() - interval '9 days');
 
--- ===== nodes: B/C가 강의자 모드로 만든 폴더 + 그 밑의 강의 (A는 수강생으로 즐겨찾기만) =====
--- 즐겨찾기(my_nodes)는 강의자 모드로 만든 노드만 등록 가능하므로, 운영체제/수학 폴더도
--- 강의자 모드로 만들고 B/C의 강의들을 그 밑에 둠 (B/C는 수강생 모드로 만들거나
--- 즐겨찾기한 게 하나도 없음).
+-- ===== nodes: B가 강의자 모드로 만든 폴더 + 그 밑의 강의 (A는 수강생으로 즐겨찾기만) =====
+-- 즐겨찾기(my_nodes)는 강의자 모드로 만든 노드만 등록 가능하므로, 운영체제 폴더도
+-- 강의자 모드로 만듦 (B는 수강생 모드로 만들거나 즐겨찾기한 게 하나도 없음).
 insert into nodes (id, parent_id, node_type, name, created_by, created_mode, created_at) values
   ('f0000000-0000-0000-0000-000000000008', null, 'folder', '운영체제', '6afee91c-3ce9-438f-9c0b-868b6ef45159', 'lecturer', now() - interval '7 days'),
-  ('f0000000-0000-0000-0000-000000000009', null, 'folder', '수학', '0c58fd0c-8d15-4ed8-a546-134537590d8c', 'lecturer', now() - interval '6 days'),
   ('f0000000-0000-0000-0000-000000000006', 'f0000000-0000-0000-0000-000000000008', 'lecture', '프로세스와 스레드', '6afee91c-3ce9-438f-9c0b-868b6ef45159', 'lecturer', now() - interval '7 days'),
   ('f0000000-0000-0000-0000-00000000000a', 'f0000000-0000-0000-0000-000000000008', 'lecture', '메모리 관리와 가상 메모리', '6afee91c-3ce9-438f-9c0b-868b6ef45159', 'lecturer', now() - interval '5 days'),
-  ('f0000000-0000-0000-0000-00000000000c', 'f0000000-0000-0000-0000-000000000008', 'lecture', '파일 시스템과 입출력', '6afee91c-3ce9-438f-9c0b-868b6ef45159', 'lecturer', now() - interval '4 days'),
-  ('f0000000-0000-0000-0000-00000000000b', 'f0000000-0000-0000-0000-000000000009', 'lecture', '미적분과 선형대수', '0c58fd0c-8d15-4ed8-a546-134537590d8c', 'lecturer', now() - interval '4 days');
+  ('f0000000-0000-0000-0000-00000000000c', 'f0000000-0000-0000-0000-000000000008', 'lecture', '파일 시스템과 입출력', '6afee91c-3ce9-438f-9c0b-868b6ef45159', 'lecturer', now() - interval '4 days');
 
--- ===== nodes: C가 강의자 모드로 만든 신규 강의(자료구조/알고리즘 관련, 루트) =====
+-- ===== nodes: C가 강의자 모드로 만든 폴더/강의 (A는 수강생으로 즐겨찾기만) =====
+-- 즐겨찾기(my_nodes)는 강의자 모드로 만든 노드만 등록 가능하므로, 수학 폴더도
+-- 강의자 모드로 만듦 (C는 수강생 모드로 만들거나 즐겨찾기한 게 하나도 없음).
 insert into nodes (id, parent_id, node_type, name, created_by, created_mode, created_at) values
+  ('f0000000-0000-0000-0000-000000000009', null, 'folder', '수학', '0c58fd0c-8d15-4ed8-a546-134537590d8c', 'lecturer', now() - interval '6 days'),
+  ('f0000000-0000-0000-0000-00000000000b', 'f0000000-0000-0000-0000-000000000009', 'lecture', '미적분과 선형대수', '0c58fd0c-8d15-4ed8-a546-134537590d8c', 'lecturer', now() - interval '4 days'),
   ('f0000000-0000-0000-0000-00000000000d', null, 'lecture', '스택과 큐', '0c58fd0c-8d15-4ed8-a546-134537590d8c', 'lecturer', now() - interval '3 days'),
   ('f0000000-0000-0000-0000-00000000000e', null, 'lecture', '정렬과 탐색', '0c58fd0c-8d15-4ed8-a546-134537590d8c', 'lecturer', now() - interval '2 days');
 
@@ -43,8 +44,8 @@ insert into lectures (node_id, start_time, end_time, location, max_participants)
   ('f0000000-0000-0000-0000-000000000003', now() - interval '30 minutes', now() + interval '1 hour', '공학관 401호', 60),
   ('f0000000-0000-0000-0000-000000000006', now() - interval '5 days', now() - interval '5 days' + interval '90 minutes', '공학관 201호', null),
   ('f0000000-0000-0000-0000-00000000000a', now() + interval '4 days', now() + interval '4 days' + interval '2 hours', '대강당', 100),
-  ('f0000000-0000-0000-0000-00000000000b', now() + interval '9 days', now() + interval '9 days' + interval '90 minutes', '온라인 (Zoom)', null),
   ('f0000000-0000-0000-0000-00000000000c', now() + interval '2 days', now() + interval '2 days' + interval '2 hours', '공학관 305호', 50),
+  ('f0000000-0000-0000-0000-00000000000b', now() + interval '9 days', now() + interval '9 days' + interval '90 minutes', '온라인 (Zoom)', null),
   ('f0000000-0000-0000-0000-00000000000d', now() + interval '3 days', now() + interval '3 days' + interval '90 minutes', '공학관 302호', null),
   ('f0000000-0000-0000-0000-00000000000e', now() + interval '5 days', now() + interval '5 days' + interval '90 minutes', '공학관 302호', 40);
 
@@ -54,8 +55,8 @@ insert into lecture_join_codes (code, lecture_id) values
   ('7421', 'f0000000-0000-0000-0000-000000000003'),
   ('3355', 'f0000000-0000-0000-0000-000000000006'),
   ('9981', 'f0000000-0000-0000-0000-00000000000a'),
-  ('4420', 'f0000000-0000-0000-0000-00000000000b'),
   ('6612', 'f0000000-0000-0000-0000-00000000000c'),
+  ('4420', 'f0000000-0000-0000-0000-00000000000b'),
   ('2580', 'f0000000-0000-0000-0000-00000000000d'),
   ('1357', 'f0000000-0000-0000-0000-00000000000e');
 
