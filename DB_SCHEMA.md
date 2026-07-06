@@ -3,7 +3,11 @@
 ## 목차
 
 - [테이블 개요](#테이블-개요)
-- [SQL 초안](#sql-초안)
+- [SQL](#sql)
+  - [테이블](#테이블)
+  - [뷰](#뷰)
+  - [트리거 함수](#트리거-함수)
+  - [RPC 함수](#rpc-함수)
 - [테이블 관계 요약](#테이블-관계-요약)
 - [실시간 접속자 수 (강의별)](#실시간-접속자-수-강의별)
 - [비회원 익명 식별자: `guest_token`](#비회원-익명-식별자-guest_token-여러-기능에서-공용으로-사용)
@@ -23,7 +27,7 @@
 | `lecture_feedback_votes` | 실시간 피드백(추워요/더워요/소리 작아요/잘 안 보여요) 좋아요/싫어요 |
 | `posts_public` (뷰) | `posts`에서 `guest_token`을 뺀 공개 조회용 뷰. 프론트는 `posts` 대신 이 뷰를 조회 |
 
-## SQL 초안
+## SQL
 
 ### 테이블
 
@@ -109,7 +113,27 @@ create table lecture_feedback_votes (
 -- 집계는 SUM(value)로 계산, 강의자가 "초기화" 누르면 해당 lecture_id의 행을 전부 delete
 ```
 
-### 함수/트리거
+### 뷰
+
+```sql
+-- posts.guest_token을 뺀 공개용 뷰. posts_select_all이 전체 공개라
+-- guest_token이 그대로 노출되면 남의 글을 수정/삭제할 수 있게 되므로, 프론트는 이 뷰로 조회
+create view posts_public as
+select
+  id,
+  lecture_id,
+  parent_id,
+  author_id,
+  is_anonymous,
+  post_type,
+  status,
+  resolved_at,
+  content,
+  created_at
+from posts;
+```
+
+### 트리거 함수
 
 ```sql
 -- 회원 탈퇴 시 author_id가 null로 바뀌기 전에, 실명으로 쓴 글을 먼저 익명 처리
@@ -225,26 +249,6 @@ grant execute on function delete_own_account() to authenticated;
 ```
 
 프론트에서는 `supabase.rpc('delete_own_account')`로 호출합니다.
-
-### 뷰
-
-```sql
--- posts.guest_token을 뺀 공개용 뷰. posts_select_all이 전체 공개라
--- guest_token이 그대로 노출되면 남의 글을 수정/삭제할 수 있게 되므로, 프론트는 이 뷰로 조회
-create view posts_public as
-select
-  id,
-  lecture_id,
-  parent_id,
-  author_id,
-  is_anonymous,
-  post_type,
-  status,
-  resolved_at,
-  content,
-  created_at
-from posts;
-```
 
 ## 테이블 관계 요약
 
