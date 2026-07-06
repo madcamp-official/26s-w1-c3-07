@@ -323,6 +323,8 @@ export async function toggleQuestionLike(courseId: string, questionId: string): 
 
 export async function toggleFeedback(courseId: string, key: FeedbackKey, vote: 'like' | 'dislike'): Promise<CourseRoom> {
   await delay(150)
+  if (isPrivilegedEditor()) throw new Error('강의자는 실시간 피드백에 투표할 수 없습니다.')
+
   const room = mockCourseRooms[courseId]
   if (!room) throw new Error('강의실을 찾을 수 없습니다.')
 

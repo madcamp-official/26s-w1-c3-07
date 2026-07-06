@@ -49,6 +49,8 @@ export default function CourseRoomPage() {
   const unresolvedCount = room.questions.filter((question) => !question.isResolved).length
   const resolvedCount = room.questions.length - unresolvedCount
   const visibleQuestions = room.questions.filter((question) => (filter === 'unresolved' ? !question.isResolved : question.isResolved))
+  const sortedFeedbackOptions = [...room.feedbackOptions].sort((a, b) => (b.likeCount - b.dislikeCount) - (a.likeCount - a.dislikeCount))
+  const isInstructor = user?.role === 'instructor'
 
   return (
     <div className="min-h-screen bg-slate-50 pb-16">
@@ -77,6 +79,10 @@ export default function CourseRoomPage() {
           participantCount={room.participantCount}
           questionCount={room.questions.length}
         />
+
+        <div className="mt-5">
+          <FeedbackBar options={sortedFeedbackOptions} canVote={!isInstructor} onVote={(key, vote) => void voteFeedback(key, vote)} />
+        </div>
 
         <div className="mt-6 flex items-center justify-between gap-3">
           <div className="inline-flex rounded-2xl bg-slate-100 p-1">
