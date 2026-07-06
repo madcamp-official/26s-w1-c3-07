@@ -15,6 +15,7 @@
     - [`enforce_nodes_parent_ownership()`](#enforce_nodes_parent_ownership)
   - [RPC 함수](#rpc-함수)
     - [`delete_own_account()`](#delete_own_account)
+    - [`get_my_favorite_subtrees()`](#get_my_favorite_subtrees)
 - [RLS 정책](#rls-정책)
   - [`profiles`](#profiles)
   - [`nodes`](#nodes)
@@ -355,15 +356,54 @@ for each row execute function enforce_nodes_parent_ownership();
 ```sql
 create or replace function delete_own_account()
 returns void
-language sql
 security definer
 set search_path = ''
 as $$
   delete from auth.users where id = auth.uid();
-$$;
+$$ language sql;
 
 revoke all on function delete_own_account() from public;
 grant execute on function delete_own_account() to authenticated;
+```
+
+#### `get_my_favorite_subtrees()`
+
+"내 강의" 페이지(수강생 모드)에서 즐겨찾기한 노드들의 서브트리를 한 번에 가져오는 RPC입니다. `my_nodes`에 등록된 즐겨찾기 루트마다 재귀적으로 자손까지 모두 가져오되, 결과 행마다 `anchor_node_id`(어느 즐겨찾기 루트에서 나온 행인지)를 같이 실어서, 프론트가 `anchor_node_id`로 그룹핑해 즐겨찾기 루트별로 독립된 서브트리를 조립하도록 합니다. `union`(중복 제거)이 아니라 `union all`을 써서, 어떤 노드가 두 즐겨찾기 루트의 서브트리에 동시에 속하는 경우(예: 폴더 A와 그 하위 강의 B를 각각 따로 즐겨찾기한 경우) 일부러 중복된 행을 유지합니다 — B가 A의 자손으로서, 그리고 B 자신의 루트로서 각각 화면에 독립적으로 나타나야 하기 때문에, 전역 `id` 기준으로 중복 제거를 하면 이 요구사항이 깨집니다.
+
+즐겨찾기가 정리된 개인 폴더(`my_nodes.folder_id`)는 이 함수 결과에 넣지 않습니다. 프론트가 `my_nodes`를 직접 조회하면(RLS로 본인 행만 허용) `node_id`-`folder_id` 매핑을 이미 얻을 수 있어서, 서브트리의 모든 행에 `folder_id`를 중복해서 실어 보낼 필요가 없기 때문입니다.
+
+`SECURITY INVOKER`가 기본값이라 별도로 명시하지 않았습니다. `nodes`는 이미 전체 공개 읽기이고, `my_nodes`는 CTE 안에서 `user_id = auth.uid()`로 직접 걸러서 호출자 권한을 벗어나지 않기 때문에 `SECURITY DEFINER`로 우회할 필요가 없습니다.
+
+```sql
+create or replace function get_my_favorite_subtrees()
+returns table (
+  id uuid,
+  parent_id uuid,
+  node_type text,
+  name text,
+  created_by uuid,
+  created_mode text,
+  created_at timestamptz,
+  anchor_node_id uuid
+)
+as $$
+  with recursive favorite_roots as (
+    select node_id as anchor_node_id
+    from my_nodes
+    where user_id = auth.uid()
+  ),
+  subtree as (
+    select n.*, r.anchor_node_id
+    from nodes n
+    join favorite_roots r on n.id = r.anchor_node_id
+    union all
+    select n.*, s.anchor_node_id
+    from nodes n
+    join subtree s on n.parent_id = s.id
+  )
+  select id, parent_id, node_type, name, created_by, created_mode, created_at, anchor_node_id
+  from subtree;
+$$ language sql;
 ```
 
 ## RLS 정책
@@ -631,3 +671,5 @@ create policy "lecture_feedback_votes_lecturer_reset" on lecture_feedback_votes 
   - `20260706150816_nodes_parent_ownership_mode_match.sql` — `nodes.parent_id`가 가리키는 부모 노드와 `created_by`/`created_mode`가 일치해야 함을 강제하는 `trg_enforce_nodes_parent_ownership` 트리거 추가
   - `20260706154459_my_nodes_folder_must_be_own_student_folder.sql` — `my_nodes.folder_id`(즐겨찾기를 정리해둔 내 개인 폴더)가 실제로 내가 수강생 모드로 만든 폴더인지 확인하는 `RESTRICTIVE` RLS 정책(`my_nodes_folder_must_be_own_student_folder_insert`/`_update`, 아래 마이그레이션에서 이름 변경됨) 추가
   - `20260706154910_unify_my_nodes_policy_names.sql` — `my_nodes` RLS 정책 이름을 다른 테이블과 같은 `<테이블>_<동작>_<설명>` 순서로 통일(`my_nodes_only_favorite_lecturer_mode_insert` → `my_nodes_insert_only_favorite_lecturer_mode`, `_update`도 동일, `my_nodes_folder_must_be_own_student_folder_insert` → `my_nodes_insert_folder_must_be_own_student_folder`, `_update`도 동일)
+  - `20260706161208_get_my_favorite_subtrees_rpc.sql` — 즐겨찾기 루트별 서브트리를 `anchor_node_id`로 태그해 한 번에 가져오는 RPC(`get_my_favorite_subtrees`) 추가
+  - `20260706161244_move_delete_own_account_language_clause.sql` — `delete_own_account()`의 `language sql` 절 위치를 본문 뒤로 옮겨 다른 함수들과 스타일 통일 (동작 변화 없음)
