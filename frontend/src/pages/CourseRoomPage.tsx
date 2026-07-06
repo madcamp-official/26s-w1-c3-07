@@ -8,9 +8,9 @@ import BrandLogo from '../components/BrandLogo'
 import Sidebar from '../components/navigation/Sidebar'
 import Button from '../components/ui/Button'
 import { useCourseRoom } from '../hooks/useCourseRoom'
-import { getCurrentUser, switchUserRole } from '../services/api'
+import { getCurrentUser } from '../services/api'
 import type { QuestionFilter } from '../types/room'
-import type { User, UserRole } from '../types/user'
+import type { User } from '../types/user'
 import { cn } from '../utils/cn'
 
 export default function CourseRoomPage() {
@@ -23,10 +23,6 @@ export default function CourseRoomPage() {
   useEffect(() => {
     void getCurrentUser().then(setUser)
   }, [])
-
-  const handleSwitchRole = (role: UserRole) => {
-    void switchUserRole(role).then(setUser)
-  }
 
   if (isLoading) {
     return <div className="grid min-h-screen place-items-center"><div className="size-10 animate-spin rounded-full border-4 border-violet-100 border-t-violet-600" aria-label="강의실 불러오는 중" /></div>
@@ -56,7 +52,7 @@ export default function CourseRoomPage() {
     <div className="min-h-screen bg-slate-50 pb-16">
       {user && (
         <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-slate-100 lg:block">
-          <Sidebar user={user} onSwitchRole={handleSwitchRole} />
+          <Sidebar user={user} showRoleSwitch={false} />
         </aside>
       )}
 
