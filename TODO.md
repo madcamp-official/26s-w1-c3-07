@@ -103,7 +103,6 @@ README 기능명세서(강의자 - 강의 페이지, "부적절한 글 삭제")�
 
 - `posts.status`가 답글에는 항상 `null`이어야 하는 문제 → `check ((parent_id is null) = (status is not null))`로 해결.
 - RLS 정책 전반 → `DB_SCHEMA.md`의 "RLS 정책" 섹션에 정리 완료.
-- `nodes.id`만 쓸 경우 "링크 유출 시 재발급 불가능"하다는 한계 → `lecture_join_codes` 테이블(4자리 숫자, 발급/재발급/파기 가능) 추가로 해결.
 - `posts`의 `check (author_id is not null or is_anonymous = true)`와 `author_id`의 `on delete set null` 충돌 → `trg_anonymize_posts_before_profile_delete` 트리거로 해결.
 - Supabase 프로젝트 연결 및 초기 스키마 마이그레이션 적용 → `backend/supabase/migrations/20260705062713_init_schema.sql`.
 - 강의자가 게시글 미해결↔해결됨 전환(`posts_lecturer_update_status`), 실시간 피드백 초기화(`feedback_lecturer_reset`), 게시글 status는 강의자만 변경 가능(`trg_block_status_change`), 강의자 글 삭제 권한(`posts_lecturer_delete`), `guest_token` 제외 공개 뷰(`posts_public`) → `backend/supabase/migrations/20260705064427_lecturer_permissions.sql`.
