@@ -61,6 +61,8 @@ cp ../.env.example .env   # 프론트엔드 프로젝트가 저장소 루트 바
 
 `backend/test-frontend/src/App.jsx`에서 실제로 동작 확인된 패턴들이에요.
 
+### 회원 관리
+
 **로그인 세션 확인 + 감지**:
 ```js
 useEffect(() => {
@@ -84,6 +86,23 @@ await supabase.auth.signInWithOAuth({
 await supabase.auth.signOut()
 ```
 
+**회원 탈퇴**: `delete_own_account` RPC를 호출하면 본인 `auth.users` 행이 삭제돼요(관련 `profiles` 등도 cascade로 같이 정리됨, [README API 문서](./README.md#api-문서) 참고). 성공하면 세션도 로그아웃 처리해줘야 해요.
+
+```js
+const handleWithdraw = async () => {
+  if (!window.confirm('정말로 탈퇴하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return
+
+  const { error } = await supabase.rpc('delete_own_account')
+  if (error) {
+    alert('탈퇴 실패: ' + error.message)
+    return
+  }
+  await supabase.auth.signOut()
+}
+```
+
+### 테이블 조회
+
 **테이블 조회 예시**:
 ```js
 const { data } = await supabase
@@ -100,21 +119,6 @@ const { data } = await supabase
   .from('posts_public')
   .select('*')
   .eq('lecture_id', lectureId)
-```
-
-**회원 탈퇴**: `delete_own_account` RPC를 호출하면 본인 `auth.users` 행이 삭제돼요(관련 `profiles` 등도 cascade로 같이 정리됨, [README API 문서](./README.md#api-문서) 참고). 성공하면 세션도 로그아웃 처리해줘야 해요.
-
-```js
-const handleWithdraw = async () => {
-  if (!window.confirm('정말로 탈퇴하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return
-
-  const { error } = await supabase.rpc('delete_own_account')
-  if (error) {
-    alert('탈퇴 실패: ' + error.message)
-    return
-  }
-  await supabase.auth.signOut()
-}
 ```
 
 ## 6. 비회원 인증: `guest_token` + `x-guest-token` 헤더
