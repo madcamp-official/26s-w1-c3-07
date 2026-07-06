@@ -336,6 +336,7 @@ grant execute on function delete_own_account() to authenticated;
 - 좋아요/피드백 투표는 각각 `post_likes`, `lecture_feedback_votes`로 분리해 중복 투표를 기본키로 방지합니다. `lecture_feedback_votes`는 PK에 `value`까지 포함해서(`lecture_id`, `feedback_type`, `voter_key`, `value`), 같은 사람이 같은 `feedback_type`에 좋아요와 싫어요를 동시에 독립적으로 남길 수 있습니다(둘 다 완전히 별개의 행이라 "좋아요 취소"와 "싫어요 취소"도 서로 영향 없이 따로 처리됨).
 - "내가 만든 강의/폴더"는 `nodes.created_by = 내 user_id`로 조회하되, 어느 모드의 "내 강의" 페이지인지에 따라 `created_mode`로 한 번 더 걸러야 합니다: 강의자 모드는 `created_mode = 'lecturer'`, 수강생 모드(개인 정리 폴더)는 `created_mode = 'student'`. 같은 계정이라도 두 모드에서 만든 폴더가 섞이지 않도록 하는 용도입니다.
 - `my_nodes`는 "남이 만든 강의/폴더를 즐겨찾기"하는 기록이며, `folder_id`로 그 즐겨찾기를 내가 만든 어떤 개인 폴더 아래에 정리해뒀는지 나타냅니다(`null`이면 정리 안 하고 최상위). 즐겨찾기 대상(`node_id`)의 실제 `parent_id`는 원래 만든 사람의 트리 구조 그대로이며, 이 개인 정리 구조 때문에 바뀌지 않습니다.
+- **즐겨찾기는 강의자 모드로 만든 노드만 가능**: 남의 수강생 모드 개인 정리 폴더까지 즐겨찾기할 수 있으면 안 되므로, `my_nodes_only_favorite_lecturer_mode_insert`/`_update` RLS 정책이 `node_id`가 가리키는 노드의 `created_mode`가 `lecturer`인지 확인합니다. 다른 테이블(`nodes`) 조회가 필요해 CHECK 제약으로는 불가능하고(서브쿼리 금지), 기존 `my_nodes_owner_all`이 이미 `for all`로 열려 있어 여기에 permissive 정책을 더하면 OR로 넓어지기만 하므로 `RESTRICTIVE`로 만들어 AND로 좁혔습니다.
 
 ### 삭제 전파 (cascade)
 
@@ -415,6 +416,21 @@ create policy "lecture_join_codes_owner_delete" on lecture_join_codes for delete
 alter table my_nodes enable row level security;
 create policy "my_nodes_owner_all" on my_nodes for all
   using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- my_nodes: 즐겨찾기는 "남이 강의자 모드로 만든 노드"만 등록 가능해야 함
+-- (남의 개인 정리용 수강생 모드 폴더까지 즐겨찾기할 수 있으면 안 됨).
+-- my_nodes_owner_all이 이미 for all(permissive)로 열려 있어서, 여기에 permissive
+-- 정책을 추가하면 OR로 합쳐져 오히려 더 넓어지기만 함 -- RESTRICTIVE로 만들어서
+-- AND로 합쳐지게 함. node_id는 PK 컬럼이라 이론상 UPDATE도 가능해서 INSERT/UPDATE 둘 다 막음.
+create policy "my_nodes_only_favorite_lecturer_mode_insert" on my_nodes as restrictive for insert
+  with check (
+    exists (select 1 from nodes where nodes.id = node_id and nodes.created_mode = 'lecturer')
+  );
+create policy "my_nodes_only_favorite_lecturer_mode_update" on my_nodes as restrictive for update
+  using (true)
+  with check (
+    exists (select 1 from nodes where nodes.id = node_id and nodes.created_mode = 'lecturer')
+  );
 
 -- posts: 테이블 자체 SELECT는 아예 없음(GRANT 회수) — guest_token 노출 문제 + author_id를
 -- 익명 여부에 따라 가리기 위해 posts_public 뷰로만 조회하게 함(위 "뷰" 섹션 참고).
@@ -532,4 +548,5 @@ RLS는 "누가 행에 접근 가능한가"만 결정할 뿐, "어떤 테이블/�
   - `20260706093000_restrict_public_read_access.sql` — `profiles`를 본인만 조회 가능하게 좁히고, `posts`/`post_likes`/`lecture_feedback_votes`의 테이블 자체 SELECT를 회수(`posts`)하거나 본인 행만(`post_likes`/`lecture_feedback_votes`) 조회 가능하도록 제한. `posts_public` 뷰에서 `author_id`를 숨기고 `is_anonymous`에 따라 `profiles.name`만 조건부로 노출하도록 재정의, 좋아요/피드백 집계용 `post_likes_counts`/`lecture_feedback_votes_counts` 뷰 추가. `nodes`/`lectures`/`lecture_join_codes`/`my_nodes`는 강의 입장 흐름상 소유자가 아닌 사람도 읽어야 해서 기존 정책 유지
   - `20260706101235_reopen_resolved_post_on_question_reply.sql` — 해결된 게시글에 질문 타입 답글이 달리면 다시 미해결로 전환하는 `trg_reopen_resolved_post_on_question_reply` 트리거 추가, `trg_block_status_change_by_non_lecturer`에 `app.bypass_status_lock` 플래그 우회 로직 추가
   - `20260706101723_reopen_resolved_post_security_definer.sql` — `posts` 직접 SELECT 회수/RLS 때문에 `reopen_resolved_post_on_question_reply()`가 조상 게시글을 조회·갱신 못 하던 문제를 `SECURITY DEFINER` + `search_path` 고정으로 수정
+  - `20260706122114_my_nodes_only_favorite_lecturer_mode.sql` — `my_nodes`(즐겨찾기)는 남이 강의자 모드로 만든 노드만 등록 가능하도록 `RESTRICTIVE` RLS 정책(`my_nodes_only_favorite_lecturer_mode_insert`/`_update`) 추가
   - `20260706110000_profiles_rename_columns.sql` — `profiles` 컬럼 이름을 단순화(`display_name` → `name`, `last_mode` → `mode`). `posts_public` 뷰와 체크 제약은 컬럼을 attnum으로 참조해 자동으로 따라가고, `handle_new_user()` 함수만 새 컬럼명에 맞춰 갱신
