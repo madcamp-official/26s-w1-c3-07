@@ -34,7 +34,7 @@ For each table with RLS, and for each policy on it, ask: **"I am X, what's the w
 
 4. **Cross-cutting checks**
    - **Views**: does `posts_public` (or any future view) actually enforce the RLS of underlying tables for the querying role, or could it leak `guest_token`-equivalent data via a join/column the view forgot to strip? Check whether the view needs `security_invoker` explicitly given the Postgres version target.
-   - **Functions/triggers**: do any `plpgsql` functions run with elevated privilege (`SECURITY DEFINER`) unintentionally, or conversely, do any need `SECURITY DEFINER` to work but are missing it (e.g. the auto-unresolve-on-reply trigger from TODO #5)? Do functions set `search_path` safely, or could a search_path hijack (schema shadowing) be relevant here?
+   - **Functions/triggers**: do any `plpgsql` functions run with elevated privilege (`SECURITY DEFINER`) unintentionally, or conversely, do any need `SECURITY DEFINER` to work but are missing it (e.g. the auto-unresolve-on-reply trigger from TODO #1)? Do functions set `search_path` safely, or could a search_path hijack (schema shadowing) be relevant here?
    - **INSERT policies without matching UPDATE/DELETE coverage**, or vice versa — an attacker doesn't need to break all four operations, just the weakest one.
    - **Trigger bypass via disable/replace**: could a normal authenticated role run DDL that disables a trigger? (Usually no under default grants, but confirm nothing grants excess privilege.)
    - **Enumeration/guessability**: `lecture_join_codes` is a 4-digit code — is there any rate limiting concern documented, or is that explicitly accepted as out of scope? Note it either way, don't assume.
