@@ -17,7 +17,6 @@
     - [7. 강의 폴더 트리 조회용 RPC (재귀 CTE)](#7-강의-폴더-트리-조회용-rpc-재귀-cte)
 - [프론트엔드](#프론트엔드)
   - [guest_token 관련](#guest_token-관련-1)
-    - [1. `guest_token` 생성/저장 및 `x-guest-token` 헤더 전송 구현](#1-guest_token-생성저장-및-x-guest-token-헤더-전송-구현)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
 
 ## 백엔드
@@ -80,8 +79,6 @@ RPC 반환 형태는 두 가지 방식이 있음.
 ## 프론트엔드
 
 ### guest_token 관련
-
-#### 1. `guest_token` 생성/저장 및 `x-guest-token` 헤더 전송 구현
 
 정확히 언제/어떻게 생성하는지(강의 최초 입장 시 1회 생성 등) 확정 필요. `localStorage`에 저장하고 재사용. 이후 `posts`, `post_likes`, `lecture_feedback_votes` 관련 요청을 보낼 때마다 이 값을 `x-guest-token` 헤더로 실어 보내도록 구현 (supabase-js 클라이언트에 요청별 커스텀 헤더 설정, `SUPABASE_GUIDE.md` 참고).
 
