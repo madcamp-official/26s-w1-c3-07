@@ -173,6 +173,8 @@ Supabase 연동 방법(URL/API 키, 클라이언트 설정, 코드 예시)은 [S
 |---|---|---|---|---|
 | RPC | `delete_own_account` | 회원 탈퇴 (본인 `auth.users` 행 삭제) | 파라미터 없음, 로그인 필요 | 성공 시 없음(`void`), 실패 시 에러 메시지 |
 | RPC | `get_my_favorite_subtrees` | 수강생 모드 "내 강의"에서 즐겨찾기한 노드들의 서브트리를 한 번에 조회 | 파라미터 없음, 로그인 필요 | 즐겨찾기 루트별 서브트리 행 목록(`anchor_node_id`로 그룹핑) |
+| RPC | `get_or_create_join_code` | 강의 공유 코드 조회/발급 (있으면 반환, 없으면 그 자리에서 발급) | `p_lecture_id`(uuid), 강의 소유자로 로그인 필요 | 4자리 코드 문자열, 소유자가 아니면 에러 |
+| RPC | `reissue_join_code` | 강의 공유 코드 재발급 (기존 코드 폐기 후 새로 발급) | `p_lecture_id`(uuid), 강의 소유자로 로그인 필요 | 새 4자리 코드 문자열, 소유자가 아니면 에러 |
 
 ---
 

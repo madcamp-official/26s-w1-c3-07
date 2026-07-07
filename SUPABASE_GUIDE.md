@@ -13,6 +13,7 @@
 - [7. 비회원 인증: `guest_token` + `x-guest-token` 헤더](#7-비회원-인증-guest_token--x-guest-token-헤더)
 - [8. 강의자/수강생 모드 색 구분: `posts.created_mode`](#8-강의자수강생-모드-색-구분-postscreated_mode)
 - [9. 테스트용 더미 데이터](#9-테스트용-더미-데이터)
+- [10. 강의 공유 코드(`join_code`) 조회/발급/재발급](#10-강의-공유-코드join_code-조회발급재발급)
 
 ## 1. Supabase URL / API 키란 무엇인가
 
@@ -310,3 +311,44 @@ supabase 클라이언트는 앱 시작할 때 딱 한 번만 만들고(`supabase
 ## 9. 테스트용 더미 데이터
 
 `backend/supabase/seed.sql`에 실제 스키마에 맞춘 더미 데이터가 원격 DB에 반영되어 있어요(강의 폴더/강의, 질문/답글, 좋아요, 실시간 피드백 등). [`DUMMY_DATA.md`](./DUMMY_DATA.md)에서 확인할 수 있는데, 계정별·모드별로 "내 강의" 페이지에 어떤 강의/폴더 트리가 보이는지(강의 입장 코드, 즐겨찾기 관계 포함)뿐 아니라, 일부 강의(트리와 그래프, 데이터베이스 설계 입문)에 실제로 등록되어 있는 질문/답글 트리 구조도 정리되어 있으니 강의 페이지 테스트할 때도 참고하세요.
+
+## 10. 강의 공유 코드(`join_code`) 조회/발급/재발급
+
+강의 페이지의 "강의 코드 공유" 버튼은 `lecture_join_codes` 테이블을 **직접 INSERT/UPDATE로 건드릴 수 없습니다** — 발급/재발급은 반드시 RPC를 통해야 하고, 파기(강의 종료 등으로 코드를 없애는 것)만 테이블에 직접 DELETE하면 됩니다. 자세한 이유(4자리 코드 충돌 재시도, 테이블 권한 회수)는 [DB_DESIGN.md의 `get_or_create_join_code()`/`reissue_join_code()` 설명](./DB_DESIGN.md#get_or_create_join_code) 참고.
+
+**코드 조회(이미 발급된 코드를 그냥 보여줄 때)**: `lecture_join_codes`는 전체 공개 SELECT라 누구나 직접 조회할 수 있습니다. 강의자든 수강생이든 코드가 이미 있으면 이 조회만으로 충분해요.
+
+```js
+const { data } = await supabase
+  .from('lecture_join_codes')
+  .select('code')
+  .eq('lecture_id', lectureId)
+  .maybeSingle()
+// data가 없으면 아직 발급 전 — 아래 발급 RPC를 호출해야 함
+```
+
+**강의 코드 공유 버튼(발급 또는 조회를 한 번에)**: 버튼을 누르면 있으면 반환, 없으면 그 자리에서 발급까지 처리하는 `get_or_create_join_code`를 호출하면 됩니다. 강의를 만든 계정(강의자)이 아니면 에러가 나므로, 이 버튼은 강의 소유자에게만 노출하세요.
+
+```js
+const { data: code, error } = await supabase.rpc('get_or_create_join_code', {
+  p_lecture_id: lectureId,
+})
+if (error) {
+  alert('코드 발급 실패: ' + error.message)
+  return
+}
+// code는 4자리 문자열(예: '0427')
+```
+
+**재발급 버튼**: 기존 코드를 강제로 폐기하고 새 코드를 받고 싶을 때만 `reissue_join_code`를 씁니다(단순 조회에는 쓰지 마세요 — 매번 새 코드가 발급됩니다). 호출 방식은 동일합니다.
+
+```js
+const { data: newCode, error } = await supabase.rpc('reissue_join_code', {
+  p_lecture_id: lectureId,
+})
+```
+
+**주의할 점**:
+- `p_lecture_id`는 `lectures.id`(=`nodes.id`)입니다. `lecture_join_codes.code`가 아니에요.
+- 강의 소유자가 아닌 계정으로 두 RPC를 호출하면 에러가 나는 게 정상입니다(권한 체크). "발급 실패" 알림을 에러 종류 구분 없이 그냥 띄워도 되지만, 소유자 확인 버그와 헷갈리지 않도록 에러 메시지를 그대로 보여주는 걸 추천합니다.
+- 코드 파기(강의 종료 시 등)는 RPC가 아니라 `supabase.from('lecture_join_codes').delete().eq('lecture_id', lectureId)`를 직접 호출하면 됩니다(RLS가 소유자만 허용).
