@@ -8,7 +8,7 @@
   - [3. AI 보조 기능 서버 아키텍처 결정](#3-ai-보조-기능-서버-아키텍처-결정-edge-function-확정)
 - [Realtime 관련](#realtime-관련)
   - [4. `max_participants`(최다 참여 인원) 강제 여부 결정](#4-max_participants최다-참여-인원-강제-여부-결정)
-  - [5. "내 강의" 목록에서 강의별 접속자 수(`participantCount`) 표시](#5-내-강의-목록에서-강의별-접속자-수-participantcount-표시)
+  - [5. "내 강의" 목록에서 강의별 접속자 수(`participantCount`) 표시](#5-내-강의-목록에서-강의별-접속자-수participantcount-표시)
 - [join_code 관련](#join_code-관련)
   - [6. `lecture_join_codes` 파기 시점/주체 결정](#6-lecture_join_codes-파기delete-시점주체-결정)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
