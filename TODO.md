@@ -2,27 +2,21 @@
 
 ## 목차
 
-- [백엔드](#백엔드)
-  - [guest_token 관련](#guest_token-관련)
-    - [1. `guest_token` 무효화 조건](#1-guest_token-무효화-조건-강의-종료-후)
-  - [AI 보조 기능 관련](#ai-보조-기능-관련)
-    - [2. 유사도 검사 비교 대상 범위](#2-유사도-검사-비교-대상-범위-미해결-게시글만-답글도-포함)
-    - [3. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정](#3-유사도-비교를-위한-벡터-컬럼-추가-여부-결정)
-    - [4. AI 보조 기능 서버 아키텍처 결정](#4-ai-보조-기능-서버-아키텍처-결정-edge-function-확정)
-  - [Realtime 관련](#realtime-관련)
-    - [5. `max_participants`(최다 참여 인원) 강제 여부 결정](#5-max_participants최다-참여-인원-강제-여부-결정)
-  - [join_code 관련](#join_code-관련)
-    - [6. `lecture_join_codes` 파기 시점/주체 결정](#6-lecture_join_codes-파기delete-시점주체-결정)
-- [프론트엔드](#프론트엔드)
-  - [트리 구조 데이터 조회 관련](#트리-구조-데이터-조회-관련)
-  - [guest_token 관련](#guest_token-관련-1)
+- [guest_token 관련](#guest_token-관련)
+  - [1. `guest_token` 무효화 조건](#1-guest_token-무효화-조건-강의-종료-후)
+- [AI 보조 기능 관련](#ai-보조-기능-관련)
+  - [2. 유사도 검사 비교 대상 범위](#2-유사도-검사-비교-대상-범위-미해결-게시글만-답글도-포함)
+  - [3. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정](#3-유사도-비교를-위한-벡터-컬럼-추가-여부-결정)
+  - [4. AI 보조 기능 서버 아키텍처 결정](#4-ai-보조-기능-서버-아키텍처-결정-edge-function-확정)
+- [Realtime 관련](#realtime-관련)
+  - [5. `max_participants`(최다 참여 인원) 강제 여부 결정](#5-max_participants최다-참여-인원-강제-여부-결정)
+- [join_code 관련](#join_code-관련)
+  - [6. `lecture_join_codes` 파기 시점/주체 결정](#6-lecture_join_codes-파기delete-시점주체-결정)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
 
-## 백엔드
+## guest_token 관련
 
-### guest_token 관련
-
-#### 1. `guest_token` 무효화 조건 (강의 종료 후)
+### 1. `guest_token` 무효화 조건 (강의 종료 후)
 
 `posts_update_own`/`posts_delete_own`, `post_likes`/`lecture_feedback_votes` 관련 정책 전부에 "강의 종료 시각(`lectures.end_time`) 이후엔 `guest_token` 무효화" 조건이 아직 안 들어감.
 
@@ -36,17 +30,17 @@
   
   아직 어느 방식으로 갈지 결정 안 됨.
 
-### AI 보조 기능 관련
+## AI 보조 기능 관련
 
-#### 2. 유사도 검사 비교 대상 범위 (미해결 게시글만? 답글도 포함?)
+### 2. 유사도 검사 비교 대상 범위 (미해결 게시글만? 답글도 포함?)
 
 README엔 "글 작성 시(답글 포함) 미해결 게시글들과의 유사도 검사"라고 되어 있는데, 비교 대상이 미해결 게시글(최상위 글)들만인지 그 밑 답글 내용까지 포함할지 미정. 결정에 따라 유사도 검사 API가 LLM에 넘기는 데이터 범위가 달라짐.
 
-#### 3. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정
+### 3. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정
 
 원래 기획 단계에서는 세션당 질문 수가 적을 것으로 예상해 임베딩(pgvector) 대신 "기존 질문 목록을 프롬프트에 통째로 넣고 LLM이 판단"하는 방식으로 시작하기로 했음. `posts`에 `embedding vector` 컬럼 + pgvector 확장을 추가해서 임베딩 기반 유사도 검색으로 갈지, 아니면 계속 LLM 프롬프트 방식으로 갈지 아직 결정 안 됨. 강의당 질문 수가 예상보다 많아지면 프롬프트에 다 넣기엔 비효율적이라 재검토가 필요할 수 있음.
 
-#### 4. AI 보조 기능 서버 아키텍처 결정 (Edge Function 확정)
+### 4. AI 보조 기능 서버 아키텍처 결정 (Edge Function 확정)
 
 **Supabase Edge Function으로 확정.** 별도 Express 서버는 띄우지 않음. AI 교정/적절성 검사/유사 질문 탐지(#2, #3)와 글 제출 자체를 하나의 Edge Function(`submit-post`)으로 통합하는 설계를 [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md)에 정리함 — 요청/응답 계약, 5가지 결과 분기(정상 생성/적절성 거부/유사 질문 발견/교정 반환), 무상태(stateless) 설계 이유까지 확정.
 
@@ -56,27 +50,17 @@ README엔 "글 작성 시(답글 포함) 미해결 게시글들과의 유사도 
 
 여전히 미결정: #2(유사도 비교 범위)/#3(벡터 컬럼 여부) — `submit-post`의 `checkSimilarity`는 지금 설계상 더미(항상 통과)라 이 결정이 늦어져도 프론트 연동에는 지장 없음.
 
-### Realtime 관련
+## Realtime 관련
 
-#### 5. `max_participants`(최다 참여 인원) 강제 여부 결정
+### 5. `max_participants`(최다 참여 인원) 강제 여부 결정
 
 컬럼만 있고 실제 입장 제한 로직/참여자 카운트 테이블이 없음. 정보 표시용인지 실제 강제해야 하는지 확인 필요 (강제한다면 Realtime **Presence** 또는 별도 카운트 확인 로직 추가 필요, `DB_DESIGN.md`의 "실시간 접속자 수" 섹션 참고).
 
-### join_code 관련
+## join_code 관련
 
-#### 6. `lecture_join_codes` 파기(DELETE) 시점/주체 결정
+### 6. `lecture_join_codes` 파기(DELETE) 시점/주체 결정
 
 강의 종료 시 자동으로 지울지(예: `pg_cron`), 강의자가 수동으로 파기하기 전까진 남겨둘지. 안 지워져도 입장 시 `lectures.end_time` 확인이 안전망이라 급한 이슈는 아님.
-
-## 프론트엔드
-
-### 트리 구조 데이터 조회 관련
-
-"내 강의" 트리 조회 자체는 구현 완료(자세한 내용은 [해결된 것](#해결된-것-참고용-기록) 참고). 남은 건 두 가지: `Course.questionCount`를 새로 만든 `posts_counts` 뷰(`lecture_id`별 게시글 개수)로 채우는 작업, `Course.participantCount`(Presence 기반 실시간 접속자 수)를 이 목록 화면에서 어떻게 보여줄지 설계.
-
-### guest_token 관련
-
-정확히 언제/어떻게 생성하는지(강의 최초 입장 시 1회 생성 등) 확정 필요. `localStorage`에 저장하고 재사용. 이후 `posts`, `post_likes`, `lecture_feedback_votes` 관련 요청을 보낼 때마다 이 값을 `x-guest-token` 헤더로 실어 보내도록 구현 (supabase-js 클라이언트에 요청별 커스텀 헤더 설정 방법은 [SUPABASE_GUIDE.md의 8번 항목](./SUPABASE_GUIDE.md#8-비회원-인증-guest_token--x-guest-token-헤더) 참고).
 
 ## 해결된 것 (참고용 기록)
 
