@@ -3,6 +3,7 @@
 ## 목차
 
 - [🚨 posts UPDATE/DELETE가 SELECT 권한 부재로 항상 실패](#-posts-updatedelete가-select-권한-부재로-항상-실패-긴급)
+- [🚨 강의자의 실시간 피드백 초기화가 조용히 0건 삭제됨](#-강의자의-실시간-피드백-초기화가-조용히-0건-삭제됨-긴급)
 - [guest_token 관련](#guest_token-관련)
   - [1. `guest_token` 무효화 조건](#1-guest_token-무효화-조건-강의-종료-후)
 - [AI 보조 기능 관련](#ai-보조-기능-관련)
@@ -24,6 +25,39 @@
 **영향 범위**: `posts_update_own`/`posts_delete_own`/`posts_lecturer_update_status`/`posts_lecturer_delete`/`posts_update_lecturer_mode_matches_owner`를 쓰는 모든 경로(답글 수정, 글 삭제, 강의자 상태 전환·삭제) 전부 같은 이유로 실패할 가능성이 높음. 답글 수정만 실측했고 나머지는 미확인이나 근본 원인이 같으므로 함께 점검 필요.
 
 **요청사항**: `posts`에 최소한의 SELECT GRANT를 다시 부여(`grant select on posts to anon, authenticated`)하되, 실제 조회 노출은 계속 RLS(SELECT 정책을 만들지 않거나 `using (false)`로 막아두기)로 제어. GRANT 자체를 회수하는 방식은 조회뿐 아니라 UPDATE/DELETE까지 함께 막아버림.
+
+## 🚨 강의자의 실시간 피드백 초기화가 조용히 0건 삭제됨 (긴급)
+
+**증상**: 강의자 계정으로 로그인해서 실시간 피드백 항목의 "반영 완료(초기화)" 버튼을 눌러도 좋아요/싫어요 개수가 그대로 남음. 에러 메시지는 전혀 뜨지 않음(버튼도 정상 클릭됨).
+
+**재현 및 검증 과정**: 실제 강의자 계정(A, `6785527b-6fd4-4c61-b8ba-f1dcd0692c03`, 소유 강의 `f0000000-0000-0000-0000-000000000003`)으로 로그인해 브라우저 Network 탭에서 확인한 결과:
+- `DELETE .../lecture_feedback_votes?lecture_id=eq...&feedback_type=eq.cold` 요청이 **204 No Content로 "성공"** 응답을 받음 (에러 없음)
+- 하지만 `Prefer: return=representation`을 붙여 같은 요청을 재현하면 **실제로 삭제된 행이 0건**(빈 배열) — PostgREST는 매치되는 행이 0개여도 에러 없이 204를 반환하므로, 프론트 입장에서는 "성공"과 "조용한 무동작"을 구분할 수 없음
+- Supabase SQL Editor에서 `service_role`로 직접 확인한 결과, 이 강의의 `cold` 피드백에 실제 투표 데이터가 존재하고(`voter_key: d0000000-...`, `value: 1`), `lecture_feedback_votes_lecturer_reset` 정책의 `exists(...)` 조건도 이 강의자 UUID로 **`true`**로 정상 평가됨(`pg_policies`로 정책 정의 자체도 확인, 오타나 논리 오류 없음)
+- 그런데 `set local role authenticated`로 RLS가 적용되는 컨텍스트를 재현해서 **완전히 동일한 조건**(`lecture_feedback_votes_delete_own` OR `lecture_feedback_votes_lecturer_reset`의 `using`절 그대로)으로 SELECT하면 **0건**이 나옴 — 즉 `service_role`(RLS 우회)에서는 조건이 참인데, RLS가 적용되는 `authenticated` role 컨텍스트에서는 같은 조건이 거짓으로 평가됨
+- `current_setting('request.headers', true)::json ->> 'x-guest-token'` 캐스팅이 헤더 부재 시 에러를 던지는지도 SQL Editor에서 별도 검증했으나 정상적으로 `null` 반환(이 가설은 배제됨)
+
+**결론**: 프론트 코드·요청 헤더·정책 정의 자체엔 문제가 없음이 확인됐고, `authenticated` role + RLS 조합에서만 재현되는 문제로 좁혀짐(원인 미확정). Postgres 실행 로그(`statement:` 레벨)를 직접 봐야 정확한 원인을 확정할 수 있음 — 이 부분은 대시보드 UI 로그 탐색으로는 특정 요청을 찾기 까다로워 세션 내에서 완결하지 못함.
+
+**요청사항**: 아래 SQL을 Supabase SQL Editor에서 실행해 재현해보고(DELETE 없이 SELECT로 안전하게 확인 가능), 실제로 0건이 나오는지, 나온다면 `auth.uid()`가 이 세션에서 기대한 값을 반환하는지부터 점검 필요.
+```sql
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "6785527b-6fd4-4c61-b8ba-f1dcd0692c03", "role": "authenticated"}';
+
+select auth.uid(); -- 기대값: 6785527b-6fd4-4c61-b8ba-f1dcd0692c03 (이게 null이거나 다르면 원인 확정)
+
+select *
+from lecture_feedback_votes
+where lecture_id = 'f0000000-0000-0000-0000-000000000003'
+  and feedback_type = 'cold'
+  and exists (
+    select 1 from lectures join nodes on nodes.id = lectures.id
+    where lectures.id = lecture_feedback_votes.lecture_id and nodes.created_by = auth.uid()
+  );
+
+reset role;
+```
+`auth.uid()`가 `null`로 나온다면, `set local request.jwt.claims`로 세션을 흉내낸 방식 자체가 `auth.uid()` 헬퍼가 기대하는 형식과 달라서 생긴 재현 아티팩트일 수 있음 — 이 경우 실제 PostgREST 요청 시점의 Postgres 로그(`statement:` 라인)를 직접 대조해야 함.
 
 ## guest_token 관련
 
