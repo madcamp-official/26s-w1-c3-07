@@ -140,23 +140,6 @@
 ---
 ## DB 스키마
 
-| 테이블 | 대응하는 기능 |
-|---|---|
-| `profiles` | 회원(Google OAuth) 부가정보 |
-| `nodes` | 강의 폴더 + 강의 통합 트리 |
-| `favorites` | "내 강의" 즐겨찾기 (수강생 모드) |
-| `lectures` | 강의의 부가 속성 (시작/종료 시각, 장소, 최대인원) — 입장은 `nodes.id`(UUID)를 URL/QR로 사용 |
-| `lecture_join_codes` | 강의 입장용 4자리 숫자 코드 (발급/재발급/파기 가능, 즐겨찾기 등록용 코드와는 별개) |
-| `lecture_feedback_votes` | 실시간 피드백(추워요/더워요/소리 작아요/잘 안 보여요) 좋아요/싫어요 |
-| `posts` | 게시글 + 답글 통합 트리, 질문/의견 타입, 미해결/해결, 비회원 인증(`guest_token`) |
-| `post_likes` | 게시글/답글 좋아요 |
-| `posts_public` (뷰) | `posts`에서 `guest_token`/`author_id`를 뺀 공개 조회용 뷰(비익명 글만 작성자 이름 노출). 프론트는 `posts` 대신 이 뷰를 조회 |
-| `posts_counts` (뷰) | `posts`를 `lecture_id`별로 `count(*)`한 게시글 개수 집계 뷰. 보안 목적이 아니라, 여러 강의의 개수를 한 번의 요청으로 가져오기 위한 효율성 목적 |
-| `post_likes_counts` (뷰) | `post_likes`에서 `voter_key` 없이 게시글별 좋아요 개수만 집계한 공개 조회용 뷰 |
-| `lecture_feedback_votes_counts` (뷰) | `lecture_feedback_votes`에서 `voter_key` 없이 강의·피드백 유형별 좋아요/싫어요 개수만 집계한 공개 조회용 뷰 |
-
-`nodes`는 자기참조 구조로 강의 폴더/강의의 무제한 depth 트리를 이루고, `posts`도 마찬가지로 자기참조로 게시글과 답글을 하나의 트리로 통합 관리. 읽기는 테이블마다 성격이 달라 강의 입장 흐름에 필요한 `nodes`/`lectures`/`lecture_join_codes`는 공개, `profiles`/`favorites`/`post_likes`/`lecture_feedback_votes`는 RLS로 본인 행만 조회 가능하도록 제한(좋아요/피드백 개수는 `voter_key` 없이 집계 뷰로 따로 공개), `posts`는 유일하게 테이블 자체 SELECT 권한을 완전히 회수해 `guest_token`/`author_id`를 뺀 `posts_public` 뷰로만 조회 가능. 쓰기는 전부 "본인 것만" 원칙으로 제한. Supabase RLS(Row Level Security) 정책과 트리거로 강의자 권한(상태 전환, 삭제, 피드백 초기화)과 비회원 인증(`guest_token`)을 함께 처리.
-
 전체 SQL, RLS 정책, 트리거, 테이블 관계 상세 설명은 [`DB_DESIGN.md`](./DB_DESIGN.md) 참고.
 
 ---
