@@ -400,7 +400,7 @@ OpenAI 호출이 실패해도(키 미설정, API 오류 등) 에러를 던지지
 | 201 | `created` | 저장 완료. `post`에 생성된 행(`id`/`content`/`status`/`created_at` 등) |
 | 422 | `rejected` | 적절성 검사 탈락. `reason`에 사유(카테고리 포함) |
 | 409 | `similar_found` | 이미 답이 있을 만큼 비슷한 글 발견, **아직 저장 안 됨**. `draft_id`(강행 제출용), `similar_id`(보여줄 유사 글 id) |
-| 400/403 | `invalid` | 필수 필드 누락/enum 오류/`author_id` 불일치/강의자 모드 소유권 불일치 등. `reason` |
+| 400/403/404/405/500 | `invalid` | `reason`에 사유. 400: 필수 필드 누락/enum 오류/비회원인데 비익명 등. 403: `author_id` 불일치, 강의자 모드 소유권 불일치. 404: 강행 제출 시 `draft_id`가 없거나(이미 소비됨) 다른 사람 draft. 405: POST가 아닌 메서드. 500: 그 외 예기치 못한 오류 |
 
 ```js
 const { data, error } = await supabase.functions.invoke('submit-post', {
