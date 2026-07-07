@@ -8,8 +8,9 @@
   - [3. AI 보조 기능 서버 아키텍처 결정](#3-ai-보조-기능-서버-아키텍처-결정-edge-function-확정)
 - [Realtime 관련](#realtime-관련)
   - [4. `max_participants`(최다 참여 인원) 강제 여부 결정](#4-max_participants최다-참여-인원-강제-여부-결정)
+  - [5. "내 강의" 목록에서 강의별 접속자 수(`participantCount`) 표시](#5-내-강의-목록에서-강의별-접속자-수-participantcount-표시)
 - [join_code 관련](#join_code-관련)
-  - [5. `lecture_join_codes` 파기 시점/주체 결정](#5-lecture_join_codes-파기delete-시점주체-결정)
+  - [6. `lecture_join_codes` 파기 시점/주체 결정](#6-lecture_join_codes-파기delete-시점주체-결정)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
 
 ## AI 보조 기능 관련
@@ -38,9 +39,13 @@ README엔 "글 작성 시(답글 포함) 미해결 게시글들과의 유사도 
 
 컬럼만 있고 실제 입장 제한 로직/참여자 카운트 테이블이 없음. 정보 표시용인지 실제 강제해야 하는지 확인 필요 (강제한다면 Realtime **Presence** 또는 별도 카운트 확인 로직 추가 필요, `DB_DESIGN.md`의 "실시간 접속자 수" 섹션 참고).
 
+### 5. "내 강의" 목록에서 강의별 접속자 수(`participantCount`) 표시
+
+`Course.participantCount`는 정적으로 저장된 값이 아니라 Realtime **Presence**로 그때그때 세는 값이라(`DB_DESIGN.md`의 "실시간 접속자 수" 섹션 참고), "내 강의" 목록 화면(트리 조회 시점)에는 애초에 채워지지 않고 강의실 페이지에 들어가야만 알 수 있음. 목록 화면에서 강의별 접속자 수를 보여주려면 별도 설계가 필요 — 예를 들어 목록에 있는 강의 수만큼 채널을 동시에 구독해야 하는지(비용/성능), 아니면 서버 쪽에서 주기적으로 집계해 뷰/테이블로 내려주는 방식으로 갈지 결정 안 됨. 아직 미해결(자세한 내용은 [SUPABASE_GUIDE.md 6번의 "남은 간극"](./SUPABASE_GUIDE.md#6-트리-구조-데이터-조회-내-강의-페이지--강의-페이지) 참고).
+
 ## join_code 관련
 
-### 5. `lecture_join_codes` 파기(DELETE) 시점/주체 결정
+### 6. `lecture_join_codes` 파기(DELETE) 시점/주체 결정
 
 강의 종료 시 자동으로 지울지(예: `pg_cron`), 강의자가 수동으로 파기하기 전까진 남겨둘지. 안 지워져도 입장 시 `lectures.end_time` 확인이 안전망이라 급한 이슈는 아님.
 
