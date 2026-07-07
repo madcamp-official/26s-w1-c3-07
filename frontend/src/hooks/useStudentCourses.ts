@@ -61,8 +61,8 @@ export function useStudentCourses() {
   }, [load])
 
   const addFolder = async (name: string): Promise<void> => {
-    const folder = await createRootFolder({ name })
-    setState((current) => ({ ...current, folders: [...current.folders, folder] }))
+    await createRootFolder({ name })
+    await refresh()
   }
 
   const addCourse = async (input: CreateCourseInput): Promise<Course> => {
@@ -79,7 +79,7 @@ export function useStudentCourses() {
 
   const registerCourse = async (code: string): Promise<Course> => {
     const course = await registerCourseByCode(code)
-    setState((current) => ({ ...current, courses: [course, ...current.courses] }))
+    await refresh()
     return course
   }
 

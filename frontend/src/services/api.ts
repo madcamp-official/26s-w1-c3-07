@@ -7,7 +7,7 @@ import {
   mockStudentFolders,
 } from '../mock/data'
 import { supabase } from './supabaseClient'
-import type { Course, CourseFolder, CreateCourseInput, CreateFolderInput, DeleteItemInput, MoveItemInput, RenameItemInput, UpdateCourseInput } from '../types/course'
+import type { Course, CourseFolder, CreateCourseInput, CreateFolderInput, DeleteItemInput, FolderOwnership, MoveItemInput, RenameItemInput, UpdateCourseInput } from '../types/course'
 import type { ComposerSubmission, CourseRoom, FeedbackKey, Question, QuestionReply, UnansweredFolderNode, UnansweredQuestion } from '../types/room'
 import type { User, UserRole } from '../types/user'
 
@@ -200,14 +200,169 @@ export async function updateUserName(name: string): Promise<User> {
   return loadUserFromSession(authUser)
 }
 
+interface NodeRow {
+  id: string
+  parent_id: string | null
+  type: 'folder' | 'lecture'
+  name: string
+  created_by: string | null
+  created_mode: DbMode
+  created_at: string
+  lectures?: { start_time: string; end_time: string; location: string | null; max_participants: number | null } | null
+}
+
+interface FavoriteSubtreeRow extends NodeRow {
+  anchor_node_id: string
+}
+
+async function requireAuthUserId(): Promise<string> {
+  const { data, error } = await supabase.auth.getSession()
+  if (error) throw error
+  const userId = data.session?.user.id
+  if (!userId) throw new Error('로그인이 필요합니다.')
+  return userId
+}
+
+function nodeToItem(node: NodeRow, ownership: FolderOwnership): CourseFolder | Course {
+  if (node.type === 'lecture') {
+    const course: Course = {
+      id: node.id,
+      title: node.name,
+      participantCount: 0,
+      questionCount: 0,
+      color: ownership === 'owned' ? 'purple' : 'blue',
+      ownership,
+      date: node.lectures?.start_time,
+      startTime: node.lectures?.start_time,
+      endTime: node.lectures?.end_time,
+      location: node.lectures?.location ?? undefined,
+      capacity: node.lectures?.max_participants ?? null,
+    }
+    return course
+  }
+
+  const folder: CourseFolder = { id: node.id, name: node.name, ownership, children: [], courses: [] }
+  return folder
+}
+
+function isCourseFolder(item: CourseFolder | Course): item is CourseFolder {
+  return 'children' in item
+}
+
+/** parent_id 기준 평평한 노드 목록을 중첩 트리로 조립합니다. */
+function buildFolderTree(flatNodes: NodeRow[], ownership: FolderOwnership): { folders: CourseFolder[]; rootCourses: Course[] } {
+  const byId = new Map(flatNodes.map((node) => [node.id, nodeToItem(node, ownership)]))
+  const folders: CourseFolder[] = []
+  const rootCourses: Course[] = []
+
+  for (const node of flatNodes) {
+    const item = byId.get(node.id)
+    if (!item) continue
+    const parent = node.parent_id ? byId.get(node.parent_id) : null
+
+    if (parent && isCourseFolder(parent)) {
+      if (isCourseFolder(item)) parent.children.push(item)
+      else parent.courses.push(item)
+    } else if (isCourseFolder(item)) {
+      folders.push(item)
+    } else {
+      rootCourses.push(item)
+    }
+  }
+
+  return { folders, rootCourses }
+}
+
+/** 즐겨찾기 서브트리(get_my_favorite_subtrees)를 anchor_node_id별로 묶어 각각 독립된 트리로 조립합니다. */
+function buildFavoriteRoots(rows: FavoriteSubtreeRow[]): Map<string, CourseFolder | Course> {
+  const byAnchor = new Map<string, FavoriteSubtreeRow[]>()
+  for (const row of rows) {
+    const bucket = byAnchor.get(row.anchor_node_id)
+    if (bucket) bucket.push(row)
+    else byAnchor.set(row.anchor_node_id, [row])
+  }
+
+  const roots = new Map<string, CourseFolder | Course>()
+  for (const [anchorNodeId, anchorRows] of byAnchor) {
+    const { folders, rootCourses } = buildFolderTree(anchorRows, 'registered')
+    const root = folders[0] ?? rootCourses[0]
+    if (root) roots.set(anchorNodeId, root)
+  }
+  return roots
+}
+
+async function getInstructorDataset(userId: string): Promise<{ folders: CourseFolder[]; rootCourses: Course[] }> {
+  const { data, error } = await supabase
+    .from('nodes')
+    .select('id, parent_id, type, name, created_by, created_mode, created_at, lectures(start_time, end_time, location, max_participants)')
+    .eq('created_by', userId)
+    .eq('created_mode', 'lecturer')
+
+  if (error) throw error
+  return buildFolderTree((data ?? []) as NodeRow[], 'owned')
+}
+
+async function getStudentDataset(userId: string): Promise<{ folders: CourseFolder[]; rootCourses: Course[] }> {
+  const [{ data: created, error: createdError }, { data: favorites, error: favoritesError }, { data: favoriteRows, error: favoriteRowsError }] = await Promise.all([
+    supabase
+      .from('nodes')
+      .select('id, parent_id, type, name, created_by, created_mode, created_at')
+      .eq('created_by', userId)
+      .eq('created_mode', 'student'),
+    supabase.from('favorites').select('node_id, anchor_id').eq('user_id', userId),
+    supabase.rpc('get_my_favorite_subtrees'),
+  ])
+
+  if (createdError) throw createdError
+  if (favoritesError) throw favoritesError
+  if (favoriteRowsError) throw favoriteRowsError
+
+  const { folders: ownedFolders } = buildFolderTree((created ?? []) as NodeRow[], 'owned')
+  const anchorByNodeId = new Map((favorites ?? []).map((row) => [row.node_id as string, row.anchor_id as string | null]))
+  const favoriteRoots = buildFavoriteRoots((favoriteRows ?? []) as FavoriteSubtreeRow[])
+
+  const topLevel: Array<CourseFolder | Course> = []
+  const rootsByAnchorId = new Map<string, Array<CourseFolder | Course>>()
+
+  for (const [anchorNodeId, root] of favoriteRoots) {
+    const anchorId = anchorByNodeId.get(anchorNodeId) ?? null
+    if (anchorId === null) {
+      topLevel.push(root)
+    } else {
+      const bucket = rootsByAnchorId.get(anchorId)
+      if (bucket) bucket.push(root)
+      else rootsByAnchorId.set(anchorId, [root])
+    }
+  }
+
+  const attachFavorites = (folder: CourseFolder): void => {
+    folder.children.forEach(attachFavorites)
+    for (const root of rootsByAnchorId.get(folder.id) ?? []) {
+      if (isCourseFolder(root)) folder.children.push(root)
+      else folder.courses.push(root)
+    }
+  }
+  ownedFolders.forEach(attachFavorites)
+
+  const folders = [...ownedFolders, ...topLevel.filter(isCourseFolder)]
+  const rootCourses = topLevel.filter((item): item is Course => !isCourseFolder(item))
+
+  return { folders, rootCourses }
+}
+
+async function getRemoteDataset(): Promise<{ folders: CourseFolder[]; rootCourses: Course[] }> {
+  const userId = await requireAuthUserId()
+  return isPrivilegedEditor() ? getInstructorDataset(userId) : getStudentDataset(userId)
+}
+
 export async function getCourseFolders(): Promise<CourseFolder[]> {
-  await delay()
-  return clone(getActiveDataset().folders)
+  const { folders } = await getRemoteDataset()
+  return folders
 }
 
 export async function getStandaloneCourses(): Promise<Course[]> {
-  await delay()
-  return clone(getActiveDataset().rootCourses)
+  const { rootCourses } = await getRemoteDataset()
+  return rootCourses
 }
 
 interface NodeWithLectureRow {
@@ -259,27 +414,30 @@ export async function joinCourse(code: string): Promise<Course> {
   return findCourseByJoinCode(code)
 }
 
-/** 4자리 코드로 강의를 찾아 "내 강의" 목록에 등록합니다. */
+/** 4자리 코드로 강의를 찾아 "내 강의" 목록(favorites)에 등록합니다. 항상 최상위에 등록되고, 이후 moveCourseItem으로 정리합니다. */
 export async function registerCourseByCode(code: string): Promise<Course> {
   const course = await findCourseByJoinCode(code)
+  const userId = await requireAuthUserId()
 
-  const { rootCourses } = getActiveDataset()
-  if (!rootCourses.some((item) => item.id === course.id)) rootCourses.unshift(course)
+  const { error } = await supabase.from('favorites').insert({ user_id: userId, node_id: course.id, anchor_id: null })
+  if (error) throw error
 
   return course
 }
 
 export async function createRootFolder(input: CreateFolderInput): Promise<CourseFolder> {
-  await delay(350)
-  const folder: CourseFolder = {
-    id: `folder-${crypto.randomUUID()}`,
-    name: input.name,
-    ownership: 'owned',
-    children: [],
-    courses: [],
-  }
-  getActiveDataset().folders.push(folder)
-  return folder
+  const userId = await requireAuthUserId()
+  const createdMode = roleToMode(mockCurrentUser.role)
+
+  const { data, error } = await supabase
+    .from('nodes')
+    .insert({ name: input.name, type: 'folder', created_by: userId, created_mode: createdMode })
+    .select('id, name')
+    .single<{ id: string; name: string }>()
+
+  if (error) throw error
+
+  return { id: data.id, name: data.name, ownership: 'owned', children: [], courses: [] }
 }
 
 function generateJoinCode(): string {
@@ -287,10 +445,32 @@ function generateJoinCode(): string {
 }
 
 export async function createCourse(input: CreateCourseInput): Promise<Course> {
-  await delay(350)
-  const course: Course = {
-    id: `course-${crypto.randomUUID()}`,
-    title: input.title,
+  const userId = await requireAuthUserId()
+
+  const { data: node, error: nodeError } = await supabase
+    .from('nodes')
+    .insert({ name: input.title, type: 'lecture', created_by: userId, created_mode: 'lecturer', parent_id: input.folderId ?? null })
+    .select('id, name')
+    .single<{ id: string; name: string }>()
+
+  if (nodeError) throw nodeError
+
+  const startTime = new Date(`${input.date}T${input.startTime}`).toISOString()
+  const endTime = new Date(`${input.date}T${input.endTime}`).toISOString()
+
+  const { error: lectureError } = await supabase
+    .from('lectures')
+    .insert({ id: node.id, start_time: startTime, end_time: endTime, location: input.location ?? null, max_participants: input.capacity ?? null })
+
+  if (lectureError) throw lectureError
+
+  const joinCode = generateJoinCode()
+  const { error: joinCodeError } = await supabase.from('lecture_join_codes').insert({ code: joinCode, lecture_id: node.id })
+  if (joinCodeError) throw joinCodeError
+
+  return {
+    id: node.id,
+    title: node.name,
     participantCount: 0,
     questionCount: 0,
     color: 'purple',
@@ -300,74 +480,44 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
     endTime: input.endTime,
     location: input.location,
     capacity: input.capacity ?? null,
-    joinCode: generateJoinCode(),
+    joinCode,
   }
-
-  const { folders, rootCourses } = getActiveDataset()
-  if (input.folderId) {
-    const folder = findFolder(folders, input.folderId)
-    if (folder) folder.courses.push(course)
-  } else {
-    rootCourses.push(course)
-  }
-
-  return course
 }
 
-/** 강의의 기본 정보를 수정합니다. 강의자는 본인의 모든 강의를, 수강생은 본인이 만든 강의만 수정할 수 있습니다. */
+/** 강의의 기본 정보를 수정합니다. 강의자 본인이 만든 강의만 수정할 수 있습니다(RLS: lectures_owner_all). */
 export async function updateCourse(input: UpdateCourseInput): Promise<Course> {
-  await delay(350)
-  const { folders, rootCourses } = getActiveDataset()
-  const course = findCourse(folders, rootCourses, input.id)
-  if (!course) throw new Error('강의를 찾을 수 없습니다.')
-  if (course.ownership !== 'owned' && !isPrivilegedEditor()) throw new Error('내가 만든 강의만 수정할 수 있습니다.')
+  const { data: node, error: nodeError } = await supabase
+    .from('nodes')
+    .update({ name: input.title })
+    .eq('id', input.id)
+    .select('id, name')
+    .single<{ id: string; name: string }>()
 
-  course.title = input.title
-  course.date = input.date
-  course.startTime = input.startTime
-  course.endTime = input.endTime
-  course.location = input.location
-  course.capacity = input.capacity ?? null
+  if (nodeError) throw nodeError
 
-  return clone(course)
-}
+  const startTime = new Date(`${input.date}T${input.startTime}`).toISOString()
+  const endTime = new Date(`${input.date}T${input.endTime}`).toISOString()
 
-function findFolder(folders: CourseFolder[], folderId: string): CourseFolder | null {
-  for (const folder of folders) {
-    if (folder.id === folderId) return folder
-    const found = findFolder(folder.children, folderId)
-    if (found) return found
+  const { error: lectureError } = await supabase
+    .from('lectures')
+    .update({ start_time: startTime, end_time: endTime, location: input.location ?? null, max_participants: input.capacity ?? null })
+    .eq('id', input.id)
+
+  if (lectureError) throw lectureError
+
+  return {
+    id: node.id,
+    title: node.name,
+    participantCount: 0,
+    questionCount: 0,
+    color: 'purple',
+    ownership: 'owned',
+    date: input.date,
+    startTime: input.startTime,
+    endTime: input.endTime,
+    location: input.location,
+    capacity: input.capacity ?? null,
   }
-  return null
-}
-
-function detachFolder(folders: CourseFolder[], folderId: string): CourseFolder | null {
-  const index = folders.findIndex((folder) => folder.id === folderId)
-  if (index !== -1) return folders.splice(index, 1)[0]
-
-  for (const folder of folders) {
-    const detached = detachFolder(folder.children, folderId)
-    if (detached) return detached
-  }
-  return null
-}
-
-function detachCourseFromFolders(folders: CourseFolder[], courseId: string): Course | null {
-  for (const folder of folders) {
-    const index = folder.courses.findIndex((course) => course.id === courseId)
-    if (index !== -1) return folder.courses.splice(index, 1)[0]
-
-    const detached = detachCourseFromFolders(folder.children, courseId)
-    if (detached) return detached
-  }
-  return null
-}
-
-function detachCourse(folders: CourseFolder[], rootCourses: Course[], courseId: string): Course | null {
-  const rootIndex = rootCourses.findIndex((course) => course.id === courseId)
-  if (rootIndex !== -1) return rootCourses.splice(rootIndex, 1)[0]
-
-  return detachCourseFromFolders(folders, courseId)
 }
 
 function isPrivilegedEditor(): boolean {
@@ -384,115 +534,52 @@ function getActiveDataset(): { folders: CourseFolder[]; rootCourses: Course[] } 
     : { folders: mockStudentFolders, rootCourses: mockStudentCourses }
 }
 
+async function isOwnNode(nodeId: string, userId: string): Promise<boolean> {
+  const { data, error } = await supabase.from('nodes').select('id').eq('id', nodeId).eq('created_by', userId).maybeSingle<{ id: string }>()
+  if (error) throw error
+  return Boolean(data)
+}
+
 /**
- * 폴더/강의를 다른 폴더 또는 최상위로 이동합니다. (강의자 본인은 소유권 제한 없이 자유롭게 이동 가능)
- * 수강생 기준: 등록된(파란) 폴더 자체는 이동할 수 없고, 등록된 폴더 안으로는 아무것도 넣을 수 없습니다.
- * 단, 등록된(파란) 개별 강의는 위치 정리를 위해 내가 만든(보라) 폴더로 이동할 수 있습니다 (소유권은 유지되어 여전히 수정/삭제 불가).
+ * 폴더/강의를 다른 폴더 또는 최상위로 이동합니다.
+ * 내가 만든(owned) 폴더/강의는 nodes.parent_id를 직접 옮깁니다(enforce_nodes_parent_ownership이 "내 것·같은 모드"만 강제).
+ * 즐겨찾기한(registered) 항목은 실제 nodes 구조가 아니라 favorites.anchor_id(내 정리 위치)만 바뀝니다.
  */
 export async function moveCourseItem(input: MoveItemInput): Promise<void> {
-  await delay(300)
-  const canBypassOwnership = isPrivilegedEditor()
-  const { folders, rootCourses } = getActiveDataset()
+  const userId = await requireAuthUserId()
+  const owned = await isOwnNode(input.itemId, userId)
 
-  if (input.targetFolderId !== null) {
-    const target = findFolder(folders, input.targetFolderId)
-    if (!target) throw new Error('대상 폴더를 찾을 수 없습니다.')
-    if (target.ownership === 'registered' && !canBypassOwnership) throw new Error('강의자가 공유한 폴더 안으로는 이동할 수 없습니다.')
-  }
-
-  if (input.itemType === 'folder') {
-    const folder = findFolder(folders, input.itemId)
-    if (!folder) throw new Error('폴더를 찾을 수 없습니다.')
-    if (folder.ownership === 'registered' && !canBypassOwnership) throw new Error('강의자가 공유한 폴더는 이동할 수 없습니다.')
-
-    const detached = detachFolder(folders, input.itemId)
-    if (!detached) return
-
-    if (input.targetFolderId === null) {
-      folders.push(detached)
-    } else {
-      const target = findFolder(folders, input.targetFolderId)
-      if (!target) throw new Error('대상 폴더를 찾을 수 없습니다.')
-      target.children.push(detached)
-    }
+  if (owned) {
+    const { error } = await supabase.from('nodes').update({ parent_id: input.targetFolderId }).eq('id', input.itemId)
+    if (error) throw error
     return
   }
 
-  const allCourses = [...rootCourses, ...flattenCourses(folders)]
-  const course = allCourses.find((item) => item.id === input.itemId)
-  if (!course) throw new Error('강의를 찾을 수 없습니다.')
-  if (!canBypassOwnership && isInsideRegisteredFolder(folders, input.itemId)) {
-    throw new Error('등록된 폴더 안의 강의는 폴더 단위로만 관리할 수 있습니다.')
-  }
+  if (input.itemType === 'folder') throw new Error('강의자가 공유한 폴더는 이동할 수 없습니다.')
 
-  const detached = detachCourse(folders, rootCourses, input.itemId)
-  if (!detached) return
-
-  if (input.targetFolderId === null) {
-    rootCourses.push(detached)
-  } else {
-    const target = findFolder(folders, input.targetFolderId)
-    if (!target) throw new Error('대상 폴더를 찾을 수 없습니다.')
-    target.courses.push(detached)
-  }
+  const { error } = await supabase.from('favorites').update({ anchor_id: input.targetFolderId }).eq('user_id', userId).eq('node_id', input.itemId)
+  if (error) throw error
 }
 
-function flattenCourses(folders: CourseFolder[]): Course[] {
-  return folders.flatMap((folder) => [...folder.courses, ...flattenCourses(folder.children)])
-}
-
-function findCourse(folders: CourseFolder[], rootCourses: Course[], courseId: string): Course | null {
-  return [...rootCourses, ...flattenCourses(folders)].find((course) => course.id === courseId) ?? null
-}
-
-/** 강의가 등록된(공유받은) 폴더 안에 속해 있는지 확인합니다. 그런 강의는 폴더라는 하나의 덩어리에 묶여 있어 단독으로 다룰 수 없습니다. */
-function isInsideRegisteredFolder(folders: CourseFolder[], courseId: string): boolean {
-  for (const folder of folders) {
-    if (folder.ownership === 'registered' && folder.courses.some((course) => course.id === courseId)) return true
-    if (isInsideRegisteredFolder(folder.children, courseId)) return true
-  }
-  return false
-}
-
-/** 폴더/강의 이름을 변경합니다. 강의자가 공유한 항목은 변경할 수 없습니다. (강의자 본인은 예외) */
+/** 폴더/강의 이름을 변경합니다. 내가 만든(owned) 항목만 가능합니다(RLS: nodes_update_own). */
 export async function renameCourseItem(input: RenameItemInput): Promise<void> {
-  await delay(250)
-  const canBypassOwnership = isPrivilegedEditor()
-  const { folders, rootCourses } = getActiveDataset()
-
-  if (input.itemType === 'folder') {
-    const folder = findFolder(folders, input.itemId)
-    if (!folder) throw new Error('폴더를 찾을 수 없습니다.')
-    if (folder.ownership === 'registered' && !canBypassOwnership) throw new Error('강의자가 공유한 폴더는 이름을 변경할 수 없습니다.')
-    folder.name = input.name
-    return
-  }
-
-  const course = findCourse(folders, rootCourses, input.itemId)
-  if (!course) throw new Error('강의를 찾을 수 없습니다.')
-  if (course.ownership === 'registered' && !canBypassOwnership) throw new Error('강의자가 공유한 강의는 이름을 변경할 수 없습니다.')
-  course.title = input.name
+  const { error } = await supabase.from('nodes').update({ name: input.name }).eq('id', input.itemId)
+  if (error) throw error
 }
 
-/** 폴더/강의를 내 목록에서 제거합니다. 내가 만든 항목은 완전히 삭제되고, 등록된(공유받은) 항목은 등록만 취소됩니다. */
+/** 폴더/강의를 내 목록에서 제거합니다. 내가 만든 항목은 완전히 삭제(cascade)되고, 즐겨찾기한 항목은 등록만 취소됩니다. */
 export async function deleteCourseItem(input: DeleteItemInput): Promise<void> {
-  await delay(250)
-  const canBypassOwnership = isPrivilegedEditor()
-  const { folders, rootCourses } = getActiveDataset()
+  const userId = await requireAuthUserId()
+  const owned = await isOwnNode(input.itemId, userId)
 
-  if (input.itemType === 'folder') {
-    const folder = findFolder(folders, input.itemId)
-    if (!folder) throw new Error('폴더를 찾을 수 없습니다.')
-    detachFolder(folders, input.itemId)
+  if (owned) {
+    const { error } = await supabase.from('nodes').delete().eq('id', input.itemId)
+    if (error) throw error
     return
   }
 
-  const course = findCourse(folders, rootCourses, input.itemId)
-  if (!course) throw new Error('강의를 찾을 수 없습니다.')
-  if (!canBypassOwnership && isInsideRegisteredFolder(folders, input.itemId)) {
-    throw new Error('등록된 폴더 안의 강의는 폴더 단위로만 등록취소할 수 있습니다.')
-  }
-  detachCourse(folders, rootCourses, input.itemId)
+  const { error } = await supabase.from('favorites').delete().eq('user_id', userId).eq('node_id', input.itemId)
+  if (error) throw error
 }
 
 interface NodeWithLectureAndOwnerRow {
@@ -514,7 +601,7 @@ async function getCourseRoomFromDb(courseId: string): Promise<CourseRoom> {
     .from('nodes')
     .select('id, name, created_by, lectures(start_time, end_time, location)')
     .eq('id', courseId)
-    .eq('node_type', 'lecture')
+    .eq('type', 'lecture')
     .single<NodeWithLectureAndOwnerRow>()
 
   if (error || !node) throw new Error('강의실을 찾을 수 없습니다.')
