@@ -1,5 +1,7 @@
 # 계획: AI 보조 글 제출 워크플로우 — `submit-post` Edge Function
 
+> **이 문서는 최초 설계안이며, 실제 구현은 여기서 달라졌습니다.** 특히 무상태(stateless) 강행 제출 대신 `post_drafts` 스테이징 테이블 방식으로 바뀌었고, `ai-correct`/`ai-moderate`/`ai-similarity` 3분리가 아니라 `ai-correct`(교정 전용) + `submit-post`(적절성·유사도·저장 통합) 2개 함수로 구현되었습니다. **실제 요청/응답 계약은 [SUPABASE_GUIDE.md 11번](./SUPABASE_GUIDE.md#11-글-작성제출-ai-correct-submit-post-edge-function)을, 변경 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록)을 참고하세요.** 아래는 초기 설계 의도를 남겨두는 역사적 기록입니다.
+
 ## Context
 
 지금까지는 `posts` 작성이 클라이언트에서 `supabase.from('posts').insert(...)`로 직접 이뤄졌고(RLS `posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner`로 허용), README 필수 기능인 "AI 적절성 검사"/"AI 유사 질문 탐지"/"AI 교정"은 아직 실제 구현이 없어 3개의 더미 Edge Function(`ai-correct`, `ai-moderate`, `ai-similarity`)만 배포되어 있었다.
