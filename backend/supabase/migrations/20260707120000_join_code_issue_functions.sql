@@ -11,13 +11,13 @@ revoke insert, update on lecture_join_codes from anon, authenticated;
 
 -- 위 revoke로 이제 발급 경로는 아래 SECURITY DEFINER 함수뿐이다. 이 프로젝트는 어떤 테이블에도
 -- force row level security를 걸지 않았으므로, SECURITY DEFINER 함수 내부의 INSERT/DELETE는
--- lecture_join_codes_owner_insert/_owner_delete RLS를 타지 않고 우회한다(테이블 소유자 권한으로 실행되므로).
--- 그래서 "호출자가 이 강의의 소유자인가"를 기존 INSERT 정책과 동일한 조건으로 함수 안에서 직접 재검증한다.
+-- RLS를 타지 않고 우회한다(테이블 소유자 권한으로 실행되므로). 그래서 "호출자가 이 강의의
+-- 소유자인가"를 함수 안에서 직접 재검증한다.
 
--- lecture_join_codes_owner_all은 실제로는 for insert 전용인데 이름이 _all이라
--- (진짜 for all인 my_nodes_owner_all과 혼동됨) lecture_join_codes_owner_delete와
--- 이름 패턴을 맞추도록 리네임.
-alter policy "lecture_join_codes_owner_all" on lecture_join_codes rename to "lecture_join_codes_owner_insert";
+-- lecture_join_codes_owner_all(insert 전용, 이제 도달 불가능한 죽은 정책)은 삭제한다.
+-- 위 revoke로 직접 쿼리 경로 자체가 막혀 있고, 함수 경로는 SECURITY DEFINER라 이 정책을
+-- 아예 타지 않으므로 남겨둘 이유가 없다.
+drop policy "lecture_join_codes_owner_all" on lecture_join_codes;
 
 -- 이미 발급된 코드가 있으면 그대로 반환하고, 없으면 발급까지 한 번에 처리(버튼 클릭 시 조회+발급을 한 번의 호출로).
 create or replace function public.get_or_create_join_code(p_lecture_id uuid)
