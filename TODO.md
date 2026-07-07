@@ -65,7 +65,7 @@ AI 교정, 부적절한 내용 필터링, 유사 질문 자동 탐지(#2, #3) �
 
 ### 트리 구조 데이터 조회 관련
 
-"내 강의"/"강의" 페이지에서 트리 조회 3가지(내가 만든 노드, 즐겨찾기 서브트리, 강의 페이지 게시글) 아직 구현 안 됨. 백엔드 쪽(RPC/RLS)은 완료되어 원격 DB에 반영되어 있음 — 실제 구현 방법은 [SUPABASE_GUIDE.md의 6번 항목](./SUPABASE_GUIDE.md#6-트리-구조-데이터-조회-내-강의-페이지--강의-페이지) 참고.
+"내 강의" 트리 조회 자체는 구현 완료(자세한 내용은 [해결된 것](#해결된-것-참고용-기록) 참고). 남은 건 두 가지: `Course.questionCount`를 새로 만든 `posts_counts` 뷰(`lecture_id`별 게시글 개수)로 채우는 작업, `Course.participantCount`(Presence 기반 실시간 접속자 수)를 이 목록 화면에서 어떻게 보여줄지 설계.
 
 ### guest_token 관련
 
@@ -90,4 +90,6 @@ AI 교정, 부적절한 내용 필터링, 유사 질문 자동 탐지(#2, #3) �
   - 그래서 `get_node_descendants` 대신 `get_my_favorite_subtrees()` RPC로 교체: 즐겨찾기 루트(`my_nodes.node_id`)마다 재귀로 서브트리를 구하되, 결과 행마다 `anchor_node_id`(어느 즐겨찾기 루트에서 나온 행인지)를 태그하고, `union`이 아니라 `union all`로 중복 행을 일부러 유지. 프론트는 `anchor_node_id`로 그룹핑해서 즐겨찾기 루트별로 독립된 서브트리를 조립·렌더링하고(React `key`도 전역 `id`가 아니라 "어느 anchor에서 나온 사본인지"까지 포함해야 충돌 안 남), 서로 다른 anchor의 결과를 하나의 `byId` Map으로 합치지 않음. 즐겨찾기가 정리된 개인 폴더(`folder_id`)는 이 RPC에 안 담고, 프론트가 `my_nodes`를 직접 조회해서(RLS로 본인 행만 허용) 얻음.
   - 이 설계를 뒷받침하기 위해 두 가지 RLS/제약도 같이 정리: `nodes.parent_id`가 가리키는 부모와 `created_by`/`created_mode`가 항상 일치하도록 강제하는 `enforce_nodes_parent_ownership` 트리거(안 그러면 남의 트리 밑에 내 노드를 끼워 넣거나 내 강의자/수강생 모드 트리가 섞일 수 있었음), `my_nodes.folder_id`가 실제로 내가 수강생 모드로 만든 폴더인지 확인하는 `RESTRICTIVE` RLS 정책 → `backend/supabase/migrations/20260706150816_nodes_parent_ownership_mode_match.sql`, `20260706154459_my_nodes_folder_must_be_own_student_folder.sql`, `20260706154910_unify_my_nodes_policy_names.sql`, `20260706161208_get_my_favorite_subtrees_rpc.sql`.
   - Edge Function은 필요 없음(순수 DB 조회라 RPC로 완결). 프론트 요청 시점은 로그인 시 한꺼번에 받지 않고 모드 전환/페이지 진입 시점마다 그 모드에 맞는 것만 요청.
-  - **프론트 구현은 아직 안 됨** — 위 RPC/RLS는 백엔드 쪽만 완료된 상태이고, `frontend` 브랜치의 "내 강의" 페이지(`useStudentCourses.ts` 등)는 아직 이 RPC를 안 쓰고 목업 API로 동작 중.
+  - **프론트 구현 완료** — `frontend` 브랜치의 `services/api.ts`(`getCourseFolders`/`getStandaloneCourses`/`nodeToItem`/`buildFolderTree`/`buildFavoriteRoots`)가 위 설계 그대로 `nodes`/`favorites`/`get_my_favorite_subtrees()`를 실제로 조회하도록 구현됨.
+  - 이 과정에서 남은 간극 두 가지 발견: (1) `Course.questionCount`(라벨은 "게시글 {n}개")가 아직 `0`으로 고정됨 → `posts_counts` 뷰(`lecture_id`별 `count(*)`) 추가로 해결(`backend/supabase/migrations/20260707023348_posts_counts_view.sql`). 다른 counts 뷰(`post_likes_counts` 등)와 달리 보안 목적이 아니라, PostgREST가 group by를 직접 지원 안 해서 여러 강의 개수를 한 번에 가져오기 위한 효율성 목적. 프론트에서 이 뷰를 조회해 매핑하는 작업은 아직 안 됨. (2) `Course.participantCount`는 Presence 기반이라 이 트리 조회 시점엔 채울 수 없어 여전히 별도 설계 필요(미해결).
+  - `date`/`startTime`/`endTime`/`location`/`capacity`(`lectures` 조인)는 `registered`(즐겨찾기) 강의에는 애초에 필요 없다고 결론남 — 그 값을 읽는 유일한 곳(강의 수정 폼 프리필)이 `owned` 강의에만 열려 있어서. `owned` 강의는 이미 `nodes.select('*, lectures(...))'`로 정상 조회 중이라 `get_my_favorite_subtrees()`에 조인을 추가할 필요 없음.
