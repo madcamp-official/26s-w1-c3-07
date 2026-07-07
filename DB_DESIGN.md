@@ -147,7 +147,7 @@ create table lecture_join_codes (
 ```sql
 create table lecture_feedback_votes (
   lecture_id uuid references lectures(id) on delete cascade,
-  feedback_type text not null check (feedback_type in ('cold', 'hot', 'quiet', 'unclear')),
+  feedback_type text not null check (feedback_type in ('cold', 'hot', 'quiet', 'dark')),
   voter_key uuid not null,
   value smallint not null check (value in (1, -1)),
   primary key (lecture_id, feedback_type, voter_key, value)
@@ -738,7 +738,7 @@ create policy "lecture_join_codes_owner_delete" on lecture_join_codes for delete
 
 #### `lecture_feedback_votes`
 
-`post_likes`와 동일한 원칙(집계는 `lecture_feedback_votes_counts` 뷰로 공개, 조회/등록/취소는 본인 `voter_key`로만)에 더해, 강의자는 자기 강의의 투표 전체를 초기화할 수 있습니다(`lecture_feedback_votes_delete_own`은 본인 투표만 지울 수 있어서, 전체 초기화를 위해 별도 정책이 필요합니다).
+`post_likes`와 동일한 원칙(집계는 `lecture_feedback_votes_counts` 뷰로 공개, 조회/등록/취소는 본인 `voter_key`로만)에 더해, 강의자는 자기 강의의 투표를 전체 행 단위로 조회하거나(`lecture_feedback_votes_select_lecturer`) 전부 초기화할 수 있습니다(`lecture_feedback_votes_lecturer_reset`, `lecture_feedback_votes_delete_own`은 본인 투표만 지울 수 있어서 전체 초기화엔 별도 정책이 필요합니다).
 
 ```sql
 alter table lecture_feedback_votes enable row level security;
@@ -748,6 +748,12 @@ create policy "lecture_feedback_votes_insert_own" on lecture_feedback_votes for 
   with check (voter_key = coalesce(auth.uid(), (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid));
 create policy "lecture_feedback_votes_delete_own" on lecture_feedback_votes for delete
   using (voter_key = coalesce(auth.uid(), (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid));
+
+create policy "lecture_feedback_votes_select_lecturer" on lecture_feedback_votes for select
+  using (exists (
+    select 1 from lectures join nodes on nodes.id = lectures.id
+    where lectures.id = lecture_feedback_votes.lecture_id and nodes.created_by = auth.uid()
+  ));
 
 create policy "lecture_feedback_votes_lecturer_reset" on lecture_feedback_votes for delete
   using (exists (
