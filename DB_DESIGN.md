@@ -765,7 +765,7 @@ RLS는 "누가 행에 접근 가능한가"만 결정할 뿐, "어떤 테이블/�
 
 강의자는 자기 강의(`lectures.id` 소유)에 속한 게시글이면 남의 글이라도 상태 전환(미해결↔해결) 및 삭제(부적절한 글 제거)가 가능합니다. Postgres는 같은 명령어에 정책이 여러 개면 OR로 합쳐지므로, 이 정책은 `posts_update_own`/`posts_delete_own`과 나란히 적용됩니다.
 
-AI 적절성 검사(OpenAI Moderation API)/유사 질문 탐지(GPT-4o-mini + `get_similarity_candidates()` RPC, 아래 [RPC 함수](#rpc-함수) 참고)를 포함한 글 제출 흐름은 `submit-post` Edge Function(`service_role`, RLS 우회)으로 구현·배포 완료(원래 설계 의도는 [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md)에 있으나 실제 구현은 그 무상태 설계에서 달라졌으므로, 정확한 요청/응답 계약은 [SUPABASE_GUIDE.md 11번](./SUPABASE_GUIDE.md#11-글-작성제출-ai-correct-submit-post-edge-function), 실제 구현 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고). **다만 클라이언트가 이 검사를 우회해 `posts`에 직접 쓰지 못하게 막는 부분(아래 `posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 두 INSERT 정책 삭제 + `anon`/`authenticated`의 `posts` INSERT 권한 자체 회수)은 아직 적용 전** — 지금은 프론트가 `submit-post`를 쓰도록 유도하는 단계이고, 이 두 정책이 그대로 살아있어 클라이언트가 직접 insert도 여전히 가능합니다.
+AI 적절성 검사(OpenAI Moderation API)/유사 질문 탐지(GPT-4o-mini + `get_similarity_candidates()` RPC, 아래 [RPC 함수](#rpc-함수) 참고)를 포함한 글 제출 흐름은 `submit-post` Edge Function(`service_role`, RLS 우회)으로 구현·배포 완료(정확한 요청/응답 계약은 [SUPABASE_GUIDE.md 11번](./SUPABASE_GUIDE.md#11-글-작성제출-ai-correct-submit-post-edge-function), 실제 구현 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고). **다만 클라이언트가 이 검사를 우회해 `posts`에 직접 쓰지 못하게 막는 부분(아래 `posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 두 INSERT 정책 삭제 + `anon`/`authenticated`의 `posts` INSERT 권한 자체 회수)은 아직 적용 전** — 지금은 프론트가 `submit-post`를 쓰도록 유도하는 단계이고, 이 두 정책이 그대로 살아있어 클라이언트가 직접 insert도 여전히 가능합니다.
 
 ```sql
 revoke select on posts from anon, authenticated;

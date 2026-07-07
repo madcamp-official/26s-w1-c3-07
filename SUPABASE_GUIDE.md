@@ -364,7 +364,7 @@ supabase 클라이언트는 앱 시작할 때 딱 한 번만 만들고(`supabase
 
 ## 11. 글 작성/제출: `ai-correct`, `submit-post` Edge Function
 
-글 작성(새 질문/의견/답글)은 `posts`에 직접 insert하지 않고, 두 개의 Edge Function을 씁니다. 원래 설계 의도는 [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md)에 있지만, **실제 구현은 그 문서의 무상태(stateless) 설계에서 아래처럼 바뀌었으니 계약은 이 문서(11번)를 기준으로 삼으세요** — 자세한 변경 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고.
+글 작성(새 질문/의견/답글)은 `posts`에 직접 insert하지 않고, 두 개의 Edge Function을 씁니다. 초기 설계안은 무상태(stateless) 방식이었으나 실제 구현에서 `post_drafts` 스테이징 테이블 방식으로 바뀌었습니다 — 자세한 변경 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고.
 
 - **`ai-correct`**: 문구를 다듬어주기만 하는, 적절성/유사도 검사와 완전히 분리된 함수. 글 작성 중 "AI 교정" 버튼을 눌렀을 때만 호출하면 됩니다.
 - **`submit-post`**: 실제 제출을 담당. 적절성 검사(OpenAI Moderation) → (질문 타입이면) 유사 질문 탐지 → 저장까지 한 번에 처리합니다.
