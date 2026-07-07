@@ -3,10 +3,46 @@
 // 요청: { content: string }
 // 응답: { corrected: string }
 import { corsHeaders } from "../_shared/cors.ts";
+import { CORRECTION_SYSTEM_PROMPT } from "./prompt.ts";
 
-// 실제 OpenAI 연동 전까지의 더미 구현. 나중엔 이 함수 본문만 실제 LLM 호출로 바꾸면 됨.
+const OPENAI_MODEL = "gpt-4o-mini";
+
 async function correctWithAI(content: string): Promise<string> {
-  return `${content}\n\n[AI로 수정함]`;
+  const apiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!apiKey) {
+    console.error("OPENAI_API_KEY가 설정되어 있지 않습니다");
+    return content;
+  }
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: "system", content: CORRECTION_SYSTEM_PROMPT },
+          { role: "user", content },
+        ],
+        temperature: 0.3,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`OpenAI API 오류: ${response.status} ${await response.text()}`);
+      return content; // 실패 시 원문 그대로 반환 (교정은 부가 기능이라 제출 흐름을 막지 않음)
+    }
+
+    const data = await response.json();
+    const corrected = data.choices?.[0]?.message?.content?.trim();
+    return corrected || content;
+  } catch (e) {
+    console.error("OpenAI 호출 실패:", e);
+    return content;
+  }
 }
 
 Deno.serve(async (req) => {
