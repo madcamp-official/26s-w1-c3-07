@@ -16,7 +16,7 @@
   - [필수 기능](#필수-기능)
   - [선택 기능](#선택-기능)
 - [IA 및 화면 설계서](#ia-및-화면-설계서)
-- [DB 설계](#db-설계)
+- [DB 스키마](#db-스키마)
 - [API 문서](#api-문서)
 - [배포 결과물](#배포-결과물)
 - [회고 문서](#회고-문서)
@@ -138,23 +138,25 @@
 ![image](./images/화면설계서_6.png)
 
 ---
-## DB 설계
+## DB 스키마
 
 | 테이블 | 대응하는 기능 |
 |---|---|
 | `profiles` | 회원(Google OAuth) 부가정보 |
 | `nodes` | 강의 폴더 + 강의 통합 트리 |
+| `favorites` | "내 강의" 즐겨찾기 (수강생 모드) |
 | `lectures` | 강의의 부가 속성 (시작/종료 시각, 장소, 최대인원) — 입장은 `nodes.id`(UUID)를 URL/QR로 사용 |
 | `lecture_join_codes` | 강의 입장용 4자리 숫자 코드 (발급/재발급/파기 가능, 즐겨찾기 등록용 코드와는 별개) |
-| `my_nodes` | "내 강의" 즐겨찾기 (수강생 모드) |
+| `lecture_feedback_votes` | 실시간 피드백(추워요/더워요/소리 작아요/잘 안 보여요) 좋아요/싫어요 |
 | `posts` | 게시글 + 답글 통합 트리, 질문/의견 타입, 미해결/해결, 비회원 인증(`guest_token`) |
 | `post_likes` | 게시글/답글 좋아요 |
-| `lecture_feedback_votes` | 실시간 피드백(추워요/더워요/소리 작아요/잘 안 보여요) 좋아요/싫어요 |
-| `posts_public` (뷰) | `posts`에서 `guest_token`을 뺀 공개 조회용 뷰. 프론트는 `posts` 대신 이 뷰를 조회 |
+| `posts_public` (뷰) | `posts`에서 `guest_token`/`author_id`를 뺀 공개 조회용 뷰(비익명 글만 작성자 이름 노출). 프론트는 `posts` 대신 이 뷰를 조회 |
+| `post_likes_counts` (뷰) | `post_likes`에서 `voter_key` 없이 게시글별 좋아요 개수만 집계한 공개 조회용 뷰 |
+| `lecture_feedback_votes_counts` (뷰) | `lecture_feedback_votes`에서 `voter_key` 없이 강의·피드백 유형별 좋아요/싫어요 개수만 집계한 공개 조회용 뷰 |
 
-`nodes`는 자기참조 구조로 강의 폴더/강의의 무제한 depth 트리를 이루고, `posts`도 마찬가지로 자기참조로 게시글과 답글을 하나의 트리로 통합해 관리합니다. 읽기는 대부분 공개로 열어두되 쓰기는 "본인 것만" 원칙으로 제한하며, Supabase RLS(Row Level Security) 정책과 트리거로 강의자 권한(상태 전환, 삭제, 피드백 초기화)과 비회원 인증(`guest_token`)을 함께 처리합니다.
+`nodes`는 자기참조 구조로 강의 폴더/강의의 무제한 depth 트리를 이루고, `posts`도 마찬가지로 자기참조로 게시글과 답글을 하나의 트리로 통합 관리. 읽기는 테이블마다 성격이 달라 강의 입장 흐름에 필요한 `nodes`/`lectures`/`lecture_join_codes`는 공개, `profiles`/`favorites`/`post_likes`/`lecture_feedback_votes`는 RLS로 본인 행만 조회 가능하도록 제한(좋아요/피드백 개수는 `voter_key` 없이 집계 뷰로 따로 공개), `posts`는 유일하게 테이블 자체 SELECT 권한을 완전히 회수해 `guest_token`/`author_id`를 뺀 `posts_public` 뷰로만 조회 가능. 쓰기는 전부 "본인 것만" 원칙으로 제한. Supabase RLS(Row Level Security) 정책과 트리거로 강의자 권한(상태 전환, 삭제, 피드백 초기화)과 비회원 인증(`guest_token`)을 함께 처리.
 
-전체 SQL, RLS 정책, 트리거, 테이블 관계 상세 설명은 [`DB_DESIGN.md`](./DB_DESIGN.md)를 참고하세요.
+전체 SQL, RLS 정책, 트리거, 테이블 관계 상세 설명은 [`DB_DESIGN.md`](./DB_DESIGN.md) 참고.
 
 ---
 
@@ -162,13 +164,14 @@
 
 > API 주소, 요청 방식, 요청값, 응답값, 에러 상황을 정리
 
-Supabase 연동 방법(URL/API 키, 클라이언트 설정, 코드 예시)은 [SUPABASE_GUIDE.md](./SUPABASE_GUIDE.md) 참고
+Supabase 연동 방법(URL/API 키, 클라이언트 설정, 코드 예시)은 [SUPABASE_GUIDE.md](./SUPABASE_GUIDE.md) 참고.
 
 일반 테이블 조회/작성(select/insert 등)은 Supabase REST API 표준 패턴을 그대로 따르고, 테이블 구조는 [DB_DESIGN.md](./DB_DESIGN.md)에 정리되어 있어 아래 표에는 따로 표기하지 않음. 이 표는 이름만으로는 파라미터/반환값을 알 수 없는 **RPC/Edge Function 전용**.
 
 | Method | Endpoint | 설명 | 요청 | 응답 |
 |---|---|---|---|---|
 | RPC | `delete_own_account` | 회원 탈퇴 (본인 `auth.users` 행 삭제) | 파라미터 없음, 로그인 필요 | 성공 시 없음(`void`), 실패 시 에러 메시지 |
+| RPC | `get_my_favorite_subtrees` | 수강생 모드 "내 강의"에서 즐겨찾기한 노드들의 서브트리를 한 번에 조회 | 파라미터 없음, 로그인 필요 | 즐겨찾기 루트별 서브트리 행 목록(`anchor_node_id`로 그룹핑) |
 
 ---
 
