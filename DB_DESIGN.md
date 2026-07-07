@@ -707,6 +707,8 @@ RLS는 "누가 행에 접근 가능한가"만 결정할 뿐, "어떤 테이블/�
 
 강의자는 자기 강의(`lectures.id` 소유)에 속한 게시글이면 남의 글이라도 상태 전환(미해결↔해결) 및 삭제(부적절한 글 제거)가 가능합니다. Postgres는 같은 명령어에 정책이 여러 개면 OR로 합쳐지므로, 이 정책은 `posts_update_own`/`posts_delete_own`과 나란히 적용됩니다.
 
+**(계획 단계, 아직 미적용)** AI 적절성 검사/유사 질문 탐지/교정을 포함한 글 제출 흐름을 `submit-post` Edge Function(`service_role`, RLS 우회)으로 통합하고, 클라이언트가 검사를 우회해 직접 쓰지 못하도록 아래 `posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 두 INSERT 정책을 삭제하고 `anon`/`authenticated`의 `posts` INSERT 권한 자체를 회수할 계획입니다. 자세한 요청/응답 계약과 이유는 [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md) 참고. 지금은 아직 이 두 정책이 그대로 살아있고, 클라이언트가 직접 insert 가능합니다.
+
 ```sql
 revoke select on posts from anon, authenticated;
 ```

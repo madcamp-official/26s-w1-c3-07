@@ -5,10 +5,10 @@
 - [백엔드](#백엔드)
   - [guest_token 관련](#guest_token-관련)
     - [1. `guest_token` 무효화 조건](#1-guest_token-무효화-조건-강의-종료-후)
-  - [AI 보조 기능 관련 (Edge Function vs Express 서버 미결정)](#ai-보조-기능-관련-edge-function-vs-express-서버-미결정)
+  - [AI 보조 기능 관련](#ai-보조-기능-관련)
     - [2. 유사도 검사 비교 대상 범위](#2-유사도-검사-비교-대상-범위-미해결-게시글만-답글도-포함)
     - [3. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정](#3-유사도-비교를-위한-벡터-컬럼-추가-여부-결정)
-    - [4. AI 보조 기능 서버 아키텍처 결정](#4-ai-보조-기능-서버-아키텍처-결정-edge-function-vs-express)
+    - [4. AI 보조 기능 서버 아키텍처 결정](#4-ai-보조-기능-서버-아키텍처-결정-edge-function-확정)
   - [Realtime 관련](#realtime-관련)
     - [5. `max_participants`(최다 참여 인원) 강제 여부 결정](#5-max_participants최다-참여-인원-강제-여부-결정)
   - [join_code 관련](#join_code-관련)
@@ -36,7 +36,7 @@
   
   아직 어느 방식으로 갈지 결정 안 됨.
 
-### AI 보조 기능 관련 (Edge Function vs Express 서버 미결정)
+### AI 보조 기능 관련
 
 #### 2. 유사도 검사 비교 대상 범위 (미해결 게시글만? 답글도 포함?)
 
@@ -46,9 +46,15 @@ README엔 "글 작성 시(답글 포함) 미해결 게시글들과의 유사도 
 
 원래 기획 단계에서는 세션당 질문 수가 적을 것으로 예상해 임베딩(pgvector) 대신 "기존 질문 목록을 프롬프트에 통째로 넣고 LLM이 판단"하는 방식으로 시작하기로 했음. `posts`에 `embedding vector` 컬럼 + pgvector 확장을 추가해서 임베딩 기반 유사도 검색으로 갈지, 아니면 계속 LLM 프롬프트 방식으로 갈지 아직 결정 안 됨. 강의당 질문 수가 예상보다 많아지면 프롬프트에 다 넣기엔 비효율적이라 재검토가 필요할 수 있음.
 
-#### 4. AI 보조 기능 서버 아키텍처 결정 (Edge Function vs Express)
+#### 4. AI 보조 기능 서버 아키텍처 결정 (Edge Function 확정)
 
-AI 교정, 부적절한 내용 필터링, 유사 질문 자동 탐지(#2, #3) 기능을 처리할 서버를 **Supabase Edge Function**으로 만들지, **별도 Express 서버**를 새로 띄울지 아직 결정 안 됨. 현재는 Express 백엔드 서버 없이 Supabase만으로 구성되어 있음(`DB_DESIGN.md` 배포 현황 참고). 이 결정에 따라 배포 방식, 인증 처리(Edge Function은 Supabase 세션과 통합이 쉬움), LLM API 키 보관 위치 등이 달라짐.
+**Supabase Edge Function으로 확정.** 별도 Express 서버는 띄우지 않음. AI 교정/적절성 검사/유사 질문 탐지(#2, #3)와 글 제출 자체를 하나의 Edge Function(`submit-post`)으로 통합하는 설계를 [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md)에 정리함 — 요청/응답 계약, 5가지 결과 분기(정상 생성/적절성 거부/유사 질문 발견/교정 반환), 무상태(stateless) 설계 이유까지 확정.
+
+이 설계의 핵심은 클라이언트가 검사를 우회해 `posts`에 직접 쓰지 못하게 막는 것 — **`posts` INSERT를 `anon`/`authenticated`에서 완전히 회수하고, 글 생성은 오직 `submit-post`(service_role, RLS 우회)를 통해서만 가능하도록 전환할 계획**. `service_role`은 `BYPASSRLS`라 REVOKE와 무관하게 계속 insert 가능. 기존 3개 더미 함수(`ai-correct`/`ai-moderate`/`ai-similarity`)는 삭제하고 `submit-post` 하나로 통합.
+
+**아직 실제로 적용된 건 아님** — RLS 변경(`posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 삭제)도, `submit-post` 함수 코드도 아직 만들어서 push하지 않았음. 지금은 계획 단계이고, `posts` insert는 지금도 여전히 클라이언트가 직접 할 수 있음. UPDATE/DELETE 관련 RLS(글 수정/삭제)는 이번 변경 범위 밖이라 그대로 유지.
+
+여전히 미결정: #2(유사도 비교 범위)/#3(벡터 컬럼 여부) — `submit-post`의 `checkSimilarity`는 지금 설계상 더미(항상 통과)라 이 결정이 늦어져도 프론트 연동에는 지장 없음.
 
 ### Realtime 관련
 
