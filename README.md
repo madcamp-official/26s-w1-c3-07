@@ -140,7 +140,9 @@
 ---
 ## DB 스키마
 
-| 테이블 | 대응하는 기능 |
+> 필요한 테이블, 주요 필드, 데이터 타입, 테이블 간 관계를 정리
+
+| 테이블/뷰 | 대응하는 기능 |
 |---|---|
 | `profiles` | 회원(Google OAuth) 부가정보 |
 | `nodes` | 강의 폴더 + 강의 통합 트리 |
@@ -163,16 +165,16 @@
 
 > API 주소, 요청 방식, 요청값, 응답값, 에러 상황을 정리
 
-Supabase 연동 방법(URL/API 키, 클라이언트 설정, 코드 예시)은 [SUPABASE_GUIDE.md](./SUPABASE_GUIDE.md) 참고.
-
-일반 테이블 조회/작성(select/insert 등)은 Supabase REST API 표준 패턴을 그대로 따르고, 테이블 구조는 [DB_DESIGN.md](./DB_DESIGN.md)에 정리되어 있어 아래 표에는 따로 표기하지 않음. 이 표는 이름만으로는 파라미터/반환값을 알 수 없는 **RPC/Edge Function 전용**.
-
 | Method | Endpoint | 설명 | 요청 | 응답 |
 |---|---|---|---|---|
 | RPC | `delete_own_account` | 회원 탈퇴 (본인 `auth.users` 행 삭제) | 파라미터 없음, 로그인 필요 | 성공 시 없음(`void`), 실패 시 에러 메시지 |
 | RPC | `get_my_favorite_subtrees` | 수강생 모드 "내 강의"에서 즐겨찾기한 노드들의 서브트리를 한 번에 조회 | 파라미터 없음, 로그인 필요 | 즐겨찾기 루트별 서브트리 행 목록(`anchor_node_id`로 그룹핑) |
 | RPC | `get_or_create_join_code` | 강의 공유 코드 조회/발급 (있으면 반환, 없으면 그 자리에서 발급) | `p_lecture_id`(uuid), 강의 소유자로 로그인 필요 | 4자리 코드 문자열, 소유자가 아니면 에러 |
 | RPC | `reissue_join_code` | 강의 공유 코드 재발급 (기존 코드 폐기 후 새로 발급) | `p_lecture_id`(uuid), 강의 소유자로 로그인 필요 | 새 4자리 코드 문자열, 소유자가 아니면 에러 |
+
+Supabase 연동 방법(URL/API 키, 클라이언트 설정, 코드 예시)은 [SUPABASE_GUIDE.md](./SUPABASE_GUIDE.md) 참고.
+
+일반 테이블 조회/작성(select/insert 등)은 Supabase REST API 표준 패턴을 그대로 따르고, 테이블 구조는 [DB_DESIGN.md](./DB_DESIGN.md)에 정리되어 있어 위 표에는 따로 표기하지 않음. 이 표는 이름만으로는 파라미터/반환값을 알 수 없는 **RPC/Edge Function 전용**.
 
 ---
 
