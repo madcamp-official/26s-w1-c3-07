@@ -324,9 +324,11 @@ const { data: newCode, error } = await supabase.rpc('reissue_join_code', {
 
 로그인 안 한 수강생(비회원)도 질문을 남길 수 있어야 하는데, 그 사람이 "본인 글"을 나중에 수정/삭제하려면 신원 확인이 필요해요. 그래서 쓰는 게 `guest_token`입니다.
 
-- 브라우저 **`localStorage`**에 최초 1회 랜덤 값(UUID)을 생성해서 저장하고, 그 브라우저에서는 계속 재사용해요.
+- 브라우저 **`localStorage`**에 최초 1회 **`crypto.randomUUID()`로 생성한 UUID**를 저장하고, 그 브라우저에서는 계속 재사용해요.
 - `posts.guest_token`, `post_likes`/`lecture_feedback_votes`의 `voter_key`, Presence(접속자 수 집계) 키로 전부 동일하게 재사용합니다.
 - 서버(Supabase RLS)는 이 값을 **`x-guest-token`이라는 커스텀 HTTP 헤더**로 보내주면, RLS 정책이 그 헤더 값과 DB에 저장된 `guest_token`을 대조해서 "본인 글이 맞는지" 확인해요.
+
+**⚠️ 반드시 `crypto.randomUUID()`를 쓰세요** — `Math.random()` 기반 라이브러리나 짧은 랜덤 문자열 같은 걸 쓰면 안 됩니다. `posts.guest_token`은 강의가 끝나도 무효화하지 않고 영구 보존하기로 결정했는데(자세한 이유는 [DB_DESIGN.md의 "비회원 익명 식별자" 절](./DB_DESIGN.md#비회원-익명-식별자-guest_token-여러-기능에서-공용으로-사용) 참고), 이 결정은 `guest_token`이 실제로 `crypto.randomUUID()`(UUID v4, 122비트 무작위성)만큼 예측 불가능하다는 전제 위에 있습니다. DB도 `posts.guest_token` 컬럼을 `uuid` 타입으로 강제하므로, 형식이 안 맞는 값을 보내면 요청 자체가 에러로 거부됩니다.
 
 **⚠️ 아직 아무 데도 구현 안 되어 있습니다** — `guest_token` 생성/저장 로직도, 헤더를 실어 보내는 코드도 지금 코드베이스 어디에도 없어요. 앞으로 만들어야 할 부분입니다. 정확히 언제/어떻게 생성할지(강의 최초 입장 시 1회 생성 등)는 아직 확정 필요.
 
