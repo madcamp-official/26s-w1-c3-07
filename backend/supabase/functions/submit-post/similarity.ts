@@ -3,7 +3,7 @@ import { SIMILARITY_SYSTEM_PROMPT } from "./prompt.ts";
 
 type Candidate = { id: string; content: string };
 
-// 비교 대상: 같은 강의의 미해결 질문들 + 그 답글 전부(get_similarity_candidates RPC).
+// 비교 대상: 같은 강의의 미해결 게시글(타입 무관: 질문/의견) 전부 + 그 답글(get_similarity_candidates RPC).
 async function fetchCandidates(admin: SupabaseClient, lectureId: string): Promise<Candidate[]> {
   const { data, error } = await admin.rpc("get_similarity_candidates", { p_lecture_id: lectureId });
   if (error || !data) {
