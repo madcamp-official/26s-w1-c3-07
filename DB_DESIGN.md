@@ -832,7 +832,7 @@ create policy "post_likes_delete_own" on post_likes for delete
 
 ## 배포 현황
 
-- 별도의 Express 백엔드 서버 없이 Supabase(Postgres + Auth + Realtime + RLS)만으로 구성. AI 교정/필터링/유사도 검사처럼 서버 로직이 꼭 필요해지면 그때 Express 서버를 추가.
+- 별도의 Express 백엔드 서버 없이 Supabase(Postgres + Auth + Realtime + RLS)만으로 구성. AI 교정/필터링/유사도 검사 등 서버 로직이 필요한 부분은 Express를 새로 띄우지 않고 **Supabase Edge Function으로 확정**(`submit-post`, 계획 단계 — 자세한 내용은 [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md)와 [TODO.md #4](./TODO.md#4-ai-보조-기능-서버-아키텍처-결정-edge-function-확정) 참고).
 - 이 문서의 SQL은 `backend/supabase/migrations/`에 마이그레이션 파일로 옮겨져 실제 Supabase 프로젝트(project ref: `zilvdbwoieplhrpjqnlo`)에 적용되어 있습니다.
   - `20260705062713_init_schema.sql` — 테이블/함수·트리거/RLS 초기 스키마 전체
   - `20260705064427_lecturer_permissions.sql` — 강의자 권한 정책(`posts_lecturer_update_status`, `posts_lecturer_delete`, `feedback_lecturer_reset`), `trg_block_status_change` 트리거, `posts_public` 뷰
