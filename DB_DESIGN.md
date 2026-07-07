@@ -47,6 +47,7 @@
 | `post_likes` | 게시글/답글 좋아요 |
 | `posts_public` (뷰) | `posts`에서 `guest_token`/`author_id`를 뺀 공개 조회용 뷰(비익명 글만 작성자 이름 노출). 프론트는 `posts` 대신 이 뷰를 조회 |
 | `post_likes_counts` (뷰) | `post_likes`에서 `voter_key` 없이 게시글별 좋아요 개수만 집계한 공개 조회용 뷰 |
+| `posts_counts` (뷰) | `posts`를 `lecture_id`별로 `count(*)`한 게시글 개수 집계 뷰. `posts_public`처럼 숨길 값이 있어서가 아니라, 여러 강의의 개수를 한 번의 요청으로 가져오기 위한 효율성 목적 |
 | `lecture_feedback_votes_counts` (뷰) | `lecture_feedback_votes`에서 `voter_key` 없이 강의·피드백 유형별 좋아요/싫어요 개수만 집계한 공개 조회용 뷰 |
 
 ## SQL
@@ -178,6 +179,15 @@ select
   count(*) filter (where value = -1) as dislike_count
 from lecture_feedback_votes
 group by lecture_id, feedback_type;
+
+-- posts_counts는 위 두 counts 뷰와 달리 보안 목적이 아님(posts_public이 이미 전체
+-- 공개라 숨길 값이 없음) — PostgREST가 서버 사이드 group by를 지원하지 않아서,
+-- "내 강의" 목록에서 여러 강의의 게시글 개수를 한 번의 요청으로 가져오기 위한
+-- 효율성 목적으로만 추가함
+create view posts_counts as
+select lecture_id, count(*) as post_count
+from posts
+group by lecture_id;
 ```
 
 ### 트리거 함수
@@ -628,6 +638,7 @@ create policy "post_likes_delete_own" on post_likes for delete
 - **허용은 정책, 차단은 트리거**: `posts_lecturer_update_status`/`posts_lecturer_delete`/`lecture_feedback_votes_lecturer_reset` 정책은 강의자에게 상태 전환/삭제/피드백 초기화를 **허용**하는 쪽을, `block_status_change_by_non_lecturer()` 트리거는 강의자가 아니면 절대 못 바꾸게 **차단**하는 쪽을 맡는 구조입니다.
 - **`posts_public` 뷰**: `posts` 테이블 자체는 SELECT 권한이 없어(위 [RLS 정책 → `posts`](#posts) 참고) 이 뷰로만 조회할 수 있습니다. `guest_token`은 완전히 제외하고, `author_id`(uid)도 통째로 숨긴 뒤 `is_anonymous`가 `false`인 글만 `profiles.name`을 조인해서 보여줍니다. 뷰가 `profiles`를 조인할 수 있는 건 Postgres 뷰가 기본적으로 조회자가 아니라 **뷰 소유자의 권한**으로 실행되기 때문으로, `profiles`가 본인만 조회 가능하도록 좁혀져 있어도 뷰 내부 조인에는 영향이 없습니다(수정/삭제 자체는 여전히 `posts` 테이블의 RLS 정책으로 처리).
 - **`post_likes_counts`/`lecture_feedback_votes_counts` 뷰**: `post_likes`/`lecture_feedback_votes`도 테이블 자체 SELECT는 본인 투표 행(`voter_key` 일치)만 가능하도록 좁혀서(위 [RLS 정책 → `post_likes`](#post_likes)/[`lecture_feedback_votes`](#lecture_feedback_votes) 참고), 남이 무엇을 눌렀는지는 직접 조회할 수 없습니다. 하지만 좋아요/피드백 개수는 누구나 봐야 하는 값이라, `voter_key` 없이 `count(*)`로 집계만 한 별도 뷰로 공개합니다. `post_likes_counts`는 `post_id`별 좋아요 개수, `lecture_feedback_votes_counts`는 `lecture_id`·`feedback_type`별 좋아요/싫어요 개수(`count(*) filter (where value = 1/-1)`)를 보여줍니다. "내가 이미 눌렀는지"는 이 뷰가 아니라 `post_likes`/`lecture_feedback_votes` 테이블에 본인 `voter_key`로 직접 SELECT해서 확인합니다(RLS가 본인 행만 허용하므로 가능).
+- **`posts_counts` 뷰는 위 두 counts 뷰와 성격이 다릅니다**: `post_likes_counts`/`lecture_feedback_votes_counts`는 `voter_key` 노출을 막기 위한 보안 목적이었지만, `posts_counts`가 조회하는 `posts_public`은 이미 전체 공개라 숨길 값이 없습니다. 이 뷰가 필요한 이유는 순전히 **PostgREST가 서버 사이드 `group by` 집계를 지원하지 않기 때문**입니다 — "내 강의" 목록 화면에서 강의마다 게시글 개수를 보여줘야 하는데, 뷰 없이는 강의 하나당 조회를 따로 보내야 하거나(요청 수 증가) 전체 게시글을 다 받아와 클라이언트에서 세야 합니다(대역폭 낭비). `lecture_id`별 `count(*)`만 집계해서, 여러 강의의 개수를 `.in('lecture_id', [...])` 한 번의 요청으로 가져올 수 있게 합니다.
 
 ## 실시간 접속자 수 (강의별)
 
@@ -675,3 +686,4 @@ create policy "post_likes_delete_own" on post_likes for delete
   - `20260706161244_move_delete_own_account_language_clause.sql` — `delete_own_account()`의 `language sql` 절 위치를 본문 뒤로 옮겨 다른 함수들과 스타일 통일 (동작 변화 없음)
   - `20260706163119_rename_reopen_to_unresolve.sql` — `reopen_resolved_post_on_question_reply()`/`trg_reopen_resolved_post_on_question_reply`를 `unresolve_post_on_question_reply()`/`trg_unresolve_post_on_question_reply`로 개명 (동작 변화 없음, "reopen"이 실제 동작에 비해 모호해서 상태값 이름과 대칭되게 변경)
   - `20260706170256_rename_columns_and_my_nodes_table.sql` — 이름을 더 명확하게 다듬기 위한 리네임(동작 변화 없음): `my_nodes` → `favorites`, `nodes.node_type` → `nodes.type`, `lectures.node_id` → `lectures.id`, `my_nodes.folder_id` → `favorites.anchor_id`, `posts.post_type` → `posts.type`. 텍스트 기반이라 리네임을 자동으로 안 따라가는 `block_status_change_by_non_lecturer()`/`unresolve_post_on_question_reply()`/`get_my_favorite_subtrees()` 함수 본문과 `posts_public` 뷰, `favorites`의 RLS 정책 이름(`favorites_owner_all` 등)도 같이 갱신
+  - `20260707023348_posts_counts_view.sql` — "내 강의" 목록에서 강의별 게시글 개수를 보여주기 위한 `posts_counts` 뷰 추가(`lecture_id`별 `count(*)`). 다른 counts 뷰와 달리 보안 목적이 아니라, PostgREST가 서버 사이드 `group by`를 지원하지 않아 여러 강의의 개수를 한 번의 요청으로 가져오기 위한 효율성 목적

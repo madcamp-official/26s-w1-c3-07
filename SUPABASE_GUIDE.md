@@ -138,7 +138,7 @@ const { data: likeCounts } = await supabase
 
 "내 강의"/"강의" 페이지에서 서버에 물어봐야 하는 건 크게 세 가지예요. (1) 강의 페이지에 접속했을 때 해당 `lecture_id`의 모든 `posts`, (2) 강의자 모드로 "내 강의"에 접속했을 때 내가 만든 모든 노드, (3) 수강생 모드로 "내 강의"에 접속했을 때 내가 만든 노드와 즐겨찾기한 노드들의 서브트리입니다. 이 중 (1)·(2)는 비재귀 필터 조회라 RPC 없이 바로 조회하면 되고, (3)만 재귀 조회가 필요해서 RPC를 써야 해요.
 
-**⚠️ 아직 프론트 코드에 구현되어 있지 않습니다** — 아래 RPC/RLS는 백엔드 쪽에서 이미 만들어 원격 DB에 반영해뒀지만, `frontend` 브랜치는 현재 `getCourseFolders()`/`getStandaloneCourses()` 등이 `mock/data.ts`의 목업 데이터를 그대로 돌려주는 상태예요([TODO.md 프론트엔드 > 트리 구조 데이터 조회 관련](./TODO.md#트리-구조-데이터-조회-관련) 참고). 다행히 `frontend`엔 이미 `types/course.ts`(`CourseFolder`/`Course`, `ItemColor`, `FolderOwnership`)와 `components/course/*`(트리 렌더링, 드래그앤드롭, 각종 모달)가 다 갖춰져 있어서, **실제로 할 일은 `frontend/src/services/api.ts` 안의 mock 함수들을 아래 내용대로 실제 Supabase 호출로 바꾸는 것뿐**이에요. 컴포넌트 쪽은 건드릴 필요가 없습니다.
+**✅ `frontend` 브랜치에 이미 실제 연동이 들어가 있습니다** — `frontend/src/services/api.ts`의 `getCourseFolders()`/`getStandaloneCourses()`가 아래 내용대로 `nodes`/`favorites`/`get_my_favorite_subtrees()`를 실제로 조회해서 `CourseFolder`/`Course` 트리로 조립하도록 이미 구현돼 있어요(`nodeToItem`/`buildFolderTree`/`buildFavoriteRoots` 함수 참고). 아래는 그 구현이 따르고 있는 설계를 설명하는 내용이고, 남은 간극(아래 "남은 간극" 문단)만 아직 안 채워져 있습니다.
 
 ### (1) 강의 페이지 — 직접 조회
 
@@ -173,7 +173,7 @@ interface CourseFolder {
 ```js
 function toItem(node, ownership) {
   return node.type === 'lecture'
-    ? { id: node.id, title: node.name, ownership, color: ownership === 'owned' ? 'purple' : 'blue' /* + lectures 조인/집계 필드, 아래 참고 */ }
+    ? { id: node.id, title: node.name, ownership, color: ownership === 'owned' ? 'purple' : 'blue' /* + owned면 lectures 조인 필드, 아래 "남은 간극" 참고 */ }
     : { id: node.id, name: node.name, ownership, children: [], courses: [] }
 }
 
@@ -249,7 +249,17 @@ const rootCourses = topLevel.filter(root => 'title' in root)
 
 `getCourseFolders()`는 이 `folders`를, `getStandaloneCourses()`는 이 `rootCourses`를 돌려주면 돼요.
 
-**⚠️ 남은 간극: `Course`에 필요한 `date`/`startTime`/`endTime`/`location`/`capacity`는 `lectures` 조인이, `participantCount`/`questionCount`는 별도 집계(`lecture_feedback_votes_counts`류 뷰 또는 Realtime Presence)가 더 필요해요.** `get_my_favorite_subtrees()`/`nodes` 조회는 지금 `nodes` 컬럼까지만 반환하므로, 실제 연동 시 `nodes.select('*, lectures(start_time, end_time, location, max_participants)')`처럼 조인을 추가하고 `toItem()`에서 그 값을 같이 채워 넣어야 합니다. 이 부분은 아직 설계가 안 돼 있어서 [TODO.md](./TODO.md)에 별도로 정리하는 게 좋아 보여요.
+**남은 간극**
+
+- `date`/`startTime`/`endTime`/`location`/`capacity`는 **`registered`(즐겨찾기) 강의에는 필요 없습니다.** 이 값을 실제로 읽는 곳은 강의 수정 폼(`CreateCoursePage.tsx`)의 프리필뿐인데, 수정 기능 자체가 `ownership === 'owned'` 강의에만 열려 있어서(남의 강의는 수정 불가) `registered` 강의는 애초에 아무도 이 값을 안 봅니다. `owned` 강의는 이미 `nodes.select('*, lectures(start_time, end_time, location, max_participants)')`로 조인해서 채우고 있으니 이대로 두면 됩니다 — `get_my_favorite_subtrees()`에 `lectures` 조인을 추가할 필요는 없습니다.
+- **`questionCount`(프론트 라벨은 "게시글 {n}개")는 아직 `0`으로 고정돼 있습니다.** `posts_counts` 뷰(`lecture_id`별 게시글 개수)를 추가해뒀으니, 트리 조립 후 한 번에 채워 넣으면 됩니다.
+  ```js
+  const lectureIds = [...folders /* 재귀로 모은 course id 전부 */, ...rootCourses].map(c => c.id)
+  const { data: counts } = await supabase.from('posts_counts').select('lecture_id, post_count').in('lecture_id', lectureIds)
+  const countByLectureId = new Map(counts.map(c => [c.lecture_id, c.post_count]))
+  // 각 Course에 questionCount: countByLectureId.get(course.id) ?? 0 매핑
+  ```
+- **`participantCount`는 여전히 별도 설계가 필요합니다.** 이 값은 정적으로 저장된 값이 아니라 Realtime **Presence**로 그때그때 세는 값이라([DB_DESIGN.md의 "실시간 접속자 수" 섹션](./DB_DESIGN.md#실시간-접속자-수-강의별) 참고), 이 트리 조회 시점에는 애초에 못 채우고 강의실 페이지에 들어가야만 알 수 있습니다. 목록 화면에서 보여주려면 별도 설계가 필요해서 아직 미해결입니다.
 
 ### 이동/이름변경/삭제/생성 — `services/api.ts`의 mock 규칙과 실제 백엔드 매핑
 
