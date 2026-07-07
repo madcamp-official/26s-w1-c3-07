@@ -1,6 +1,7 @@
-import { Check, Copy, Link as LinkIcon, Users, X } from 'lucide-react'
+import { Check, Copy, Link as LinkIcon, RotateCcw, Users, X } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { getOrCreateJoinCode, reissueJoinCode } from '../../services/api'
 import type { Course } from '../../types/course'
 import { cn } from '../../utils/cn'
 
@@ -42,7 +43,36 @@ function CopyField({ value }: { value: string }) {
 }
 
 export default function ShareCourseModal({ isOpen, course, onClose }: ShareCourseModalProps) {
+  const [joinCode, setJoinCode] = useState<string | null>(course?.joinCode ?? null)
+  const [isReissuing, setIsReissuing] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!isOpen || !course) return
+    setJoinCode(course.joinCode ?? null)
+    setError('')
+    if (course.joinCode) return
+
+    let cancelled = false
+    void getOrCreateJoinCode(course.id)
+      .then((code) => { if (!cancelled) setJoinCode(code) })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : '코드 발급에 실패했습니다.') })
+    return () => { cancelled = true }
+  }, [isOpen, course])
+
   if (!isOpen || !course) return null
+
+  const handleReissue = async () => {
+    setIsReissuing(true)
+    setError('')
+    try {
+      setJoinCode(await reissueJoinCode(course.id))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '재발급에 실패했습니다.')
+    } finally {
+      setIsReissuing(false)
+    }
+  }
 
   const joinLink = `https://qroom.app/join/${course.id.replace(/^course-/, '')}`
 
@@ -76,8 +106,19 @@ export default function ShareCourseModal({ isOpen, course, onClose }: ShareCours
         </div>
 
         <div className="mt-5 space-y-2">
-          <p className="text-sm font-bold text-slate-700">참여 코드</p>
-          <CopyField value={course.joinCode ?? '----'} />
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-bold text-slate-700">참여 코드</p>
+            <button
+              type="button"
+              onClick={() => void handleReissue()}
+              disabled={isReissuing || !joinCode}
+              className="inline-flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-violet-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RotateCcw className="size-3.5" />{isReissuing ? '재발급 중' : '재발급'}
+            </button>
+          </div>
+          <CopyField value={joinCode ?? '발급 중...'} />
+          {error && <p className="text-xs font-medium text-rose-500">{error}</p>}
         </div>
 
         <div className="mt-6 flex items-center gap-3 rounded-2xl bg-violet-50 px-4 py-3">

@@ -55,8 +55,9 @@ export default function PostComposer({ target, isLoggedIn, isInstructor = false,
   const [aiDraft, setAiDraft] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isBlocked, setIsBlocked] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
-  const postType: PostType = isOpinion ? 'opinion' : 'question'
+  const postType: PostType = isInstructor || isOpinion ? 'opinion' : 'question'
 
   const generateDraft = () => setAiDraft(refineWithAi(content))
 
@@ -65,6 +66,7 @@ export default function PostComposer({ target, isLoggedIn, isInstructor = false,
       setIsBlocked(true)
       return
     }
+    setSubmitError('')
     setIsSubmitting(true)
     try {
       await onSubmit({ content: finalContent, postType, isAnonymous })
@@ -72,6 +74,8 @@ export default function PostComposer({ target, isLoggedIn, isInstructor = false,
       setAiDraft(null)
       setIsAiAssisted(false)
       setIsOpinion(false)
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : '등록하지 못했습니다. 잠시 후 다시 시도해주세요.')
     } finally {
       setIsSubmitting(false)
     }
@@ -119,13 +123,21 @@ export default function PostComposer({ target, isLoggedIn, isInstructor = false,
           checked={isAiAssisted}
           onChange={(checked) => { setIsAiAssisted(checked); setAiDraft(null) }}
         />
-        <ToggleRow
-          label={isOpinion ? '의견' : '질문'}
-          description={isOpinion ? '강의자에게 의견을 남깁니다' : '강의자에게 질문합니다'}
-          checked={isOpinion}
-          onChange={setIsOpinion}
-        />
+        {!isInstructor && (
+          <ToggleRow
+            label={isOpinion ? '의견' : '질문'}
+            description={isOpinion ? '강의자에게 의견을 남깁니다' : '강의자에게 질문합니다'}
+            checked={isOpinion}
+            onChange={setIsOpinion}
+          />
+        )}
       </div>
+
+      {submitError && (
+        <p className="mt-3 flex items-center gap-2 rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-600">
+          <TriangleAlert className="size-4 shrink-0" />{submitError}
+        </p>
+      )}
 
       {aiDraft !== null && (
         <div className="mt-4 rounded-2xl border border-violet-100 bg-violet-50 p-4">

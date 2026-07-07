@@ -12,7 +12,7 @@
 - [6. 트리 구조 데이터 조회 (내 강의 페이지 / 강의 페이지)](#6-트리-구조-데이터-조회-내-강의-페이지--강의-페이지)
 - [7. 강의 공유 코드(`join_code`) 조회/발급/재발급](#7-강의-공유-코드join_code-조회발급재발급)
 - [8. 비회원 인증: `guest_token` + `x-guest-token` 헤더](#8-비회원-인증-guest_token--x-guest-token-헤더)
-- [9. 강의자/수강생 모드 색 구분: `posts.created_mode`](#9-강의자수강생-모드-색-구분-postscreated_mode)
+- [9. 강의자/수강생 모드 색 구분: `posts_public.created_mode`](#9-강의자수강생-모드-색-구분-posts_publiccreated_mode)
 - [10. 테스트용 더미 데이터](#10-테스트용-더미-데이터)
 
 ## 1. Supabase URL / API 키란 무엇인가
@@ -117,7 +117,7 @@ const { data } = await supabase
 
 **⚠️ 중요**: `posts`/`post_likes`/`lecture_feedback_votes` 테이블은 `anon`/`authenticated`에게 전체 SELECT 권한이 없습니다(`posts`는 아예 회수, 나머지 둘은 본인 투표 행만 조회 가능). 그래서 조회는 아래 뷰로 하세요. 아래 `posts_public`/`post_likes_counts` 예시 코드는 아직 `App.jsx`에 실제로 쓰인 적은 없고, DB 스키마/RLS 설계를 근거로 유도한 패턴이에요 — 실제로 붙여서 테스트해보고 문제 있으면 알려주세요.
 
-- **게시글 조회**: `posts` 대신 **`posts_public`** 뷰를 씁니다. `posts` 테이블엔 `guest_token`이라는 민감한 컬럼이 있어서 그대로 노출하면 남의 글을 수정/삭제당할 수 있고, `author_id`도 익명 여부와 무관하게 노출되면 안 되기 때문이에요. `posts_public`은 `guest_token`을 완전히 빼고, `author_id`도 숨긴 뒤 익명이 아닌 글만 작성자 이름(`author_display_name`)을 보여줍니다.
+- **게시글 조회**: `posts` 대신 **`posts_public`** 뷰를 씁니다. `posts` 테이블엔 `guest_token`이라는 민감한 컬럼이 있어서 그대로 노출하면 남의 글을 수정/삭제당할 수 있고, `author_id`도 익명 여부와 무관하게 노출되면 안 되기 때문이에요. `posts_public`은 `guest_token`을 완전히 빼고, `author_id`도 숨긴 뒤 익명이 아닌 글만 작성자 이름(`author_display_name`)을 보여줍니다. `is_mine`(boolean) 컬럼도 있는데, "이 글이 내가 쓴 글인지"를 `author_id`/`guest_token` 원본 값 노출 없이 알려주는 계산 컬럼이에요 — 수정/삭제 버튼을 조건부로 보여줄 때 이 값으로 판단하면 됩니다(실제 수정/삭제 권한과 정확히 같은 조건이라 "버튼은 보이는데 실제로는 막히는" 일이 없어요). 강의자/수강생 모드 색 구분에 필요한 `created_mode`도 이 뷰에 포함돼 있습니다(자세한 건 [9번](#9-강의자수강생-모드-색-구분-posts_publiccreated_mode) 참고).
 - **좋아요 개수 조회**: `post_likes` 대신 **`post_likes_counts`** 뷰(`post_id`별 `like_count`).
 - **실시간 피드백 좋아요/싫어요 개수 조회**: `lecture_feedback_votes` 대신 **`lecture_feedback_votes_counts`** 뷰(`lecture_id`, `feedback_type`별 `like_count`/`dislike_count`).
 
@@ -253,7 +253,7 @@ const rootCourses = topLevel.filter(root => 'title' in root)
 **남은 간극**
 
 - `date`/`startTime`/`endTime`/`location`/`capacity`는 **`registered`(즐겨찾기) 강의에는 필요 없습니다.** 이 값을 실제로 읽는 곳은 강의 수정 폼(`CreateCoursePage.tsx`)의 프리필뿐인데, 수정 기능 자체가 `ownership === 'owned'` 강의에만 열려 있어서(남의 강의는 수정 불가) `registered` 강의는 애초에 아무도 이 값을 안 봅니다. `owned` 강의는 이미 `nodes.select('*, lectures(start_time, end_time, location, max_participants)')`로 조인해서 채우고 있으니 이대로 두면 됩니다 — `get_my_favorite_subtrees()`에 `lectures` 조인을 추가할 필요는 없습니다.
-- **`questionCount`(프론트 라벨은 "게시글 {n}개")는 아직 `0`으로 고정돼 있습니다.** `posts_counts` 뷰(`lecture_id`별 게시글 개수)를 추가해뒀으니, 트리 조립 후 한 번에 채워 넣으면 됩니다.
+- **`questionCount`(프론트 라벨은 "게시글 {n}개") — ✅ 프론트 구현 완료.** `posts_counts` 뷰(`lecture_id`별 게시글 개수)를 트리 조립 후 한 번에 조회해 채워 넣습니다(`services/api.ts`의 `fillQuestionCounts()`, `findCourseByJoinCode()`의 단일 강의 조회 경로도 동일 처리).
   ```js
   const lectureIds = [...folders /* 재귀로 모은 course id 전부 */, ...rootCourses].map(c => c.id)
   const { data: counts } = await supabase.from('posts_counts').select('lecture_id, post_count').in('lecture_id', lectureIds)
@@ -279,7 +279,11 @@ const rootCourses = topLevel.filter(root => 'title' in root)
 
 세 요청(포스트/강의자 모드/수강생 모드) 다 로그인 시 한꺼번에 받아두지 말고, 모드 전환/페이지 진입 시점마다 그 모드에 맞는 것만 요청하면 됩니다.
 
+**`registerCourseByCode`와 `joinCourse`는 서로 다른 값을 받습니다** — 둘 다 "코드"라고 부르지만 실제로는 다른 식별자예요. `joinCourse`(강의 코드 입력 후 바로 입장, 목록엔 등록 안 함)는 4자리 숫자(`lecture_join_codes.code`)를 받아 그 코드로 `lecture_id`를 찾습니다. `registerCourseByCode`(내 강의 목록에 등록)는 강의 UUID(`nodes.id`)를 직접 입력받아 `nodes`를 바로 조회합니다 — `lecture_join_codes`를 거치지 않습니다. `services/api.ts`에서 전자는 `findCourseByJoinCode()`(4자리 정규식 검증), 후자는 `findCourseById()`(UUID 정규식 검증)로 분리되어 있습니다.
+
 ## 7. 강의 공유 코드(`join_code`) 조회/발급/재발급
+
+**✅ 프론트 구현 완료** — `services/api.ts`의 `getOrCreateJoinCode()`/`reissueJoinCode()`가 두 RPC를 감싸고, `ShareCourseModal.tsx`가 모달을 열 때 `course.joinCode`가 없으면 자동 발급하고 "재발급" 버튼도 제공합니다.
 
 강의 페이지의 "강의 코드 공유" 버튼은 `lecture_join_codes` 테이블을 **직접 INSERT/UPDATE로 건드릴 수 없습니다** — 발급/재발급은 반드시 RPC를 통해야 하고, 파기(강의 종료 등으로 코드를 없애는 것)만 테이블에 직접 DELETE하면 됩니다. 자세한 이유(4자리 코드 충돌 재시도, 테이블 권한 회수)는 [DB_DESIGN.md의 `get_or_create_join_code()`/`reissue_join_code()` 설명](./DB_DESIGN.md#get_or_create_join_code) 참고.
 
@@ -328,7 +332,7 @@ const { data: newCode, error } = await supabase.rpc('reissue_join_code', {
 - `posts.guest_token`, `post_likes`/`lecture_feedback_votes`의 `voter_key`, Presence(접속자 수 집계) 키로 전부 동일하게 재사용합니다.
 - 서버(Supabase RLS)는 이 값을 **`x-guest-token`이라는 커스텀 HTTP 헤더**로 보내주면, RLS 정책이 그 헤더 값과 DB에 저장된 `guest_token`을 대조해서 "본인 글이 맞는지" 확인해요.
 
-**⚠️ 아직 아무 데도 구현 안 되어 있습니다** — `guest_token` 생성/저장 로직도, 헤더를 실어 보내는 코드도 지금 코드베이스 어디에도 없어요. 앞으로 만들어야 할 부분입니다 ([TODO.md 프론트엔드 > guest_token 관련](./TODO.md#guest_token-관련-1) 참고).
+**✅ `frontend` 브랜치에 이미 구현되어 있습니다** — `services/guestToken.ts`의 `getGuestToken()`이 최초 호출 시 `localStorage`에 UUID를 생성/저장하고 재사용하며, `services/api.ts`의 `withGuestHeader()` 헬퍼가 비회원 요청에만 `.setHeader('x-guest-token', ...)`을 붙입니다. `posts` insert/update, `posts_public` 조회(`is_mine` 계산에 필요), `post_likes` insert/delete, `lecture_feedback_votes` select/insert/delete 전 경로에 적용되어 있어요. **주의**: `posts_public`을 조회하는 모든 경로에 이 헤더가 빠짐없이 붙어야 `is_mine`이 정확히 계산됩니다 — 한 곳이라도 빠지면 게스트가 방금 쓴 글의 수정 버튼이 안 보이는 버그가 생깁니다.
 
 **구현 방식: 요청마다 체이닝으로 헤더 설정**
 
@@ -343,11 +347,17 @@ supabase 클라이언트는 앱 시작할 때 딱 한 번만 만들고(`supabase
 
 **왜 이 방식인지**: `createClient(...)` 옵션(`global.headers`)으로 헤더를 고정하는 방법도 있지만, 그건 클라이언트를 만드는 시점에 값이 한 번 박혀버려요. `guest_token`은 앱이 로드된 *이후에* `localStorage`에서 읽히는 값이라 클라이언트 생성 시점엔 아직 없을 수 있고, 로그인 여부에 따라 이 헤더가 필요 없는 요청도 있어서(회원은 `author_id`로 처리) 요청마다 동적으로 판단해야 합니다. 그래서 매 요청 시점에 값을 읽어 붙이는 `.setHeader()` 방식으로 갑니다.
 
-## 9. 강의자/수강생 모드 색 구분: `posts.created_mode`
+## 9. 강의자/수강생 모드 색 구분: `posts_public.created_mode`
 
-같은 계정이라도 강의자 모드로 쓴 글인지 수강생 모드로 쓴 글인지에 따라 화면 색을 다르게 표시해야 하는데(`author_id`가 강의 제작자와 같은지만으론 구분 안 됨), 그 판단은 `posts.created_mode` 컬럼 값(`'lecturer'` | `'student'`)만 보면 됩니다. 글 작성 시 이 값을 실어 보내는 건 프론트 로직에서 알아서 처리하면 되고요.
+같은 계정이라도 강의자 모드로 쓴 글인지 수강생 모드로 쓴 글인지에 따라 화면 색을 다르게 표시해야 하는데(`author_id`가 강의 제작자와 같은지만으론 구분 안 됨), 그 판단은 조회한 **`posts_public`**(`posts`가 아님, [5번 "테이블 조회"](#테이블-조회) 참고) 행의 `created_mode` 컬럼 값(`'lecturer'` | `'student'`)만 보면 됩니다.
 
-- **`created_mode: 'lecturer'`로 보냈는데 실제 그 강의를 만든 계정이 아니면 INSERT 자체가 거부됩니다**(RLS가 `auth.uid()`로 검증). 모드 상태 관리 버그로 이 값이 잘못 실릴 경우 조용히 무시되는 게 아니라 요청이 실패하니, 에러 핸들링에 유의하세요. 자세한 제약 내용은 [DB_DESIGN.md](./DB_DESIGN.md) 참고.
+- **`created_mode: 'lecturer'`로 글을 쓰는데 실제 그 강의를 만든 계정이 아니면 거부됩니다.** 지금은 클라이언트가 `posts`에 직접 insert하고 RLS(`auth.uid()`로 검증)가 이걸 막는 구조지만, [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md)에 정리된 대로 글 작성 자체가 곧 **`submit-post` Edge Function**을 통해서만 가능하도록 바뀔 예정이에요(아직 계획 단계, RLS도 함수도 실제로 바뀌지 않았음 — 지금은 여전히 클라이언트 직접 insert). 그 전환이 끝나면 `created_mode`를 실어 보내는 방식이 `posts.insert(...)` 호출에서 `submit-post` 요청 바디의 필드로 바뀔 뿐, "본인이 만든 강의가 아니면 거부"라는 동작 자체는 그대로 유지됩니다. 모드 상태 관리 버그로 이 값이 잘못 실릴 경우 조용히 무시되는 게 아니라 요청이 실패하니, 에러 핸들링에 유의하세요. 자세한 제약 내용은 [DB_DESIGN.md](./DB_DESIGN.md) 참고.
+
+**✅ `frontend` 브랜치에 이미 구현되어 있습니다** — `services/api.ts`의 `postAuthorRole()`이 `posts_public.created_mode`를 그대로 읽어 `'lecturer'`/`'student'`/(익명이면)`'anonymous'`를 정확히 판별하고, `getQuestionsFromDb()`의 select 절에도 `created_mode`가 포함되어 있습니다. 이전에는 이 뷰에 `created_mode`가 없어서 "실명 + 표시 이름이 강의 소유자 이름과 일치"라는 근사치를 썼었는데(강의 소유자 실명 자체를 `profiles` RLS 때문에 알아낼 수 없어 사실상 항상 실패했음), 뷰에 컬럼이 추가되면서 근사치를 걷어내고 정확한 판별로 교체했습니다.
+
+**"내 글만 수정하기" 버튼도 `is_mine`으로 정확히 구현되어 있습니다** — `QuestionReply.isEditable`을 `posts_public.is_mine` 값으로 그대로 채웁니다(`updateReply()`의 수정 성공 직후 응답만 예외적으로 `true` 하드코딩 — 그 시점의 호출 주체 자체가 작성자이므로). **주의할 점 하나**: `is_mine`은 비회원의 경우 `x-guest-token` 헤더 값과 DB의 `guest_token`을 대조해서 계산되므로, `posts_public`을 조회하는 요청에도 [8번](#8-비회원-인증-guest_token--x-guest-token-헤더)의 `.setHeader('x-guest-token', ...)`을 빠짐없이 붙여야 합니다 — 이 헤더가 빠지면 게스트가 방금 쓴 자기 글에도 `is_mine`이 항상 `false`로 나와 수정 버튼이 안 보이는 버그가 생깁니다(실제로 겪었던 버그).
+
+**🚨 백엔드 버그(실측 확인, 프론트에서 고칠 수 없음): 본인 글이라도 답글 "수정하기"가 실제로는 항상 실패합니다.** `is_mine`이 `true`라서 버튼은 정확히 뜨는데, 막상 수정을 시도하면 `posts` UPDATE 요청이 **401 `permission denied for table posts` (Postgres 에러 코드 `42501`, hint: `GRANT SELECT ON public.posts TO anon`)**로 실패합니다. RLS 정책(`posts_update_own`)이나 `x-guest-token` 헤더 문제가 아니라(둘 다 정상 확인함), `posts` 테이블 자체의 SELECT 권한이 `anon`/`authenticated`에서 완전히 회수돼 있고([DB_DESIGN.md의 `revoke select on posts` 참고](./DB_DESIGN.md#접근-제어-rls-정책-및-테이블-권한)) `posts`에 SELECT 정책도 하나도 없는 상태(전부 `posts_public` 뷰로 우회)라서 생기는 문제로 보입니다. PostgreSQL은 UPDATE/DELETE의 `USING`/`WITH CHECK` 절을 평가할 때 대상 테이블에 대한 SELECT 권한이 있어야 하는데, GRANT 자체가 없어 이 평가가 아예 막혀서 RLS 정책 통과 여부와 무관하게 모든 UPDATE가 거부되는 것으로 추정됩니다. 재현: 실제 브라우저에서 게스트로 답글을 작성한 직후 "수정하기"를 눌러 저장하면 매번 재현됨(Playwright 스크립트로 네트워크 탭까지 확인함). **요청사항**: `posts`에 최소한의 SELECT GRANT(`grant select on posts to anon, authenticated`)를 다시 부여하되, 실제 노출은 계속 RLS로 제어해 주세요 — 지금처럼 GRANT 자체를 회수하면 조회뿐 아니라 UPDATE/DELETE까지 함께 막힙니다.
 
 ## 10. 테스트용 더미 데이터
 

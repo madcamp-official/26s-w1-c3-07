@@ -351,9 +351,38 @@ async function getStudentDataset(userId: string): Promise<{ folders: CourseFolde
   return { folders, rootCourses }
 }
 
+function collectCourses(folders: CourseFolder[], rootCourses: Course[]): Course[] {
+  const collected: Course[] = [...rootCourses]
+  const visit = (folder: CourseFolder): void => {
+    collected.push(...folder.courses)
+    folder.children.forEach(visit)
+  }
+  folders.forEach(visit)
+  return collected
+}
+
+/** posts_counts 뷰에서 강의별 게시글 개수를 일괄 조회해 트리 안의 Course.questionCount를 실제 값으로 채웁니다. */
+async function fillQuestionCounts(folders: CourseFolder[], rootCourses: Course[]): Promise<void> {
+  const courses = collectCourses(folders, rootCourses)
+  if (courses.length === 0) return
+
+  const { data: counts, error } = await supabase
+    .from('posts_counts')
+    .select('lecture_id, post_count')
+    .in('lecture_id', courses.map((course) => course.id))
+  if (error) throw error
+
+  const countByLectureId = new Map((counts ?? []).map((row) => [row.lecture_id as string, row.post_count as number]))
+  for (const course of courses) {
+    course.questionCount = countByLectureId.get(course.id) ?? 0
+  }
+}
+
 async function getRemoteDataset(): Promise<{ folders: CourseFolder[]; rootCourses: Course[] }> {
   const userId = await requireAuthUserId()
-  return isPrivilegedEditor() ? getInstructorDataset(userId) : getStudentDataset(userId)
+  const dataset = isPrivilegedEditor() ? await getInstructorDataset(userId) : await getStudentDataset(userId)
+  await fillQuestionCounts(dataset.folders, dataset.rootCourses)
+  return dataset
 }
 
 export async function getCourseFolders(): Promise<CourseFolder[]> {
@@ -394,11 +423,13 @@ async function findCourseByJoinCode(code: string): Promise<Course> {
 
   if (nodeError) throw nodeError
 
+  const { data: countRow } = await supabase.from('posts_counts').select('post_count').eq('lecture_id', node.id).maybeSingle<{ post_count: number }>()
+
   return {
     id: node.id,
     title: node.name,
     participantCount: 0,
-    questionCount: 0,
+    questionCount: countRow?.post_count ?? 0,
     updatedAt: '방금 전',
     color: 'blue',
     ownership: 'registered',
@@ -415,9 +446,42 @@ export async function joinCourse(code: string): Promise<Course> {
   return findCourseByJoinCode(code)
 }
 
-/** 4자리 코드로 강의를 찾아 "내 강의" 목록(favorites)에 등록합니다. 항상 최상위에 등록되고, 이후 moveCourseItem으로 정리합니다. */
-export async function registerCourseByCode(code: string): Promise<Course> {
-  const course = await findCourseByJoinCode(code)
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** 강의 UUID(nodes.id)로 강의를 직접 조회합니다. */
+async function findCourseById(id: string): Promise<Course> {
+  const { data: node, error: nodeError } = await supabase
+    .from('nodes')
+    .select('id, name, lectures(start_time, end_time, location, max_participants)')
+    .eq('id', id)
+    .eq('type', 'lecture')
+    .single<NodeWithLectureRow>()
+
+  if (nodeError || !node) throw new Error('유효하지 않은 강의입니다.')
+
+  const { data: countRow } = await supabase.from('posts_counts').select('post_count').eq('lecture_id', node.id).maybeSingle<{ post_count: number }>()
+
+  return {
+    id: node.id,
+    title: node.name,
+    participantCount: 0,
+    questionCount: countRow?.post_count ?? 0,
+    updatedAt: '방금 전',
+    color: 'blue',
+    ownership: 'registered',
+    date: node.lectures?.start_time,
+    startTime: node.lectures?.start_time,
+    endTime: node.lectures?.end_time,
+    location: node.lectures?.location ?? undefined,
+    capacity: node.lectures?.max_participants ?? null,
+  }
+}
+
+/** 강의 UUID로 강의를 찾아 "내 강의" 목록(favorites)에 등록합니다. 항상 최상위에 등록되고, 이후 moveCourseItem으로 정리합니다. */
+export async function registerCourseByCode(id: string): Promise<Course> {
+  if (!UUID_PATTERN.test(id)) throw new Error('강의 UUID를 입력해 주세요.')
+
+  const course = await findCourseById(id)
   const userId = await requireAuthUserId()
 
   const { error } = await supabase.from('favorites').insert({ user_id: userId, node_id: course.id, anchor_id: null })
@@ -478,6 +542,20 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
     capacity: input.capacity ?? null,
     joinCode,
   }
+}
+
+/** 이미 발급된 강의 코드가 있으면 그대로, 없으면 새로 발급해 반환합니다(RPC: get_or_create_join_code). */
+export async function getOrCreateJoinCode(courseId: string): Promise<string> {
+  const { data, error } = await supabase.rpc('get_or_create_join_code', { p_lecture_id: courseId })
+  if (error) throw error
+  return data
+}
+
+/** 기존 코드를 폐기하고 새 코드를 발급합니다(RPC: reissue_join_code). */
+export async function reissueJoinCode(courseId: string): Promise<string> {
+  const { data, error } = await supabase.rpc('reissue_join_code', { p_lecture_id: courseId })
+  if (error) throw error
+  return data
 }
 
 /** 강의의 기본 정보를 수정합니다. 강의자 본인이 만든 강의만 수정할 수 있습니다(RLS: lectures_owner_all). */
@@ -610,10 +688,16 @@ async function getCourseRoomFromDb(courseId: string): Promise<CourseRoomMeta> {
 
   if (error || !node) throw new Error('강의실을 찾을 수 없습니다.')
 
+  // profiles는 본인만 SELECT 가능(RLS)이라, 남의 강의를 볼 때는 소유자 이름을 조회할 수 없습니다.
+  // 로그인한 계정이 이 강의의 소유자 본인인 경우에만 정확한 이름을 얻을 수 있고,
+  // 그 외(다른 강의자/수강생/게스트가 볼 때)에는 기본값으로 폴백합니다.
   let lecturerName = '강의자'
   if (node.created_by) {
-    const { data: owner } = await supabase.from('profiles').select('name').eq('id', node.created_by).maybeSingle<{ name: string | null }>()
-    if (owner?.name) lecturerName = owner.name
+    const { data: sessionData } = await supabase.auth.getSession()
+    if (sessionData.session?.user.id === node.created_by) {
+      const { data: owner } = await supabase.from('profiles').select('name').eq('id', node.created_by).maybeSingle<{ name: string | null }>()
+      if (owner?.name) lecturerName = owner.name
+    }
   }
 
   return {
@@ -657,6 +741,8 @@ interface PostPublicRow {
   resolved_at: string | null
   content: string
   created_at: string
+  created_mode: DbMode
+  is_mine: boolean
 }
 
 function formatRelativeTime(isoDate: string): string {
@@ -669,21 +755,23 @@ function formatRelativeTime(isoDate: string): string {
   return `${Math.floor(diffHours / 24)}일 전`
 }
 
-/**
- * posts_public 뷰에는 created_mode가 빠져 있어(백엔드 뷰 정의 누락으로 추정) 강의자/수강생 모드를
- * 정확히 구분할 수 없습니다. 우선 익명 여부만으로 판단합니다(익명=anonymous, 실명=student).
- * TODO: posts_public 뷰에 created_mode 컬럼이 추가되면 정확한 lecturer 판별로 교체해야 합니다.
- */
-function postAuthorRole(row: PostPublicRow): 'lecturer' | 'anonymous' | 'student' {
-  return row.is_anonymous ? 'anonymous' : 'student'
+/** posts_public.created_mode를 그대로 사용해 강의자/수강생/익명을 정확히 판별합니다. */
+function postAuthorRole(row: Pick<PostPublicRow, 'is_anonymous' | 'created_mode'>): 'lecturer' | 'anonymous' | 'student' {
+  if (row.is_anonymous) return 'anonymous'
+  return row.created_mode === 'lecturer' ? 'lecturer' : 'student'
 }
 
 /** posts_public(flat) + 좋아요/내 투표 정보를 합쳐 최상위 질문(Question[]) 트리로 조립합니다. */
 async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
+  const { data: sessionData } = await supabase.auth.getSession()
+  const isLoggedIn = Boolean(sessionData.session?.user.id)
   const voterKey = await getCurrentVoterKey()
 
   const [{ data: rows, error: postsError }, { data: likeCounts, error: likeCountsError }, { data: myLikes, error: myLikesError }] = await Promise.all([
-    supabase.from('posts_public').select('id, lecture_id, parent_id, author_display_name, is_anonymous, type, status, resolved_at, content, created_at').eq('lecture_id', lectureId),
+    withGuestHeader(
+      supabase.from('posts_public').select('id, lecture_id, parent_id, author_display_name, is_anonymous, type, status, resolved_at, content, created_at, created_mode, is_mine').eq('lecture_id', lectureId),
+      isLoggedIn,
+    ),
     supabase.from('post_likes_counts').select('post_id, like_count'),
     supabase.from('post_likes').select('post_id').eq('voter_key', voterKey),
   ])
@@ -708,7 +796,7 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
     authorName: row.is_anonymous ? '익명' : (row.author_display_name ?? '이름 없음'),
     authorRole: postAuthorRole(row),
     postType: row.type,
-    isEditable: true,
+    isEditable: row.is_mine,
     createdAt: formatRelativeTime(row.created_at),
     content: row.content,
     likeCount: likeCountByPostId.get(row.id) ?? 0,
@@ -877,6 +965,8 @@ async function createPost(lectureId: string, parentId: string | null, submission
     resolved_at: null,
     content: submission.content,
     created_at: createdAt,
+    created_mode: createdMode,
+    is_mine: true,
   }
 }
 
@@ -947,7 +1037,7 @@ export async function createReply(courseId: string, questionId: string, submissi
     authorName: row.is_anonymous ? '익명' : mockCurrentUser.name,
     authorRole: postAuthorRole(row),
     postType: row.type,
-    isEditable: true,
+    isEditable: row.is_mine,
     createdAt: formatRelativeTime(row.created_at),
     content: row.content,
     likeCount: 0,
@@ -977,15 +1067,15 @@ export async function updateReply(courseId: string, questionId: string, replyId:
 
   const { data: updated, error: fetchError } = await supabase
     .from('posts_public')
-    .select('id, is_anonymous, type, created_at')
+    .select('id, is_anonymous, type, created_at, created_mode')
     .eq('id', replyId)
-    .single<Pick<PostPublicRow, 'id' | 'is_anonymous' | 'type' | 'created_at'>>()
+    .single<Pick<PostPublicRow, 'id' | 'is_anonymous' | 'type' | 'created_at' | 'created_mode'>>()
   if (fetchError) throw fetchError
 
   return {
     id: updated.id,
     authorName: updated.is_anonymous ? '익명' : mockCurrentUser.name,
-    authorRole: updated.is_anonymous ? 'anonymous' : 'student',
+    authorRole: postAuthorRole(updated),
     postType: updated.type,
     isEditable: true,
     createdAt: formatRelativeTime(updated.created_at),
