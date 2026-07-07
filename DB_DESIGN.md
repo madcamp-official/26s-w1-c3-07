@@ -41,6 +41,7 @@
     - [`lecture_feedback_votes`](#lecture_feedback_votes-1)
     - [`posts`](#posts-1)
     - [`post_likes`](#post_likes-1)
+- [Edge Function](#edge-function)
 - [설계 노트](#설계-노트)
   - [테이블 관계 및 트리 구조](#테이블-관계-및-트리-구조)
   - [삭제 전파 (cascade)](#삭제-전파-cascade)
@@ -853,6 +854,15 @@ create policy "post_likes_insert_own" on post_likes for insert
 create policy "post_likes_delete_own" on post_likes for delete
   using (voter_key = coalesce(auth.uid(), (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid));
 ```
+
+## Edge Function
+
+AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함수/트리거)가 아니라 별도 서버 로직이 필요한 부분은 Supabase Edge Function(Deno 런타임)으로 구현되어 있습니다. `service_role` 키를 써서 RLS를 우회하고 `posts`/`post_drafts`에 직접 접근합니다.
+
+- `ai-correct` — 글 초안을 AI로 다듬어 제안만 함(적절성/유사도 검사 없음, 저장도 안 함)
+- `submit-post` — 실제 글 제출 담당: 적절성 검사(OpenAI Moderation API) → (질문 타입이면) 유사 질문 탐지(위 [`get_similarity_candidates()`](#get_similarity_candidates) RPC 활용) → 저장. 유사 질문 발견 시 [`post_drafts`](#post_drafts)에 스테이징해두고, 같은 함수를 `draft_id`로 재호출하면 강행 제출됨
+
+요청/응답 계약, 호출 코드 예시는 [SUPABASE_GUIDE.md 10번](./SUPABASE_GUIDE.md#10-글-작성제출-ai-correct-submit-post-edge-function) 참고.
 
 ## 설계 노트
 
