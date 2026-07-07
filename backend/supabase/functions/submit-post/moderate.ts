@@ -1,5 +1,11 @@
-// 적절성 검사. OpenAI Moderation API로 비속어/혐오/폭력 등 부적절한 내용을 걸러냄.
-// 실패(키 누락, API 오류)해도 통과시켜 글쓰기 흐름 자체를 막지 않음.
+import { MODERATION_SYSTEM_PROMPT } from "./moderation-prompt.ts";
+
+const OPENAI_MODEL = "gpt-4o-mini";
+
+// 적절성 검사. GPT-4o-mini + 커스텀 프롬프트(moderation-prompt.ts)로 욕설/비속어/인신공격 등을
+// 판단. OpenAI Moderation API(/v1/moderations)는 혐오/폭력/성적 콘텐츠 같은 안전 카테고리 위주라
+// 특정 대상을 향하지 않는 일반 욕설·비속어(특히 한국어 변형 표기)를 잘 못 잡아서 chat completion
+// 기반으로 전환함. 실패(키 누락, API 오류)해도 통과시켜 글쓰기 흐름 자체를 막지 않음.
 export async function moderateContent(
   content: string,
 ): Promise<{ allowed: boolean; reason: string | null }> {
@@ -10,36 +16,41 @@ export async function moderateContent(
   }
 
   try {
-    const response = await fetch("https://api.openai.com/v1/moderations", {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({ model: "omni-moderation-latest", input: content }),
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        response_format: { type: "json_object" },
+        temperature: 0,
+        messages: [
+          { role: "system", content: MODERATION_SYSTEM_PROMPT },
+          { role: "user", content },
+        ],
+      }),
     });
 
     if (!response.ok) {
-      console.error(`OpenAI Moderation API 오류: ${response.status} ${await response.text()}`);
+      console.error(`OpenAI API 오류: ${response.status} ${await response.text()}`);
       return { allowed: true, reason: null };
     }
 
     const data = await response.json();
-    const result = data.results?.[0];
-    if (!result?.flagged) {
-      return { allowed: true, reason: null };
+    const raw = data.choices?.[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(raw);
+
+    if (parsed.allowed === false) {
+      return {
+        allowed: false,
+        reason: typeof parsed.reason === "string" ? parsed.reason : "부적절한 내용이 감지되었습니다",
+      };
     }
-
-    const flaggedCategories = Object.entries(result.categories ?? {})
-      .filter(([, flagged]) => flagged)
-      .map(([category]) => category);
-
-    return {
-      allowed: false,
-      reason: `부적절한 내용이 감지되었습니다${flaggedCategories.length ? ` (${flaggedCategories.join(", ")})` : ""}`,
-    };
+    return { allowed: true, reason: null };
   } catch (e) {
-    console.error("OpenAI Moderation 호출 실패:", e);
+    console.error("OpenAI 적절성 검사 호출 실패:", e);
     return { allowed: true, reason: null };
   }
 }
