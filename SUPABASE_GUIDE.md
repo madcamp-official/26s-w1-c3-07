@@ -363,7 +363,7 @@ supabase 클라이언트는 앱 시작할 때 딱 한 번만 만들고(`supabase
 글 작성(새 질문/의견/답글)은 `posts`에 직접 insert하지 않고, 두 개의 Edge Function을 씁니다. 초기 설계안은 무상태(stateless) 방식이었으나 실제 구현에서 `post_drafts` 스테이징 테이블 방식으로 바뀌었습니다 — 자세한 변경 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고.
 
 - **`ai-correct`**: 문구를 다듬어주기만 하는, 적절성/유사도 검사와 완전히 분리된 함수. 글 작성 중 "AI 교정" 버튼을 눌렀을 때만 호출하면 됩니다.
-- **`submit-post`**: 실제 제출을 담당. 적절성 검사(OpenAI Moderation) → (질문 타입이면) 유사 질문 탐지 → 저장까지 한 번에 처리합니다.
+- **`submit-post`**: 실제 제출을 담당. 적절성 검사(GPT-4o-mini + 전용 프롬프트로 욕설/인신공격/혐오/성희롱/위협/스팸 차단, 수업 불만·비판은 통과) → (질문 타입이면) 유사 질문 탐지 → 저장까지 한 번에 처리합니다.
 
 두 함수 다 `supabase.functions.invoke(...)`로 호출하고(anon key 인증은 supabase-js가 알아서 붙여줌), 로그인한 회원이면 `Authorization` 헤더가 자동으로 실리고, 비회원이면 [8번](#8-비회원-인증-guest_token--x-guest-token-헤더)의 `x-guest-token` 헤더를 직접 실어 보내야 합니다.
 
@@ -398,7 +398,7 @@ OpenAI 호출이 실패해도(키 미설정, API 오류 등) 에러를 던지지
 | HTTP 상태 | `result` | 의미 / 나머지 필드 |
 |---|---|---|
 | 201 | `created` | 저장 완료. `post`에 생성된 행(`id`/`content`/`status`/`created_at` 등) |
-| 422 | `rejected` | 적절성 검사 탈락. `reason`에 사유(카테고리 포함) |
+| 422 | `rejected` | 적절성 검사 탈락. `reason`에 왜 부적절한지 한 문장 사유 |
 | 409 | `similar_found` | 이미 답이 있을 만큼 비슷한 글 발견, **아직 저장 안 됨**. `draft_id`(강행 제출용), `similar_id`(보여줄 유사 글 id) |
 | 400/403/404/405/500 | `invalid` | `reason`에 사유. 400: 필수 필드 누락/enum 오류/비회원인데 비익명 등. 403: `author_id` 불일치, 강의자 모드 소유권 불일치. 404: 강행 제출 시 `draft_id`가 없거나(이미 소비됨) 다른 사람 draft. 405: POST가 아닌 메서드. 500: 그 외 예기치 못한 오류 |
 
