@@ -4,9 +4,7 @@
 
 - [🚨 강의자의 실시간 피드백 초기화가 조용히 0건 삭제됨](#-강의자의-실시간-피드백-초기화가-조용히-0건-삭제됨-긴급)
 - [AI 보조 기능 관련](#ai-보조-기능-관련)
-  - [1. 유사도 검사 비교 대상 범위](#1-유사도-검사-비교-대상-범위-미해결-게시글만-답글도-포함)
-  - [2. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정](#2-유사도-비교를-위한-벡터-컬럼-추가-여부-결정)
-  - [3. AI 보조 기능 서버 아키텍처 결정](#3-ai-보조-기능-서버-아키텍처-결정-edge-function-확정)
+  - [1. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정](#1-유사도-비교를-위한-벡터-컬럼-추가-여부-결정)
 - [Realtime 관련](#realtime-관련)
   - [4. `max_participants`(최다 참여 인원) 강제 여부 결정](#4-max_participants최다-참여-인원-강제-여부-결정)
   - [5. "내 강의" 목록에서 강의별 접속자 수(`participantCount`) 표시](#5-내-강의-목록에서-강의별-접속자-수participantcount-표시)
@@ -49,23 +47,9 @@ reset role;
 
 ## AI 보조 기능 관련
 
-### 1. 유사도 검사 비교 대상 범위 (미해결 게시글만? 답글도 포함?)
+### 1. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정
 
-README엔 "글 작성 시(답글 포함) 미해결 게시글들과의 유사도 검사"라고 되어 있는데, 비교 대상이 미해결 게시글(최상위 글)들만인지 그 밑 답글 내용까지 포함할지 미정. 결정에 따라 유사도 검사 API가 LLM에 넘기는 데이터 범위가 달라짐.
-
-### 2. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정
-
-원래 기획 단계에서는 세션당 질문 수가 적을 것으로 예상해 임베딩(pgvector) 대신 "기존 질문 목록을 프롬프트에 통째로 넣고 LLM이 판단"하는 방식으로 시작하기로 했음. `posts`에 `embedding vector` 컬럼 + pgvector 확장을 추가해서 임베딩 기반 유사도 검색으로 갈지, 아니면 계속 LLM 프롬프트 방식으로 갈지 아직 결정 안 됨. 강의당 질문 수가 예상보다 많아지면 프롬프트에 다 넣기엔 비효율적이라 재검토가 필요할 수 있음.
-
-### 3. AI 보조 기능 서버 아키텍처 결정 (Edge Function 확정)
-
-**Supabase Edge Function으로 확정.** 별도 Express 서버는 띄우지 않음. AI 교정/적절성 검사/유사 질문 탐지(#1, #2)와 글 제출 자체를 하나의 Edge Function(`submit-post`)으로 통합하는 설계를 [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md)에 정리함 — 요청/응답 계약, 5가지 결과 분기(정상 생성/적절성 거부/유사 질문 발견/교정 반환), 무상태(stateless) 설계 이유까지 확정.
-
-이 설계의 핵심은 클라이언트가 검사를 우회해 `posts`에 직접 쓰지 못하게 막는 것 — **`posts` INSERT를 `anon`/`authenticated`에서 완전히 회수하고, 글 생성은 오직 `submit-post`(service_role, RLS 우회)를 통해서만 가능하도록 전환할 계획**. `service_role`은 `BYPASSRLS`라 REVOKE와 무관하게 계속 insert 가능. 기존 3개 더미 함수(`ai-correct`/`ai-moderate`/`ai-similarity`)는 삭제하고 `submit-post` 하나로 통합.
-
-**아직 실제로 적용된 건 아님** — RLS 변경(`posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 삭제)도, `submit-post` 함수 코드도 아직 만들어서 push하지 않았음. 지금은 계획 단계이고, `posts` insert는 지금도 여전히 클라이언트가 직접 할 수 있음. UPDATE/DELETE 관련 RLS(글 수정/삭제)는 이번 변경 범위 밖이라 그대로 유지.
-
-여전히 미결정: #1(유사도 비교 범위)/#2(벡터 컬럼 여부) — `submit-post`의 `checkSimilarity`는 지금 설계상 더미(항상 통과)라 이 결정이 늦어져도 프론트 연동에는 지장 없음.
+원래 기획 단계에서는 세션당 질문 수가 적을 것으로 예상해 임베딩(pgvector) 대신 "기존 질문 목록을 프롬프트에 통째로 넣고 LLM이 판단"하는 방식으로 시작하기로 했고, 실제로 이 방식(GPT-4o-mini 프롬프트 비교)으로 구현·배포까지 완료됨(아래 "해결된 것" 참고). `posts`에 `embedding vector` 컬럼 + pgvector 확장을 추가해서 임베딩 기반 유사도 검색으로 바꿀지는 아직 결정 안 됨 — 강의당 질문 수가 예상보다 많아져서 프롬프트에 다 넣기엔 비효율적이거나 느려지면 그때 재검토.
 
 ## Realtime 관련
 
@@ -109,3 +93,12 @@ README엔 "글 작성 시(답글 포함) 미해결 게시글들과의 유사도 
 - **`guest_token` 무효화 조건 → "무효화 로직 불필요"로 결론**: 강의 종료 후 다른 비회원이 같은 강의 페이지에 계속 들어오다 보면 언젠가 기존 글 작성자와 `guest_token`이 우연히 겹칠 수 있다는 우려가 있었음(그 경우 남의 글을 수정할 수 있게 됨). 이걸 "강의 하나에 쌓인 토큰들 중 겹치는 쌍이 하나라도 나올 확률"(생일 문제)로 계산해보면, `guest_token`이 `crypto.randomUUID()`(UUID v4, 122비트 무작위성) 기반일 때 확률이 의미 있는 수준(1%)에 이르려면 강의 하나에 약 3.3×10^17명이 방문해야 하는데, 현실적으로 도달 불가능한 규모라 무시 가능하다고 판단. 그래서 배치(`pg_cron`)나 RLS 시각 비교 같은 무효화 로직은 도입하지 않고 `guest_token`을 영구 보존하기로 결정. 대신 이 결론이 성립하려면 "둘 다 null"인 상태(무효화된 비회원 글)가 더 이상 나올 이유가 없으므로, 위 1차 제약을 `posts_author_id_xor_guest_token`(`(author_id is null) <> (guest_token is null)`, 정확히 하나만 값을 가짐)으로 강화하고, `guest_token` 컬럼 타입도 `text`에서 `uuid`로 바꿔 형식을 DB 레벨에서 강제(`post_likes`/`lecture_feedback_votes.voter_key`와 동일한 타입으로 통일, RLS의 `guest_token` 비교도 헤더 값을 `::uuid`로 캐스팅하도록 갱신) → `backend/supabase/migrations/20260707170000_posts_guest_token_uuid_and_xor_constraint.sql`.
 - **강의 공유 코드(`join_code`) 발급/재발급 RPC** — `lecture_join_codes`는 원래 클라이언트가 직접 INSERT하는 방식으로 설계돼 있었으나, `code`가 4자리 숫자(공간 10000개)라 다른 강의와 값이 겹칠 확률이 무시 못 할 수준이라 충돌 재시도 로직이 필요했음. `get_or_create_join_code()`(있으면 반환, 없으면 발급)/`reissue_join_code()`(기존 코드 폐기 후 재발급) RPC로 재시도 로직을 서버 쪽에 두고, 직접 쿼리로 발급/재발급을 못 하게 `lecture_join_codes`의 INSERT/UPDATE 테이블 권한 자체를 `anon`/`authenticated`에서 회수(파기/DELETE는 그대로 직접 쿼리 허용). 이 프로젝트는 `FORCE ROW LEVEL SECURITY`를 안 걸어놔서 `SECURITY DEFINER` 함수가 RLS를 우회하므로, "호출자가 이 강의의 소유자인가" 체크를 함수 안에 직접 재구현하고, 이제 도달 불가능해진 `lecture_join_codes_owner_all`(insert 전용, 이름도 `_all`이라 `for all` 정책처럼 오해될 수 있었음) 정책은 삭제 → `backend/supabase/migrations/20260707120000_join_code_issue_functions.sql`. `DB_DESIGN.md`/`README.md`/`SUPABASE_GUIDE.md`에도 반영(프론트 호출 패턴은 `SUPABASE_GUIDE.md`의 "강의 공유 코드" 섹션 참고).
 - **`posts` 답글 수정/질문 해결 처리가 42501로 막히는 버그** — 프론트에서 `updateReply`/`resolveQuestion`이 `posts`에 직접 `.update()`를 호출하다가 발견. 1차 원인은 `posts`의 SELECT가 통째로 회수돼 있어서 UPDATE의 WHERE 절 평가에 필요한 기본 SELECT 권한(GRANT, RLS와 별개)조차 없었던 것 → `grant select on posts to anon, authenticated`로 복구(`backend/supabase/migrations/20260707180000_posts_grant_select_for_rls_update_delete.sql`). 그런데 이것만으론 여전히 0행 매치로 실패 → 진짜 원인은 Postgres가 UPDATE/DELETE의 대상 행을 찾을 때 SELECT 커맨드에 대한 RLS 가시성도 요구한다는 것이었고, `posts`엔 SELECT 정책이 하나도 없어(기본 전부 안 보임) `posts_update_own` 등 UPDATE 전용 정책과 무관하게 항상 실패하고 있었음. UPDATE/DELETE가 허용하는 행과 정확히 같은 조건으로 `posts_select_own`/`posts_select_lecturer` SELECT 정책을 추가하고, `guest_token`/`author_id` 노출을 막기 위해 이 두 컬럼만 제외하고 나머지 컬럼만 GRANT하는 방식으로 컬럼 단위 제한을 유지 → `backend/supabase/migrations/20260707190000_posts_select_policy_for_update_delete_rls.sql`. 회원/비회원/강의자 세 경로 모두 실제 REST API로 수정 성공을 확인했고, `guest_token`/`author_id` 직접 조회는 여전히 42501로 막히는 것도 확인함. 프론트에서 `.update().select()`처럼 체이닝하면 `select('*')`가 실행돼 컬럼 제한에 걸리니, `.select()`를 생략하거나 허용된 컬럼만 명시해야 함(`SUPABASE_GUIDE.md` 5번 참고).
+- **AI 보조 기능(교정/적절성 검사/유사 질문 탐지) Edge Function 구현·배포 완료** — `SUBMIT_POST_PLAN.md`에서 설계했던 "단일 함수 + `use_ai_correction` 토글" 대신, 교정을 완전히 별도 기능으로 분리하기로 흐름을 바꿔 함수 2개로 구성함.
+  - **`ai-correct`**: 적절성/유사도 검사 없이 글만 다듬어 반환. 프롬프트는 `backend/supabase/functions/ai-correct/prompt.ts`로 분리해 튜닝하기 쉽게 함. OpenAI(`gpt-4o-mini`) 연동, 실패 시(키 누락/API 오류) 원문 그대로 반환해 교정 실패가 글쓰기 흐름을 막지 않게 함.
+  - **`submit-post`**: 요청이 신규 제출(`{lecture_id, parent_id, type, content, created_mode, is_anonymous}`)인지 강행 제출(`{draft_id}`)인지로 분기.
+    - 적절성 검사: OpenAI Moderation API(`omni-moderation-latest`) 연동.
+    - 유사도 검사 비교 범위 결정: 같은 강의의 **미해결 질문 + 그 답글 전부(무한 depth, 답글 타입 무관)** 로 확정 → 재귀 CTE로 `get_similarity_candidates(lecture_id)` RPC 구현(`backend/supabase/migrations/20260707210000_get_similarity_candidates_rpc.sql`). `submit-post`(service_role) 전용 내부 헬퍼라 새 함수 생성 시 기본으로 열리는 PUBLIC EXECUTE를 회수하고 service_role에만 재부여(`20260707211000_restrict_get_similarity_candidates_execute.sql`).
+    - 후보 목록 + 새 글을 GPT-4o-mini에 JSON으로 넘겨 "이미 충분히 다루고 있어 새로 안 써도 되는 글"의 id들만 받고, 여러 개면 좋아요 개수 내림차순 → 동률이면 제출 시각 오름차순으로 정렬해 1개만 `similar_id`로 반환.
+    - 유사 글 발견 시 즉시 저장하지 않고 `post_drafts`(anon/authenticated GRANT·RLS 정책 둘 다 없음, service_role 전용 스크래치 테이블, `20260707200000_post_drafts_staging_table.sql`)에 스테이징. "강행 제출"은 `{draft_id}`만 다시 보내면 재검사 없이(identity가 draft 작성자와 일치하는지만 확인) 그대로 insert하고 draft는 삭제 — 이때 `created_at`은 draft가 스테이징된 시각이 아니라 강행 제출한 실제 시점으로 새로 채워짐. "보러 가기"/"취소"는 아무 API 호출 없이 draft를 고아로 남겨둬도 무해함(나중에 오래된 것만 가끔 청소하면 됨).
+  - **아직 안 한 것**: `posts` INSERT를 `anon`/`authenticated`에서 완전히 회수해 `submit-post`를 통해서만 쓰게 강제하는 건 여전히 계획 단계 — 지금은 프론트가 이 함수를 쓰도록 유도하는 단계이고, 직접 insert도 여전히 가능함.
+  - 적절성 거부/유사 글 발견/무관한 글 정상 생성 3가지 시나리오와 identity 불일치로 인한 강행 제출 차단까지 실제 REST API로 라이브 테스트 완료.
