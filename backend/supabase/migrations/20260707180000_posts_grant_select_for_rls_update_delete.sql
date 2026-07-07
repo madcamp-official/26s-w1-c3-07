@@ -1,0 +1,11 @@
+-- posts의 SELECT를 완전히 회수해뒀더니(20260706093000_restrict_public_read_access.sql),
+-- UPDATE/DELETE의 WHERE 절(예: WHERE id = ...)이 참조하는 컬럼에도 SELECT 권한이 필요하다는
+-- Postgres의 기본 권한 규칙 때문에 posts_update_own/posts_delete_own 등 RLS 정책이 멀쩡히
+-- 있어도 42501 permission denied로 UPDATE/DELETE 자체가 거부되고 있었음(RLS와는 별개의,
+-- GRANT 레벨 요구사항).
+--
+-- SELECT 권한만 되돌려주고 SELECT용 RLS 정책은 추가하지 않음 — SELECT 커맨드 자체는
+-- 정책이 하나도 없으면 기본 거부(deny-all)라, anon/authenticated가 posts를 직접
+-- select해도 여전히 0행만 반환됨(guest_token/author_id 노출 없음). UPDATE/DELETE는
+-- 각자의 RLS 정책(posts_update_own 등)이 별도로 행 가시성을 통제하므로 정상 동작하게 됨.
+grant select on posts to anon, authenticated;
