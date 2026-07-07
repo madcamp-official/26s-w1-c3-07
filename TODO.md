@@ -26,14 +26,15 @@
 
 `posts_update_own`/`posts_delete_own`, `post_likes`/`lecture_feedback_votes` 관련 정책 전부에 "강의 종료 시각(`lectures.end_time`) 이후엔 `guest_token` 무효화" 조건이 아직 안 들어감.
 
+`posts.author_id`/`guest_token` 동시 null 허용 여부는 이미 결정·구현 완료(자세한 내용은 [해결된 것](#해결된-것-참고용-기록) 참고) — `posts_author_id_guest_token_exclusive` 체크 제약으로 "둘 다 값을 갖는 경우"만 막고, `(author_id is null and guest_token is null)` 상태(무효화된 비회원 글)는 그대로 허용됨. 아래는 여전히 미결정인 무효화 시점/방식 관련 검토 내용.
+
 **관련해서 검토한 것들:**
 
-- **`posts.author_id`/`guest_token` 동시 null 허용 여부**: 지금 스키마는 `author_id`와 `guest_token`이 동시에 값을 가지는 것도 막지 않음(회원 글에 의미 없는 `guest_token`이 같이 들어가도 통과됨) — 데이터 정합성 관점에서 `check (not (author_id is not null and guest_token is not null))` 추가를 고려할 만함. 다만 **무효화를 "guest_token을 null로 지우는 방식"으로 갈 거라면, `(author_id is null and guest_token is null)` 상태(무효화된 비회원 글)는 반드시 허용해야 함** — 위 CHECK는 "둘 다 값이 있는 경우"만 막으므로 이 상태와 충돌 안 함.
 - **무효화 구현 방식 두 가지**:
   1. **`pg_cron` 배치**: 주기적으로(예: 5~15분마다) `update posts set guest_token = null where guest_token is not null and lecture_id in (select node_id from lectures where end_time < now() - interval '1 hour')` 같은 걸 반복 실행. 멱등적이라 반복 실행해도 안전하지만, `pg_cron` 확장을 켜야 하고 폴링 주기만큼 무효화가 지연될 수 있음.
   2. **RLS 조건에 시각 비교를 직접 추가 (배치 job 불필요, 추천)**: 데이터를 지우지 않고 `posts_update_own`/`posts_delete_own`/`post_likes_*`/`lecture_feedback_votes_*` 정책의 `guest_token` 매칭 조건에 `now() < (해당 강의 end_time) + interval '1 hour'`를 추가. 매 요청 시점에 실제 시각으로 판단하니 지연 없이 정확하고, `pg_cron` 같은 별도 스케줄 인프라가 필요 없음.
   
-  아직 어느 방식으로 갈지, 그리고 `check` 제약을 추가할지 결정 안 됨.
+  아직 어느 방식으로 갈지 결정 안 됨.
 
 ### AI 보조 기능 관련 (Edge Function vs Express 서버 미결정)
 
@@ -93,4 +94,5 @@ AI 교정, 부적절한 내용 필터링, 유사 질문 자동 탐지(#2, #3) �
   - **프론트 구현 완료** — `frontend` 브랜치의 `services/api.ts`(`getCourseFolders`/`getStandaloneCourses`/`nodeToItem`/`buildFolderTree`/`buildFavoriteRoots`)가 위 설계 그대로 `nodes`/`favorites`/`get_my_favorite_subtrees()`를 실제로 조회하도록 구현됨.
   - 이 과정에서 남은 간극 두 가지 발견: (1) `Course.questionCount`(라벨은 "게시글 {n}개")가 아직 `0`으로 고정됨 → `posts_counts` 뷰(`lecture_id`별 `count(*)`) 추가로 해결(`backend/supabase/migrations/20260707023348_posts_counts_view.sql`). 다른 counts 뷰(`post_likes_counts` 등)와 달리 보안 목적이 아니라, PostgREST가 group by를 직접 지원 안 해서 여러 강의 개수를 한 번에 가져오기 위한 효율성 목적. 프론트에서 이 뷰를 조회해 매핑하는 작업은 아직 안 됨. (2) `Course.participantCount`는 Presence 기반이라 이 트리 조회 시점엔 채울 수 없어 여전히 별도 설계 필요(미해결).
   - `date`/`startTime`/`endTime`/`location`/`capacity`(`lectures` 조인)는 `registered`(즐겨찾기) 강의에는 애초에 필요 없다고 결론남 — 그 값을 읽는 유일한 곳(강의 수정 폼 프리필)이 `owned` 강의에만 열려 있어서. `owned` 강의는 이미 `nodes.select('*, lectures(...))'`로 정상 조회 중이라 `get_my_favorite_subtrees()`에 조인을 추가할 필요 없음.
+- `posts.author_id`/`guest_token` 동시 null 허용 여부 검토 → `posts_author_id_guest_token_exclusive` 체크 제약(`author_id is null or guest_token is null`) 추가로 해결. 이 제약이 생기면서 `posts_update_own`/`posts_delete_own` 정책의 `guest_token` 비교 조건 앞에 있던 `author_id is null and` 가드가 논리적으로 중복이 되어 함께 제거. `posts_public` 뷰에는 원본 식별자를 노출하지 않으면서 "본인 글인지"만 알려주는 `is_mine` boolean 컬럼 추가(수정/삭제 버튼 조건부 노출용) → `backend/supabase/migrations/20260707151700_posts_author_guest_token_exclusive.sql`, `20260707153000_drop_redundant_guest_token_guard.sql`, `20260707153500_posts_public_is_mine.sql`.
 - **강의 공유 코드(`join_code`) 발급/재발급 RPC** — `lecture_join_codes`는 원래 클라이언트가 직접 INSERT하는 방식으로 설계돼 있었으나, `code`가 4자리 숫자(공간 10000개)라 다른 강의와 값이 겹칠 확률이 무시 못 할 수준이라 충돌 재시도 로직이 필요했음. `get_or_create_join_code()`(있으면 반환, 없으면 발급)/`reissue_join_code()`(기존 코드 폐기 후 재발급) RPC로 재시도 로직을 서버 쪽에 두고, 직접 쿼리로 발급/재발급을 못 하게 `lecture_join_codes`의 INSERT/UPDATE 테이블 권한 자체를 `anon`/`authenticated`에서 회수(파기/DELETE는 그대로 직접 쿼리 허용). 이 프로젝트는 `FORCE ROW LEVEL SECURITY`를 안 걸어놔서 `SECURITY DEFINER` 함수가 RLS를 우회하므로, "호출자가 이 강의의 소유자인가" 체크를 함수 안에 직접 재구현하고, 이제 도달 불가능해진 `lecture_join_codes_owner_all`(insert 전용, 이름도 `_all`이라 `for all` 정책처럼 오해될 수 있었음) 정책은 삭제 → `backend/supabase/migrations/20260707120000_join_code_issue_functions.sql`. `DB_DESIGN.md`/`README.md`/`SUPABASE_GUIDE.md`에도 반영(프론트 호출 패턴은 `SUPABASE_GUIDE.md`의 "강의 공유 코드" 섹션 참고).

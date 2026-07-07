@@ -117,7 +117,7 @@ const { data } = await supabase
 
 **⚠️ 중요**: `posts`/`post_likes`/`lecture_feedback_votes` 테이블은 `anon`/`authenticated`에게 전체 SELECT 권한이 없습니다(`posts`는 아예 회수, 나머지 둘은 본인 투표 행만 조회 가능). 그래서 조회는 아래 뷰로 하세요. 아래 `posts_public`/`post_likes_counts` 예시 코드는 아직 `App.jsx`에 실제로 쓰인 적은 없고, DB 스키마/RLS 설계를 근거로 유도한 패턴이에요 — 실제로 붙여서 테스트해보고 문제 있으면 알려주세요.
 
-- **게시글 조회**: `posts` 대신 **`posts_public`** 뷰를 씁니다. `posts` 테이블엔 `guest_token`이라는 민감한 컬럼이 있어서 그대로 노출하면 남의 글을 수정/삭제당할 수 있고, `author_id`도 익명 여부와 무관하게 노출되면 안 되기 때문이에요. `posts_public`은 `guest_token`을 완전히 빼고, `author_id`도 숨긴 뒤 익명이 아닌 글만 작성자 이름(`author_display_name`)을 보여줍니다.
+- **게시글 조회**: `posts` 대신 **`posts_public`** 뷰를 씁니다. `posts` 테이블엔 `guest_token`이라는 민감한 컬럼이 있어서 그대로 노출하면 남의 글을 수정/삭제당할 수 있고, `author_id`도 익명 여부와 무관하게 노출되면 안 되기 때문이에요. `posts_public`은 `guest_token`을 완전히 빼고, `author_id`도 숨긴 뒤 익명이 아닌 글만 작성자 이름(`author_display_name`)을 보여줍니다. `is_mine`(boolean) 컬럼도 있는데, "이 글이 내가 쓴 글인지"를 `author_id`/`guest_token` 원본 값 노출 없이 알려주는 계산 컬럼이에요 — 수정/삭제 버튼을 조건부로 보여줄 때 이 값으로 판단하면 됩니다(실제 수정/삭제 권한과 정확히 같은 조건이라 "버튼은 보이는데 실제로는 막히는" 일이 없어요).
 - **좋아요 개수 조회**: `post_likes` 대신 **`post_likes_counts`** 뷰(`post_id`별 `like_count`).
 - **실시간 피드백 좋아요/싫어요 개수 조회**: `lecture_feedback_votes` 대신 **`lecture_feedback_votes_counts`** 뷰(`lecture_id`, `feedback_type`별 `like_count`/`dislike_count`).
 
