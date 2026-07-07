@@ -328,7 +328,7 @@ const { data: newCode, error } = await supabase.rpc('reissue_join_code', {
 - `posts.guest_token`, `post_likes`/`lecture_feedback_votes`의 `voter_key`, Presence(접속자 수 집계) 키로 전부 동일하게 재사용합니다.
 - 서버(Supabase RLS)는 이 값을 **`x-guest-token`이라는 커스텀 HTTP 헤더**로 보내주면, RLS 정책이 그 헤더 값과 DB에 저장된 `guest_token`을 대조해서 "본인 글이 맞는지" 확인해요.
 
-**⚠️ 아직 아무 데도 구현 안 되어 있습니다** — `guest_token` 생성/저장 로직도, 헤더를 실어 보내는 코드도 지금 코드베이스 어디에도 없어요. 앞으로 만들어야 할 부분입니다 ([TODO.md 프론트엔드 > guest_token 관련](./TODO.md#guest_token-관련-1) 참고).
+**⚠️ 아직 아무 데도 구현 안 되어 있습니다** — `guest_token` 생성/저장 로직도, 헤더를 실어 보내는 코드도 지금 코드베이스 어디에도 없어요. 앞으로 만들어야 할 부분입니다. 정확히 언제/어떻게 생성할지(강의 최초 입장 시 1회 생성 등)는 아직 확정 필요.
 
 **구현 방식: 요청마다 체이닝으로 헤더 설정**
 
