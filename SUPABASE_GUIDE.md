@@ -255,7 +255,7 @@ const rootCourses = topLevel.filter(root => 'title' in root)
 **남은 간극**
 
 - `date`/`startTime`/`endTime`/`location`/`capacity`는 **`registered`(즐겨찾기) 강의에는 필요 없습니다.** 이 값을 실제로 읽는 곳은 강의 수정 폼(`CreateCoursePage.tsx`)의 프리필뿐인데, 수정 기능 자체가 `ownership === 'owned'` 강의에만 열려 있어서(남의 강의는 수정 불가) `registered` 강의는 애초에 아무도 이 값을 안 봅니다. `owned` 강의는 이미 `nodes.select('*, lectures(start_time, end_time, location, max_participants)')`로 조인해서 채우고 있으니 이대로 두면 됩니다 — `get_my_favorite_subtrees()`에 `lectures` 조인을 추가할 필요는 없습니다.
-- **`questionCount`(프론트 라벨은 "게시글 {n}개")는 아직 `0`으로 고정돼 있습니다.** `posts_counts` 뷰(`lecture_id`별 게시글 개수)를 추가해뒀으니, 트리 조립 후 한 번에 채워 넣으면 됩니다.
+- **`questionCount`(프론트 라벨은 "게시글 {n}개") — ✅ 프론트 구현 완료.** `posts_counts` 뷰(`lecture_id`별 게시글 개수)를 트리 조립 후 한 번에 조회해 채워 넣습니다(`services/api.ts`의 `fillQuestionCounts()`, `findCourseByJoinCode()`의 단일 강의 조회 경로도 동일 처리).
   ```js
   const lectureIds = [...folders /* 재귀로 모은 course id 전부 */, ...rootCourses].map(c => c.id)
   const { data: counts } = await supabase.from('posts_counts').select('lecture_id, post_count').in('lecture_id', lectureIds)
@@ -281,7 +281,11 @@ const rootCourses = topLevel.filter(root => 'title' in root)
 
 세 요청(포스트/강의자 모드/수강생 모드) 다 로그인 시 한꺼번에 받아두지 말고, 모드 전환/페이지 진입 시점마다 그 모드에 맞는 것만 요청하면 됩니다.
 
+**`registerCourseByCode`와 `joinCourse`는 서로 다른 값을 받습니다** — 둘 다 "코드"라고 부르지만 실제로는 다른 식별자예요. `joinCourse`(강의 코드 입력 후 바로 입장, 목록엔 등록 안 함)는 4자리 숫자(`lecture_join_codes.code`)를 받아 그 코드로 `lecture_id`를 찾습니다. `registerCourseByCode`(내 강의 목록에 등록)는 강의 UUID(`nodes.id`)를 직접 입력받아 `nodes`를 바로 조회합니다 — `lecture_join_codes`를 거치지 않습니다. `services/api.ts`에서 전자는 `findCourseByJoinCode()`(4자리 정규식 검증), 후자는 `findCourseById()`(UUID 정규식 검증)로 분리되어 있습니다.
+
 ## 7. 강의 공유 코드(`join_code`) 조회/발급/재발급
+
+**✅ 프론트 구현 완료** — `services/api.ts`의 `getOrCreateJoinCode()`/`reissueJoinCode()`가 두 RPC를 감싸고, `ShareCourseModal.tsx`가 모달을 열 때 `course.joinCode`가 없으면 자동 발급하고 "재발급" 버튼도 제공합니다.
 
 강의 페이지의 "강의 코드 공유" 버튼은 `lecture_join_codes` 테이블을 **직접 INSERT/UPDATE로 건드릴 수 없습니다** — 발급/재발급은 반드시 RPC를 통해야 하고, 파기(강의 종료 등으로 코드를 없애는 것)만 테이블에 직접 DELETE하면 됩니다. 자세한 이유(4자리 코드 충돌 재시도, 테이블 권한 회수)는 [DB_DESIGN.md의 `get_or_create_join_code()`/`reissue_join_code()` 설명](./DB_DESIGN.md#get_or_create_join_code) 참고.
 
