@@ -65,10 +65,10 @@ export function useCourseRoom(courseId: string | undefined) {
 
   const likeQuestion = async (questionId: string): Promise<void> => {
     if (!courseId) return
-    const updated = await toggleQuestionLike(courseId, questionId)
+    const { likeCount, isLikedByMe } = await toggleQuestionLike(courseId, questionId)
     setState((current) => {
       if (!current.room) return current
-      const questions = current.room.questions.map((question) => (question.id === questionId ? updated : question))
+      const questions = current.room.questions.map((question) => (question.id === questionId ? { ...question, likeCount, isLikedByMe } : question))
       return { ...current, room: { ...current.room, questions } }
     })
   }
@@ -87,10 +87,10 @@ export function useCourseRoom(courseId: string | undefined) {
 
   const resolveQuestionById = async (questionId: string): Promise<void> => {
     if (!courseId) return
-    const updated = await resolveQuestion(courseId, questionId)
+    const { isResolved } = await resolveQuestion(courseId, questionId)
     setState((current) => {
       if (!current.room) return current
-      const questions = current.room.questions.map((question) => (question.id === questionId ? updated : question))
+      const questions = current.room.questions.map((question) => (question.id === questionId ? { ...question, isResolved } : question))
       return { ...current, room: { ...current.room, questions } }
     })
   }

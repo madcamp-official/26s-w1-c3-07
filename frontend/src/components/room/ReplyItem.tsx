@@ -15,18 +15,23 @@ export default function ReplyItem({ reply, onReply, onEdit }: ReplyItemProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [draft, setDraft] = useState(reply.content)
   const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState('')
 
   const startEditing = () => {
     setDraft(reply.content)
+    setError('')
     setIsEditing(true)
   }
 
   const handleSave = async () => {
     if (!onEdit || !draft.trim()) return
+    setError('')
     setIsSaving(true)
     try {
       await onEdit(draft.trim())
       setIsEditing(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '답글을 수정하지 못했습니다.')
     } finally {
       setIsSaving(false)
     }
@@ -54,6 +59,7 @@ export default function ReplyItem({ reply, onReply, onEdit }: ReplyItemProps) {
             onChange={(event) => setDraft(event.target.value)}
             className="w-full resize-none rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
           />
+          {error && <p className="mt-1.5 text-xs font-medium text-rose-500">{error}</p>}
           <div className="mt-2 flex items-center justify-end gap-2">
             <button type="button" onClick={() => setIsEditing(false)} className="rounded-lg px-3 py-1.5 text-xs font-bold text-slate-400 hover:bg-slate-100">취소</button>
             <button
