@@ -6,10 +6,11 @@ interface CourseRoomState {
   room: CourseRoom | null
   isLoading: boolean
   error: string | null
+  actionError: string | null
 }
 
 export function useCourseRoom(courseId: string | undefined) {
-  const [state, setState] = useState<CourseRoomState>({ room: null, isLoading: true, error: null })
+  const [state, setState] = useState<CourseRoomState>({ room: null, isLoading: true, error: null, actionError: null })
 
   const load = useCallback(async () => {
     if (!courseId) return
@@ -17,12 +18,13 @@ export function useCourseRoom(courseId: string | undefined) {
 
     try {
       const room = await getCourseRoom(courseId)
-      setState({ room, isLoading: false, error: null })
+      setState({ room, isLoading: false, error: null, actionError: null })
     } catch (error) {
       setState({
         room: null,
         isLoading: false,
         error: error instanceof Error ? error.message : '강의실을 불러오지 못했습니다.',
+        actionError: null,
       })
     }
   }, [courseId])
@@ -81,8 +83,12 @@ export function useCourseRoom(courseId: string | undefined) {
 
   const resetFeedback = async (key: FeedbackKey): Promise<void> => {
     if (!courseId) return
-    const updated = await resetFeedbackOption(courseId, key)
-    setState((current) => (current.room ? { ...current, room: updated } : current))
+    try {
+      const updated = await resetFeedbackOption(courseId, key)
+      setState((current) => (current.room ? { ...current, room: updated, actionError: null } : current))
+    } catch (error) {
+      setState((current) => ({ ...current, actionError: error instanceof Error ? error.message : '피드백 초기화에 실패했습니다.' }))
+    }
   }
 
   const resolveQuestionById = async (questionId: string): Promise<void> => {

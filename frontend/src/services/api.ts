@@ -448,46 +448,29 @@ export async function joinCourse(code: string): Promise<Course> {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-/** 강의 UUID(nodes.id)로 강의를 직접 조회합니다. */
-async function findCourseById(id: string): Promise<Course> {
+/** 강의/폴더 UUID(nodes.id)로 강의자 모드로 만든 노드가 맞는지 확인합니다. */
+async function findRegistrableNodeById(id: string): Promise<{ id: string; type: 'folder' | 'lecture' }> {
   const { data: node, error: nodeError } = await supabase
     .from('nodes')
-    .select('id, name, lectures(start_time, end_time, location, max_participants)')
+    .select('id, type, created_mode')
     .eq('id', id)
-    .eq('type', 'lecture')
-    .single<NodeWithLectureRow>()
+    .maybeSingle<{ id: string; type: 'folder' | 'lecture'; created_mode: DbMode }>()
 
-  if (nodeError || !node) throw new Error('유효하지 않은 강의입니다.')
-
-  const { data: countRow } = await supabase.from('posts_counts').select('post_count').eq('lecture_id', node.id).maybeSingle<{ post_count: number }>()
-
-  return {
-    id: node.id,
-    title: node.name,
-    participantCount: 0,
-    questionCount: countRow?.post_count ?? 0,
-    updatedAt: '방금 전',
-    color: 'blue',
-    ownership: 'registered',
-    date: node.lectures?.start_time,
-    startTime: node.lectures?.start_time,
-    endTime: node.lectures?.end_time,
-    location: node.lectures?.location ?? undefined,
-    capacity: node.lectures?.max_participants ?? null,
-  }
+  if (nodeError) throw nodeError
+  if (!node) throw new Error('존재하지 않는 강의/폴더입니다.')
+  if (node.created_mode !== 'lecturer') throw new Error('강의자 모드로 만든 강의/폴더만 등록할 수 있습니다.')
+  return node
 }
 
-/** 강의 UUID로 강의를 찾아 "내 강의" 목록(favorites)에 등록합니다. 항상 최상위에 등록되고, 이후 moveCourseItem으로 정리합니다. */
-export async function registerCourseByCode(id: string): Promise<Course> {
-  if (!UUID_PATTERN.test(id)) throw new Error('강의 UUID를 입력해 주세요.')
+/** 강의/폴더 UUID로 "내 강의" 목록(favorites)에 등록합니다. 항상 최상위에 등록되고, 이후 moveCourseItem으로 정리합니다. */
+export async function registerCourseByCode(id: string): Promise<void> {
+  if (!UUID_PATTERN.test(id)) throw new Error('강의/폴더 UUID를 입력해 주세요.')
 
-  const course = await findCourseById(id)
+  const node = await findRegistrableNodeById(id)
   const userId = await requireAuthUserId()
 
-  const { error } = await supabase.from('favorites').insert({ user_id: userId, node_id: course.id, anchor_id: null })
+  const { error } = await supabase.from('favorites').insert({ user_id: userId, node_id: node.id, anchor_id: null })
   if (error) throw error
-
-  return course
 }
 
 export async function createRootFolder(input: CreateFolderInput): Promise<CourseFolder> {
@@ -856,14 +839,26 @@ function isAnsweredByLecturer(question: Question): boolean {
   return question.replies.some((reply) => reply.authorRole === 'lecturer')
 }
 
-function findUnansweredInCourses(courses: Course[]): Array<{ id: string; title: string; questions: UnansweredQuestion[] }> {
+function collectAllCourses(folders: CourseFolder[], rootCourses: Course[]): Course[] {
+  const collected: Course[] = [...rootCourses]
+  const visit = (folder: CourseFolder): void => {
+    collected.push(...folder.courses)
+    folder.children.forEach(visit)
+  }
+  folders.forEach(visit)
+  return collected
+}
+
+function findUnansweredInCourses(
+  courses: Course[],
+  questionsByCourseId: Map<string, Question[]>,
+): Array<{ id: string; title: string; questions: UnansweredQuestion[] }> {
   const groups: Array<{ id: string; title: string; questions: UnansweredQuestion[] }> = []
 
   for (const course of courses) {
-    const room = mockCourseRooms[course.id]
-    if (!room) continue
+    const roomQuestions = mockCourseRooms[course.id]?.questions ?? questionsByCourseId.get(course.id) ?? []
 
-    const questions = room.questions
+    const questions = roomQuestions
       .filter((question) => question.postType === 'question' && !isAnsweredByLecturer(question))
       .map((question) => ({ ...question, courseId: course.id, courseTitle: course.title }))
 
@@ -873,12 +868,12 @@ function findUnansweredInCourses(courses: Course[]): Array<{ id: string; title: 
   return groups
 }
 
-function buildUnansweredTree(folders: CourseFolder[]): UnansweredFolderNode[] {
+function buildUnansweredTree(folders: CourseFolder[], questionsByCourseId: Map<string, Question[]>): UnansweredFolderNode[] {
   const nodes: UnansweredFolderNode[] = []
 
   for (const folder of folders) {
-    const courses = findUnansweredInCourses(folder.courses)
-    const children = buildUnansweredTree(folder.children)
+    const courses = findUnansweredInCourses(folder.courses, questionsByCourseId)
+    const children = buildUnansweredTree(folder.children, questionsByCourseId)
     const count = courses.reduce((sum, group) => sum + group.questions.length, 0) + children.reduce((sum, child) => sum + child.count, 0)
 
     if (count > 0) nodes.push({ id: folder.id, name: folder.name, count, children, courses })
@@ -889,11 +884,15 @@ function buildUnansweredTree(folders: CourseFolder[]): UnansweredFolderNode[] {
 
 /** 강의자의 모든 강의에서 강의자 본인이 아직 답변하지 않은 '질문' 유형 게시글만 폴더 구조로 모아 반환합니다. */
 export async function getUnansweredQuestions(): Promise<{ folders: UnansweredFolderNode[]; standaloneCourses: Array<{ id: string; title: string; questions: UnansweredQuestion[] }>; totalCount: number }> {
-  await delay()
+  const userId = await requireAuthUserId()
+  const { folders: activeFolders, rootCourses } = await getInstructorDataset(userId)
 
-  const { folders: activeFolders, rootCourses } = getActiveDataset()
-  const folders = buildUnansweredTree(activeFolders)
-  const standaloneCourses = findUnansweredInCourses(rootCourses)
+  const dbCourses = collectAllCourses(activeFolders, rootCourses).filter((course) => !mockCourseRooms[course.id])
+  const questionLists = await Promise.all(dbCourses.map((course) => getQuestionsFromDb(course.id)))
+  const questionsByCourseId = new Map(dbCourses.map((course, index) => [course.id, questionLists[index]]))
+
+  const folders = buildUnansweredTree(activeFolders, questionsByCourseId)
+  const standaloneCourses = findUnansweredInCourses(rootCourses, questionsByCourseId)
   const totalCount = folders.reduce((sum, folder) => sum + folder.count, 0) + standaloneCourses.reduce((sum, group) => sum + group.questions.length, 0)
 
   return { folders, standaloneCourses, totalCount }
@@ -1224,8 +1223,14 @@ export async function resetFeedbackOption(courseId: string, key: FeedbackKey): P
     return clone(applyViewerVotes(room, getViewerKey()))
   }
 
-  const { error } = await supabase.from('lecture_feedback_votes').delete().eq('lecture_id', courseId).eq('feedback_type', key)
+  const { data: deleted, error } = await supabase
+    .from('lecture_feedback_votes')
+    .delete()
+    .eq('lecture_id', courseId)
+    .eq('feedback_type', key)
+    .select('lecture_id')
   if (error) throw error
+  if (!deleted || deleted.length === 0) throw new Error('피드백 초기화에 실패했습니다. 잠시 후 다시 시도해주세요.')
 
   const meta = await getCourseRoomFromDb(courseId)
   const feedbackOptions = await getFeedbackOptionsFromDb(courseId)

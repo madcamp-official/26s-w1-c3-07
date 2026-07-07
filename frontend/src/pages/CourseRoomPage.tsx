@@ -16,7 +16,7 @@ import { cn } from '../utils/cn'
 export default function CourseRoomPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const navigate = useNavigate()
-  const { room, isLoading, error, reload, likeQuestion, voteFeedback, resetFeedback, resolveQuestion, editReply } = useCourseRoom(courseId)
+  const { room, isLoading, error, actionError, reload, likeQuestion, voteFeedback, resetFeedback, resolveQuestion, editReply } = useCourseRoom(courseId)
   const [user, setUser] = useState<User | null>(null)
   const [filter, setFilter] = useState<QuestionFilter>('unresolved')
 
@@ -83,6 +83,7 @@ export default function CourseRoomPage() {
             onVote={(key, vote) => void voteFeedback(key, vote)}
             onAcknowledge={isInstructor ? (key) => void resetFeedback(key) : undefined}
           />
+          {actionError && <p className="mt-2 text-sm font-medium text-rose-500">{actionError}</p>}
         </div>
 
         <div className="mt-6 flex items-center justify-between gap-3">
