@@ -192,7 +192,7 @@ create table post_likes (
 
 #### `posts_public`
 
-`posts`는 테이블 자체 SELECT 권한이 없어(아래 [RLS 정책 → `posts`](#posts-1) 참고) 이 뷰로만 조회할 수 있습니다. `guest_token`은 완전히 제외하고, `author_id`(uid)도 통째로 숨긴 뒤 `is_anonymous`가 `false`인 글만 `profiles.name`을 조인해서 보여줍니다. `is_mine`은 원본 식별자(`author_id`/`guest_token`)를 노출하지 않으면서 "이 글이 내가 쓴 글인지"만 boolean으로 계산해서 얹은 컬럼으로, 프론트가 수정/삭제 버튼을 조건부로 노출할 때 씁니다. `author_id = auth.uid()`(회원)이거나 `guest_token = x-guest-token 헤더`(비회원)이면 `true`이고, 실제 쓰기 권한(`posts_update_own`/`posts_delete_own`)과 정확히 같은 조건이라 "버튼은 보이는데 실제로는 막히는" 불일치가 없습니다. `coalesce(..., false)`로 감싼 이유는, 예를 들어 게스트가 회원 글을 볼 때 `author_id = auth.uid()`가 `uuid = null` 비교라 `false`가 아니라 `null`이 되는 등 SQL 3진 논리상 결과가 `null`이 될 수 있어서, 이를 명시적으로 `false`로 정리하지 않으면 `is_mine`이 `null`/`true`/`false` 세 상태를 갖게 되기 때문입니다.
+`posts`는 테이블 자체 SELECT 권한이 없어(아래 [RLS 정책 → `posts`](#posts-1) 참고) 이 뷰로만 조회할 수 있습니다. `guest_token`은 완전히 제외하고, `author_id`(uid)도 통째로 숨긴 뒤 `is_anonymous`가 `false`인 글만 `profiles.name`을 조인해서 보여줍니다. `is_mine`은 원본 식별자(`author_id`/`guest_token`)를 노출하지 않으면서 "이 글이 내가 쓴 글인지"만 boolean으로 계산해서 얹은 컬럼으로, 프론트가 수정/삭제 버튼을 조건부로 노출할 때 씁니다. `author_id = auth.uid()`(회원)이거나 `guest_token = x-guest-token 헤더`(비회원)이면 `true`이고, 실제 쓰기 권한(`posts_update_own`/`posts_delete_own`)과 정확히 같은 조건이라 "버튼은 보이는데 실제로는 막히는" 불일치가 없습니다. `coalesce(..., false)`로 감싼 이유는, 예를 들어 게스트가 회원 글을 볼 때 `author_id = auth.uid()`가 `uuid = null` 비교라 `false`가 아니라 `null`이 되는 등 SQL 3진 논리상 결과가 `null`이 될 수 있어서, 이를 명시적으로 `false`로 정리하지 않으면 `is_mine`이 `null`/`true`/`false` 세 상태를 갖게 되기 때문입니다. `created_mode`는 강의자 모드로 쓴 글(답글, 청색 표시)과 수강생 모드로 쓴 글을 프론트가 구분해서 표시하는 데 필요한데, 이 뷰가 `posts.created_mode` 컬럼이 생기기 전에 먼저 만들어진 뒤로 이후의 재생성들에서 계속 빠져 있다가 뒤늦게 추가되었습니다.
 
 ```sql
 create view posts_public as
@@ -207,6 +207,7 @@ select
   p.resolved_at,
   p.content,
   p.created_at,
+  p.created_mode,
   coalesce(
     p.author_id = auth.uid()
     or p.guest_token = (current_setting('request.headers', true)::json ->> 'x-guest-token'),
@@ -861,3 +862,4 @@ create policy "post_likes_delete_own" on post_likes for delete
   - `20260707151700_posts_author_guest_token_exclusive.sql` — `posts.author_id`와 `guest_token`이 동시에 값을 갖지 못하게 막는 `posts_author_id_guest_token_exclusive` 체크 제약 추가(둘 다 `null`인 상태는 허용)
   - `20260707153000_drop_redundant_guest_token_guard.sql` — 위 제약으로 인해 `posts_update_own`/`posts_delete_own` 정책의 `guest_token` 비교 조건 앞에 있던 `author_id is null and` 가드가 논리적으로 중복이 되어 제거
   - `20260707153500_posts_public_is_mine.sql` — `posts_public` 뷰에 `is_mine` boolean 컬럼 추가. 원본 식별자(`author_id`/`guest_token`)를 노출하지 않으면서 "본인 글인지" 여부만 계산해서 알려줘 프론트가 수정/삭제 버튼을 조건부로 노출할 수 있게 함
+  - `20260707160000_posts_public_add_created_mode.sql` — `posts_public` 뷰에 `created_mode` 컬럼 추가. 이 뷰가 `posts.created_mode` 컬럼이 생기기 전에 먼저 만들어진 뒤로 이후 재생성(`restrict_public_read_access`, `rename_columns_and_my_nodes_table`, `posts_public_is_mine`)에서 계속 누락되어 있던 것을 뒤늦게 발견해서 추가
