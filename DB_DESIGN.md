@@ -765,7 +765,7 @@ RLS는 "누가 행에 접근 가능한가"만 결정할 뿐, "어떤 테이블/�
 
 강의자는 자기 강의(`lectures.id` 소유)에 속한 게시글이면 남의 글이라도 상태 전환(미해결↔해결) 및 삭제(부적절한 글 제거)가 가능합니다. Postgres는 같은 명령어에 정책이 여러 개면 OR로 합쳐지므로, 이 정책은 `posts_update_own`/`posts_delete_own`과 나란히 적용됩니다.
 
-AI 적절성 검사(OpenAI Moderation API)/유사 질문 탐지(GPT-4o-mini + `get_similarity_candidates()` RPC, 아래 [RPC 함수](#rpc-함수) 참고)를 포함한 글 제출 흐름은 `submit-post` Edge Function(`service_role`, RLS 우회)으로 구현·배포 완료(정확한 요청/응답 계약은 [SUPABASE_GUIDE.md 11번](./SUPABASE_GUIDE.md#11-글-작성제출-ai-correct-submit-post-edge-function), 실제 구현 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고). **다만 클라이언트가 이 검사를 우회해 `posts`에 직접 쓰지 못하게 막는 부분(아래 `posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 두 INSERT 정책 삭제 + `anon`/`authenticated`의 `posts` INSERT 권한 자체 회수)은 아직 적용 전** — 지금은 프론트가 `submit-post`를 쓰도록 유도하는 단계이고, 이 두 정책이 그대로 살아있어 클라이언트가 직접 insert도 여전히 가능합니다.
+AI 적절성 검사(OpenAI Moderation API)/유사 질문 탐지(GPT-4o-mini + `get_similarity_candidates()` RPC, 아래 [RPC 함수](#rpc-함수) 참고)를 포함한 글 제출 흐름은 `submit-post` Edge Function(`service_role`, RLS 우회)으로 구현·배포 완료(정확한 요청/응답 계약은 [SUPABASE_GUIDE.md 10번](./SUPABASE_GUIDE.md#10-글-작성제출-ai-correct-submit-post-edge-function), 실제 구현 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고). **다만 클라이언트가 이 검사를 우회해 `posts`에 직접 쓰지 못하게 막는 부분(아래 `posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 두 INSERT 정책 삭제 + `anon`/`authenticated`의 `posts` INSERT 권한 자체 회수)은 아직 적용 전** — 지금은 프론트가 `submit-post`를 쓰도록 유도하는 단계이고, 이 두 정책이 그대로 살아있어 클라이언트가 직접 insert도 여전히 가능합니다.
 
 ```sql
 revoke select on posts from anon, authenticated;
@@ -907,7 +907,7 @@ create policy "post_likes_delete_own" on post_likes for delete
 
 ## 배포 현황
 
-- 별도의 Express 백엔드 서버 없이 Supabase(Postgres + Auth + Realtime + RLS)만으로 구성. AI 교정/필터링/유사도 검사 등 서버 로직이 필요한 부분은 Express를 새로 띄우지 않고 **Supabase Edge Function으로 구현·배포 완료**(`ai-correct`, `submit-post` — 호출 방법은 [SUPABASE_GUIDE.md 11번](./SUPABASE_GUIDE.md#11-글-작성제출-ai-correct-submit-post-edge-function), 실제 구현 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고).
+- 별도의 Express 백엔드 서버 없이 Supabase(Postgres + Auth + Realtime + RLS)만으로 구성. AI 교정/필터링/유사도 검사 등 서버 로직이 필요한 부분은 Express를 새로 띄우지 않고 **Supabase Edge Function으로 구현·배포 완료**(`ai-correct`, `submit-post` — 호출 방법은 [SUPABASE_GUIDE.md 10번](./SUPABASE_GUIDE.md#10-글-작성제출-ai-correct-submit-post-edge-function), 실제 구현 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고).
 - 이 문서의 SQL은 `backend/supabase/migrations/`에 마이그레이션 파일로 옮겨져 실제 Supabase 프로젝트(project ref: `zilvdbwoieplhrpjqnlo`)에 적용되어 있습니다.
   - `20260705062713_init_schema.sql` — 테이블/함수·트리거/RLS 초기 스키마 전체
   - `20260705064427_lecturer_permissions.sql` — 강의자 권한 정책(`posts_lecturer_update_status`, `posts_lecturer_delete`, `feedback_lecturer_reset`), `trg_block_status_change` 트리거, `posts_public` 뷰
