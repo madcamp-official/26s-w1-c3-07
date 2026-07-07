@@ -16,6 +16,8 @@
   - [RPC 함수](#rpc-함수)
     - [`delete_own_account()`](#delete_own_account)
     - [`get_my_favorite_subtrees()`](#get_my_favorite_subtrees)
+    - [`get_or_create_join_code()`](#get_or_create_join_code)
+    - [`reissue_join_code()`](#reissue_join_code)
 - [RLS 정책](#rls-정책)
   - [`profiles`](#profiles)
   - [`nodes`](#nodes)
@@ -41,7 +43,7 @@
 | `nodes` | 강의 폴더 + 강의 통합 트리 |
 | `favorites` | "내 강의" 즐겨찾기 (수강생 모드) |
 | `lectures` | 강의의 부가 속성 (시작/종료 시각, 장소, 최대인원) — 입장은 `nodes.id`(UUID)를 URL/QR로 사용 |
-| `lecture_join_codes` | 강의 입장용 4자리 숫자 코드 (발급/재발급/파기 가능, 즐겨찾기 등록용 코드와는 별개) |
+| `lecture_join_codes` | 강의 입장용 4자리 숫자 코드 (발급/재발급/파기 가능, 즐겨찾기 등록용 코드와는 별개). 발급/재발급은 `get_or_create_join_code()`/`reissue_join_code()` RPC로만 가능 |
 | `lecture_feedback_votes` | 실시간 피드백(추워요/더워요/소리 작아요/잘 안 보여요) 좋아요/싫어요 |
 | `posts` | 게시글 + 답글 통합 트리, 질문/의견 타입, 미해결/해결, 비회원 인증(`guest_token`) |
 | `post_likes` | 게시글/답글 좋아요 |
@@ -416,6 +418,104 @@ as $$
 $$ language sql;
 ```
 
+#### `get_or_create_join_code()`
+
+강의자가 "강의 코드 공유" 버튼을 눌렀을 때, 이미 발급된 `join_code`가 있으면 그대로 반환하고 없으면 그 자리에서 발급까지 처리하는 RPC입니다. `code`는 4자리 숫자라 공간이 10000개뿐이라서(`gen_random_uuid()`류의 128비트 공간과 달리) 발급 시도마다 다른 강의와 값이 겹칠 확률이 무시 못 할 수준이라, `unique_violation`이 나면 새 값으로 재시도하는 루프가 필요합니다. `code` 컬럼에 건 `default lpad(floor(random() * 10000)::text, 4, '0')` 표현식이 후보 값을 생성하고, 함수는 재시도만 담당합니다. `unique_violation`이 나면 먼저 같은 `lecture_id`로 재조회해서, 그 사이 동시 요청이 이미 발급했다면(`lecture_id` unique 제약 충돌) 그 값을 반환하고, 그게 아니라 `code` PK 자체가 충돌한 것이면 `default`가 새 값을 생성하도록 같은 INSERT를 재시도합니다(최대 20회).
+
+발급/재발급을 이 함수와 `reissue_join_code()`로만 가능하게 강제하기 위해, `lecture_join_codes`의 `INSERT`/`UPDATE` 테이블 권한 자체를 `anon`/`authenticated`에서 회수했습니다(파기는 후보값 생성이 필요 없는 단순 삭제라 함수로 강제할 이유가 없어 `DELETE`는 직접 쿼리를 그대로 허용). 이 프로젝트는 어떤 테이블에도 `FORCE ROW LEVEL SECURITY`를 걸지 않았기 때문에, `SECURITY DEFINER` 함수 내부의 INSERT는 `lecture_join_codes_owner_insert` RLS 정책을 타지 않고 우회합니다(테이블 소유자 권한으로 실행되므로). 그래서 그 정책과 동일한 "호출자가 이 강의의 소유자인가" 조건을 함수 안에서 직접 재검증합니다 — 이 체크가 없으면 로그인한 아무나 아무 강의의 코드를 발급할 수 있게 되는 심각한 구멍이 생깁니다.
+
+```sql
+create or replace function get_or_create_join_code(p_lecture_id uuid)
+returns text
+security definer
+set search_path = ''
+as $$
+declare
+  v_code text;
+  v_attempts int := 0;
+begin
+  if not exists (
+    select 1 from public.lectures join public.nodes on nodes.id = lectures.id
+    where lectures.id = p_lecture_id and nodes.created_by = auth.uid()
+  ) then
+    raise exception '본인 소유 강의의 join_code만 발급할 수 있습니다';
+  end if;
+
+  select code into v_code from public.lecture_join_codes where lecture_id = p_lecture_id;
+  if v_code is not null then
+    return v_code;
+  end if;
+
+  loop
+    v_attempts := v_attempts + 1;
+    if v_attempts > 20 then
+      raise exception 'join code 발급 실패: 재시도 횟수 초과';
+    end if;
+
+    begin
+      insert into public.lecture_join_codes (lecture_id) values (p_lecture_id)
+        returning code into v_code;
+      return v_code;
+    exception
+      when unique_violation then
+        select code into v_code from public.lecture_join_codes where lecture_id = p_lecture_id;
+        if v_code is not null then
+          return v_code;
+        end if;
+    end;
+  end loop;
+end;
+$$ language plpgsql;
+
+revoke all on function get_or_create_join_code(uuid) from public;
+grant execute on function get_or_create_join_code(uuid) to authenticated;
+```
+
+#### `reissue_join_code()`
+
+기존 코드를 강제로 폐기하고 새 코드를 발급하는 RPC입니다. "재발급 방식" 설계 원칙([설계 노트](#정책트리거뷰-보완-설명) 참고: `code`는 UPDATE로 값을 바꾸지 않고 기존 행 DELETE 후 새 코드로 INSERT)을 그대로 구현한 것으로, 기존 행을 지운 뒤 `get_or_create_join_code()`와 동일한 재시도 루프로 새 코드를 발급합니다(방금 지웠으므로 `lecture_id` 충돌은 없고 `code` PK 충돌만 재시도 대상). 소유권 체크와 권한 설정은 `get_or_create_join_code()`와 동일합니다.
+
+```sql
+create or replace function reissue_join_code(p_lecture_id uuid)
+returns text
+security definer
+set search_path = ''
+as $$
+declare
+  v_code text;
+  v_attempts int := 0;
+begin
+  if not exists (
+    select 1 from public.lectures join public.nodes on nodes.id = lectures.id
+    where lectures.id = p_lecture_id and nodes.created_by = auth.uid()
+  ) then
+    raise exception '본인 소유 강의의 join_code만 재발급할 수 있습니다';
+  end if;
+
+  delete from public.lecture_join_codes where lecture_id = p_lecture_id;
+
+  loop
+    v_attempts := v_attempts + 1;
+    if v_attempts > 20 then
+      raise exception 'join code 재발급 실패: 재시도 횟수 초과';
+    end if;
+
+    begin
+      insert into public.lecture_join_codes (lecture_id) values (p_lecture_id)
+        returning code into v_code;
+      return v_code;
+    exception
+      when unique_violation then
+        null;
+    end;
+  end loop;
+end;
+$$ language plpgsql;
+
+revoke all on function reissue_join_code(uuid) from public;
+grant execute on function reissue_join_code(uuid) to authenticated;
+```
+
 ## RLS 정책
 
 읽기는 테이블마다 성격이 달라 크게 셋으로 나뉩니다: (1) 강의 입장 흐름에 필요한 `nodes`/`lectures`/`lecture_join_codes`는 소유자가 아닌 사람도 읽어야 하므로 그대로 공개(`using (true)`), (2) `profiles`/`favorites`/`post_likes`/`lecture_feedback_votes`는 RLS로 본인 행만 조회 가능하도록 좁힘(`post_likes`/`lecture_feedback_votes`는 여기에 더해, 남에게 `voter_key`를 보여주지 않으면서 전체 개수는 알려야 해서 `post_likes_counts`/`lecture_feedback_votes_counts` 뷰로 집계를 따로 공개), (3) `posts`는 유일하게 테이블 자체 SELECT 권한을 완전히 회수해서 본인 글조차 원본 테이블로는 못 읽고, `guest_token`/`author_id`를 뺀 `posts_public` 뷰로만 조회 가능합니다. 쓰기는 전부 "본인 것만" 원칙으로 제한합니다.
@@ -502,13 +602,19 @@ create policy "lectures_owner_all" on lectures for all
 
 코드 조회는 공개입니다(입장 시 코드로 강의를 찾아야 하므로). 발급/재발급/파기는 강의 소유자만 가능합니다.
 
+발급(INSERT)/재발급은 이 RLS 정책만으로 막는 게 아니라, 테이블 자체 INSERT/UPDATE 권한을 `anon`/`authenticated`에서 회수해서 [`get_or_create_join_code()`](#get_or_create_join_code)/[`reissue_join_code()`](#reissue_join_code) RPC를 거치지 않은 직접 쿼리는 아예 권한 오류로 막습니다(4자리 코드는 공간이 좁아 충돌 재시도 로직이 필수인데, 클라이언트 직접 INSERT로는 이걸 챙길 수 없기 때문 — 자세한 이유는 두 RPC 설명 참고). 파기(DELETE)는 후보값 생성이 필요 없는 단순 삭제라 함수로 강제하지 않고, 아래 `lecture_join_codes_owner_delete` 정책으로 소유자 직접 쿼리를 그대로 허용합니다.
+
+`lecture_join_codes_owner_insert`는 이제 실제 발급 경로가 아니지만(RPC가 `SECURITY DEFINER`라 이 정책을 우회함), REVOKE가 나중에 풀리는 경우를 대비한 방어책으로 남겨둡니다.
+
 ```sql
 alter table lecture_join_codes enable row level security;
 create policy "lecture_join_codes_select_all" on lecture_join_codes for select using (true);
-create policy "lecture_join_codes_owner_all" on lecture_join_codes for insert
+create policy "lecture_join_codes_owner_insert" on lecture_join_codes for insert
   with check (exists (select 1 from lectures join nodes on nodes.id = lectures.id where lectures.id = lecture_id and nodes.created_by = auth.uid()));
 create policy "lecture_join_codes_owner_delete" on lecture_join_codes for delete
   using (exists (select 1 from lectures join nodes on nodes.id = lectures.id where lectures.id = lecture_id and nodes.created_by = auth.uid()));
+
+revoke insert, update on lecture_join_codes from anon, authenticated;
 ```
 
 ### `lecture_feedback_votes`
@@ -687,3 +793,4 @@ create policy "post_likes_delete_own" on post_likes for delete
   - `20260706163119_rename_reopen_to_unresolve.sql` — `reopen_resolved_post_on_question_reply()`/`trg_reopen_resolved_post_on_question_reply`를 `unresolve_post_on_question_reply()`/`trg_unresolve_post_on_question_reply`로 개명 (동작 변화 없음, "reopen"이 실제 동작에 비해 모호해서 상태값 이름과 대칭되게 변경)
   - `20260706170256_rename_columns_and_my_nodes_table.sql` — 이름을 더 명확하게 다듬기 위한 리네임(동작 변화 없음): `my_nodes` → `favorites`, `nodes.node_type` → `nodes.type`, `lectures.node_id` → `lectures.id`, `my_nodes.folder_id` → `favorites.anchor_id`, `posts.post_type` → `posts.type`. 텍스트 기반이라 리네임을 자동으로 안 따라가는 `block_status_change_by_non_lecturer()`/`unresolve_post_on_question_reply()`/`get_my_favorite_subtrees()` 함수 본문과 `posts_public` 뷰, `favorites`의 RLS 정책 이름(`favorites_owner_all` 등)도 같이 갱신
   - `20260707023348_posts_counts_view.sql` — "내 강의" 목록에서 강의별 게시글 개수를 보여주기 위한 `posts_counts` 뷰 추가(`lecture_id`별 `count(*)`). 다른 counts 뷰와 달리 보안 목적이 아니라, PostgREST가 서버 사이드 `group by`를 지원하지 않아 여러 강의의 개수를 한 번의 요청으로 가져오기 위한 효율성 목적
+  - `20260707120000_join_code_issue_functions.sql` — `lecture_join_codes.code` 컬럼에 랜덤 4자리 값 `default` 추가, 발급/재발급 RPC(`get_or_create_join_code`, `reissue_join_code`) 추가, 직접 쿼리로 발급/재발급을 못 하게 `INSERT`/`UPDATE` 테이블 권한을 `anon`/`authenticated`에서 회수, `lecture_join_codes_owner_all` → `lecture_join_codes_owner_insert` 정책 이름 수정(실제로는 `insert` 전용인데 `_all`이라 오해의 소지가 있었음)
