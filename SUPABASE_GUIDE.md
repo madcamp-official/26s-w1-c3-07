@@ -10,10 +10,10 @@
 - [4. `.env` / `.env.example` 사용법](#4-env--envexample-사용법)
 - [5. 실제로 사용할 코드 패턴](#5-실제로-사용할-코드-패턴)
 - [6. 트리 구조 데이터 조회 (내 강의 페이지 / 강의 페이지)](#6-트리-구조-데이터-조회-내-강의-페이지--강의-페이지)
-- [7. 비회원 인증: `guest_token` + `x-guest-token` 헤더](#7-비회원-인증-guest_token--x-guest-token-헤더)
-- [8. 강의자/수강생 모드 색 구분: `posts.created_mode`](#8-강의자수강생-모드-색-구분-postscreated_mode)
-- [9. 테스트용 더미 데이터](#9-테스트용-더미-데이터)
-- [10. 강의 공유 코드(`join_code`) 조회/발급/재발급](#10-강의-공유-코드join_code-조회발급재발급)
+- [7. 강의 공유 코드(`join_code`) 조회/발급/재발급](#7-강의-공유-코드join_code-조회발급재발급)
+- [8. 비회원 인증: `guest_token` + `x-guest-token` 헤더](#8-비회원-인증-guest_token--x-guest-token-헤더)
+- [9. 강의자/수강생 모드 색 구분: `posts.created_mode`](#9-강의자수강생-모드-색-구분-postscreated_mode)
+- [10. 테스트용 더미 데이터](#10-테스트용-더미-데이터)
 
 ## 1. Supabase URL / API 키란 무엇인가
 
@@ -279,40 +279,7 @@ const rootCourses = topLevel.filter(root => 'title' in root)
 
 세 요청(포스트/강의자 모드/수강생 모드) 다 로그인 시 한꺼번에 받아두지 말고, 모드 전환/페이지 진입 시점마다 그 모드에 맞는 것만 요청하면 됩니다.
 
-## 7. 비회원 인증: `guest_token` + `x-guest-token` 헤더
-
-로그인 안 한 수강생(비회원)도 질문을 남길 수 있어야 하는데, 그 사람이 "본인 글"을 나중에 수정/삭제하려면 신원 확인이 필요해요. 그래서 쓰는 게 `guest_token`입니다.
-
-- 브라우저 **`localStorage`**에 최초 1회 랜덤 값(UUID)을 생성해서 저장하고, 그 브라우저에서는 계속 재사용해요.
-- `posts.guest_token`, `post_likes`/`lecture_feedback_votes`의 `voter_key`, Presence(접속자 수 집계) 키로 전부 동일하게 재사용합니다.
-- 서버(Supabase RLS)는 이 값을 **`x-guest-token`이라는 커스텀 HTTP 헤더**로 보내주면, RLS 정책이 그 헤더 값과 DB에 저장된 `guest_token`을 대조해서 "본인 글이 맞는지" 확인해요.
-
-**⚠️ 아직 아무 데도 구현 안 되어 있습니다** — `guest_token` 생성/저장 로직도, 헤더를 실어 보내는 코드도 지금 코드베이스 어디에도 없어요. 앞으로 만들어야 할 부분입니다 ([TODO.md 프론트엔드 > guest_token 관련](./TODO.md#guest_token-관련-1) 참고).
-
-**구현 방식: 요청마다 체이닝으로 헤더 설정**
-
-```js
-await supabase
-  .from('posts_public')
-  .select('*')
-  .setHeader('x-guest-token', guestToken)
-```
-
-supabase 클라이언트는 앱 시작할 때 딱 한 번만 만들고(`supabaseClient.js`), 실제 요청을 보내는 시점에 `localStorage`에서 최신 `guestToken`을 읽어서 `.setHeader()`로 그때그때 붙이는 방식이에요.
-
-**왜 이 방식인지**: `createClient(...)` 옵션(`global.headers`)으로 헤더를 고정하는 방법도 있지만, 그건 클라이언트를 만드는 시점에 값이 한 번 박혀버려요. `guest_token`은 앱이 로드된 *이후에* `localStorage`에서 읽히는 값이라 클라이언트 생성 시점엔 아직 없을 수 있고, 로그인 여부에 따라 이 헤더가 필요 없는 요청도 있어서(회원은 `author_id`로 처리) 요청마다 동적으로 판단해야 합니다. 그래서 매 요청 시점에 값을 읽어 붙이는 `.setHeader()` 방식으로 갑니다.
-
-## 8. 강의자/수강생 모드 색 구분: `posts.created_mode`
-
-같은 계정이라도 강의자 모드로 쓴 글인지 수강생 모드로 쓴 글인지에 따라 화면 색을 다르게 표시해야 하는데(`author_id`가 강의 제작자와 같은지만으론 구분 안 됨), 그 판단은 `posts.created_mode` 컬럼 값(`'lecturer'` | `'student'`)만 보면 됩니다. 글 작성 시 이 값을 실어 보내는 건 프론트 로직에서 알아서 처리하면 되고요.
-
-- **`created_mode: 'lecturer'`로 보냈는데 실제 그 강의를 만든 계정이 아니면 INSERT 자체가 거부됩니다**(RLS가 `auth.uid()`로 검증). 모드 상태 관리 버그로 이 값이 잘못 실릴 경우 조용히 무시되는 게 아니라 요청이 실패하니, 에러 핸들링에 유의하세요. 자세한 제약 내용은 [DB_DESIGN.md](./DB_DESIGN.md) 참고.
-
-## 9. 테스트용 더미 데이터
-
-`backend/supabase/seed.sql`에 실제 스키마에 맞춘 더미 데이터가 원격 DB에 반영되어 있어요(강의 폴더/강의, 질문/답글, 좋아요, 실시간 피드백 등). [`DUMMY_DATA.md`](./DUMMY_DATA.md)에서 확인할 수 있는데, 계정별·모드별로 "내 강의" 페이지에 어떤 강의/폴더 트리가 보이는지(강의 입장 코드, 즐겨찾기 관계 포함)뿐 아니라, 일부 강의(트리와 그래프, 데이터베이스 설계 입문)에 실제로 등록되어 있는 질문/답글 트리 구조도 정리되어 있으니 강의 페이지 테스트할 때도 참고하세요.
-
-## 10. 강의 공유 코드(`join_code`) 조회/발급/재발급
+## 7. 강의 공유 코드(`join_code`) 조회/발급/재발급
 
 강의 페이지의 "강의 코드 공유" 버튼은 `lecture_join_codes` 테이블을 **직접 INSERT/UPDATE로 건드릴 수 없습니다** — 발급/재발급은 반드시 RPC를 통해야 하고, 파기(강의 종료 등으로 코드를 없애는 것)만 테이블에 직접 DELETE하면 됩니다. 자세한 이유(4자리 코드 충돌 재시도, 테이블 권한 회수)는 [DB_DESIGN.md의 `get_or_create_join_code()`/`reissue_join_code()` 설명](./DB_DESIGN.md#get_or_create_join_code) 참고.
 
@@ -352,3 +319,37 @@ const { data: newCode, error } = await supabase.rpc('reissue_join_code', {
 - `p_lecture_id`는 `lectures.id`(=`nodes.id`)입니다. `lecture_join_codes.code`가 아니에요.
 - 강의 소유자가 아닌 계정으로 두 RPC를 호출하면 에러가 나는 게 정상입니다(권한 체크). "발급 실패" 알림을 에러 종류 구분 없이 그냥 띄워도 되지만, 소유자 확인 버그와 헷갈리지 않도록 에러 메시지를 그대로 보여주는 걸 추천합니다.
 - 코드 파기(강의 종료 시 등)는 RPC가 아니라 `supabase.from('lecture_join_codes').delete().eq('lecture_id', lectureId)`를 직접 호출하면 됩니다(RLS가 소유자만 허용).
+
+## 8. 비회원 인증: `guest_token` + `x-guest-token` 헤더
+
+로그인 안 한 수강생(비회원)도 질문을 남길 수 있어야 하는데, 그 사람이 "본인 글"을 나중에 수정/삭제하려면 신원 확인이 필요해요. 그래서 쓰는 게 `guest_token`입니다.
+
+- 브라우저 **`localStorage`**에 최초 1회 랜덤 값(UUID)을 생성해서 저장하고, 그 브라우저에서는 계속 재사용해요.
+- `posts.guest_token`, `post_likes`/`lecture_feedback_votes`의 `voter_key`, Presence(접속자 수 집계) 키로 전부 동일하게 재사용합니다.
+- 서버(Supabase RLS)는 이 값을 **`x-guest-token`이라는 커스텀 HTTP 헤더**로 보내주면, RLS 정책이 그 헤더 값과 DB에 저장된 `guest_token`을 대조해서 "본인 글이 맞는지" 확인해요.
+
+**⚠️ 아직 아무 데도 구현 안 되어 있습니다** — `guest_token` 생성/저장 로직도, 헤더를 실어 보내는 코드도 지금 코드베이스 어디에도 없어요. 앞으로 만들어야 할 부분입니다 ([TODO.md 프론트엔드 > guest_token 관련](./TODO.md#guest_token-관련-1) 참고).
+
+**구현 방식: 요청마다 체이닝으로 헤더 설정**
+
+```js
+await supabase
+  .from('posts_public')
+  .select('*')
+  .setHeader('x-guest-token', guestToken)
+```
+
+supabase 클라이언트는 앱 시작할 때 딱 한 번만 만들고(`supabaseClient.js`), 실제 요청을 보내는 시점에 `localStorage`에서 최신 `guestToken`을 읽어서 `.setHeader()`로 그때그때 붙이는 방식이에요.
+
+**왜 이 방식인지**: `createClient(...)` 옵션(`global.headers`)으로 헤더를 고정하는 방법도 있지만, 그건 클라이언트를 만드는 시점에 값이 한 번 박혀버려요. `guest_token`은 앱이 로드된 *이후에* `localStorage`에서 읽히는 값이라 클라이언트 생성 시점엔 아직 없을 수 있고, 로그인 여부에 따라 이 헤더가 필요 없는 요청도 있어서(회원은 `author_id`로 처리) 요청마다 동적으로 판단해야 합니다. 그래서 매 요청 시점에 값을 읽어 붙이는 `.setHeader()` 방식으로 갑니다.
+
+## 9. 강의자/수강생 모드 색 구분: `posts.created_mode`
+
+같은 계정이라도 강의자 모드로 쓴 글인지 수강생 모드로 쓴 글인지에 따라 화면 색을 다르게 표시해야 하는데(`author_id`가 강의 제작자와 같은지만으론 구분 안 됨), 그 판단은 `posts.created_mode` 컬럼 값(`'lecturer'` | `'student'`)만 보면 됩니다. 글 작성 시 이 값을 실어 보내는 건 프론트 로직에서 알아서 처리하면 되고요.
+
+- **`created_mode: 'lecturer'`로 보냈는데 실제 그 강의를 만든 계정이 아니면 INSERT 자체가 거부됩니다**(RLS가 `auth.uid()`로 검증). 모드 상태 관리 버그로 이 값이 잘못 실릴 경우 조용히 무시되는 게 아니라 요청이 실패하니, 에러 핸들링에 유의하세요. 자세한 제약 내용은 [DB_DESIGN.md](./DB_DESIGN.md) 참고.
+
+## 10. 테스트용 더미 데이터
+
+`backend/supabase/seed.sql`에 실제 스키마에 맞춘 더미 데이터가 원격 DB에 반영되어 있어요(강의 폴더/강의, 질문/답글, 좋아요, 실시간 피드백 등). [`DUMMY_DATA.md`](./DUMMY_DATA.md)에서 확인할 수 있는데, 계정별·모드별로 "내 강의" 페이지에 어떤 강의/폴더 트리가 보이는지(강의 입장 코드, 즐겨찾기 관계 포함)뿐 아니라, 일부 강의(트리와 그래프, 데이터베이스 설계 입문)에 실제로 등록되어 있는 질문/답글 트리 구조도 정리되어 있으니 강의 페이지 테스트할 때도 참고하세요.
+
