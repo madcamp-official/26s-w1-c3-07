@@ -5,7 +5,19 @@
 - [테이블 개요](#테이블-개요)
 - [SQL](#sql)
   - [테이블](#테이블)
+    - [`profiles` 테이블](#profiles-테이블)
+    - [`nodes` 테이블](#nodes-테이블)
+    - [`favorites` 테이블](#favorites-테이블)
+    - [`lectures` 테이블](#lectures-테이블)
+    - [`lecture_join_codes` 테이블](#lecture_join_codes-테이블)
+    - [`lecture_feedback_votes` 테이블](#lecture_feedback_votes-테이블)
+    - [`posts` 테이블](#posts-테이블)
+    - [`post_likes` 테이블](#post_likes-테이블)
   - [뷰](#뷰)
+    - [`posts_public` 뷰](#posts_public-뷰)
+    - [`posts_counts` 뷰](#posts_counts-뷰)
+    - [`post_likes_counts` 뷰](#post_likes_counts-뷰)
+    - [`lecture_feedback_votes_counts` 뷰](#lecture_feedback_votes_counts-뷰)
   - [트리거 함수](#트리거-함수)
     - [`anonymize_posts_before_profile_delete()`](#anonymize_posts_before_profile_delete)
     - [`block_status_change_by_non_lecturer()`](#block_status_change_by_non_lecturer)
@@ -48,109 +60,140 @@
 | `posts` | 게시글 + 답글 통합 트리, 질문/의견 타입, 미해결/해결, 비회원 인증(`guest_token`) |
 | `post_likes` | 게시글/답글 좋아요 |
 | `posts_public` (뷰) | `posts`에서 `guest_token`/`author_id`를 뺀 공개 조회용 뷰(비익명 글만 작성자 이름 노출). 프론트는 `posts` 대신 이 뷰를 조회 |
-| `post_likes_counts` (뷰) | `post_likes`에서 `voter_key` 없이 게시글별 좋아요 개수만 집계한 공개 조회용 뷰 |
 | `posts_counts` (뷰) | `posts`를 `lecture_id`별로 `count(*)`한 게시글 개수 집계 뷰. `posts_public`처럼 숨길 값이 있어서가 아니라, 여러 강의의 개수를 한 번의 요청으로 가져오기 위한 효율성 목적 |
+| `post_likes_counts` (뷰) | `post_likes`에서 `voter_key` 없이 게시글별 좋아요 개수만 집계한 공개 조회용 뷰 |
 | `lecture_feedback_votes_counts` (뷰) | `lecture_feedback_votes`에서 `voter_key` 없이 강의·피드백 유형별 좋아요/싫어요 개수만 집계한 공개 조회용 뷰 |
 
 ## SQL
 
 ### 테이블
 
-```sql
--- 회원 부가정보 (Supabase Auth 사용자 확장)
-create table profiles (
-  id uuid primary key references auth.users(id) on delete cascade, -- 탈퇴 시 프로필도 같이 삭제
-  name text,
-  mode text not null default 'student' check (mode in ('lecturer', 'student')) -- 로그인 시 자동 진입할 모드
-);
+#### `profiles` 테이블
 
--- 트리 구조: 강의 폴더 / 강의, 깊이 무제한
+Supabase Auth 사용자(`auth.users`)를 확장하는 회원 부가정보 테이블입니다. `id`가 `auth.users(id)`를 그대로 참조하며 `on delete cascade`라 회원 탈퇴 시 프로필도 함께 삭제됩니다. `mode`는 로그인 시 자동으로 진입할 모드(강의자/수강생)를 저장합니다.
+
+```sql
+create table profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  name text,
+  mode text not null default 'student' check (mode in ('lecturer', 'student'))
+);
+```
+
+#### `nodes` 테이블
+
+강의 폴더와 강의를 하나의 트리로 묶는 핵심 테이블로, `parent_id`가 자기 자신을 참조해 깊이 제한 없는 트리를 이룹니다. 폴더를 삭제하면 `on delete cascade`로 하위 노드가 재귀적으로 전부 삭제됩니다. `created_by`는 만든 사람이 탈퇴해도 `on delete set null`이라 강의/폴더 자체는 유지되고 작성자 정보만 사라집니다. `created_mode`는 같은 계정이 강의자/수강생 어느 모드에서 만들었는지를 구분하며, `check (type <> 'lecture' or created_mode = 'lecturer')` 제약으로 강의(`lecture`)는 항상 강의자 모드에서만 만들어지도록 강제합니다. `created_at`은 기본 정렬 기준(생성 시각순)이고, 수동 정렬 기능이 추가되면 그때 `position` 컬럼을 별도로 추가할 계획입니다.
+
+```sql
 create table nodes (
   id uuid primary key default gen_random_uuid(),
-  parent_id uuid references nodes(id) on delete cascade, -- 폴더 삭제 시 하위 노드 전부 연쇄 삭제(재귀적으로 전파됨)
+  parent_id uuid references nodes(id) on delete cascade,
   type text not null check (type in ('folder', 'lecture')),
   name text not null,
-  created_by uuid references profiles(id) on delete set null, -- 만든 사람이 탈퇴해도 강의/폴더 자체는 유지, 작성자 정보만 사라짐
-  created_mode text not null check (created_mode in ('lecturer', 'student')), -- 같은 계정이 강의자/수강생 어느 모드에서 만들었는지. 강의(lecture)는 항상 lecturer
-  created_at timestamptz default now(), -- 정렬 기준(사전순/생성시각순). 수동 정렬 기능 추가 시 position 컬럼을 그때 추가
+  created_by uuid references profiles(id) on delete set null,
+  created_mode text not null check (created_mode in ('lecturer', 'student')),
+  created_at timestamptz default now(),
   check (type <> 'lecture' or created_mode = 'lecturer')
 );
+```
 
--- "내 강의" 즐겨찾기 (수강생 모드)
+#### `favorites` 테이블
+
+"내 강의" 즐겨찾기(수강생 모드) 기록입니다. `user_id`는 탈퇴 시 `on delete cascade`로 내 즐겨찾기 목록도 함께 삭제됩니다. `node_id`는 즐겨찾기 대상(남이 만든 강의 또는 강의 폴더)이고, 대상이 삭제되면 즐겨찾기 기록도 같이 삭제됩니다. `anchor_id`는 이 즐겨찾기를 정리해둔 내 개인 폴더로, 그 폴더가 삭제되면 안에 정리된 즐겨찾기 기록도 함께 삭제됩니다.
+
+```sql
 create table favorites (
-  user_id uuid references profiles(id) on delete cascade, -- 탈퇴 시 내 즐겨찾기 목록도 같이 삭제
-  node_id uuid references nodes(id) on delete cascade, -- 즐겨찾기 대상 (남이 만든 강의 또는 강의 폴더). 대상이 삭제되면 즐겨찾기 기록도 같이 삭제
-  anchor_id uuid references nodes(id) on delete cascade, -- 이 즐겨찾기를 넣어둔 내 개인 폴더. 폴더가 삭제되면 그 안의 즐겨찾기 기록도 전부 같이 삭제
+  user_id uuid references profiles(id) on delete cascade,
+  node_id uuid references nodes(id) on delete cascade,
+  anchor_id uuid references nodes(id) on delete cascade,
   primary key (user_id, node_id)
 );
+```
 
--- 강의의 부가 속성
--- 입장 URL/QR은 별도 코드 없이 id(=nodes.id, UUID)를 그대로 사용 (예: /join/<id>)
--- 같은 id를 "즐겨찾기 등록 코드"로도 재사용 (강의뿐 아니라 강의 폴더도 이 코드로 favorites에 등록 가능)
+#### `lectures` 테이블
+
+강의(`nodes.type = 'lecture'`)의 부가 속성을 담는 1:1 테이블로, `id`가 `nodes(id)`를 그대로 참조합니다. 입장 URL/QR은 별도 코드 없이 이 `id`(=`nodes.id`, UUID)를 그대로 사용하고(`/join/<id>`), 같은 `id`를 "즐겨찾기 등록 코드"로도 재사용합니다(강의뿐 아니라 강의 폴더도 이 코드로 `favorites`에 등록 가능). `max_participants`는 미설정(`null`) 또는 0 이상만 허용합니다.
+
+```sql
 create table lectures (
   id uuid primary key references nodes(id) on delete cascade,
   start_time timestamptz not null,
   end_time timestamptz not null,
   location text,
-  max_participants int check (max_participants is null or max_participants >= 0) -- 미설정(null) 또는 0 이상만 허용
+  max_participants int check (max_participants is null or max_participants >= 0)
 );
+```
 
--- 강의 입장 전용 4자리 숫자 코드 (즐겨찾기 등록용 id 코드와는 별개)
--- 필요할 때 발급(INSERT)하고 안 쓰면 파기(DELETE)하는 방식이라, 시간이 안 겹치면 다른 강의가 같은 번호를 바로 재사용 가능
+#### `lecture_join_codes` 테이블
+
+강의 입장 전용 4자리 숫자 코드로, 즐겨찾기 등록용 `id` 코드와는 별개입니다. 필요할 때 발급(INSERT)하고 안 쓰면 파기(DELETE)하는 방식이라, 시간이 안 겹치면 다른 강의가 같은 번호를 바로 재사용할 수 있습니다. `lecture_id`는 `unique` 제약으로 강의당 활성 코드가 1개만 존재하도록 합니다. 발급/재발급은 [`get_or_create_join_code()`](#get_or_create_join_code)/[`reissue_join_code()`](#reissue_join_code) RPC로만 가능합니다(자세한 이유는 해당 함수 설명 참고).
+
+```sql
 create table lecture_join_codes (
   code text primary key check (code ~ '^[0-9]{4}$'),
-  lecture_id uuid not null unique references lectures(id) on delete cascade, -- 강의당 활성 코드 1개만
+  lecture_id uuid not null unique references lectures(id) on delete cascade,
   issued_at timestamptz default now()
 );
+```
 
--- 실시간 피드백(추워요/더워요/소리 작아요/잘 안 보여요)의 좋아요/싫어요
--- PK에 value까지 포함시켜, 한 사람이 같은 feedback_type에 좋아요/싫어요를
--- 동시에 독립적으로 누를 수 있게 함 (voter_key만으로 PK를 잡으면 둘 중 하나만 가능해짐)
+#### `lecture_feedback_votes` 테이블
+
+실시간 피드백(추워요/더워요/소리 작아요/잘 안 보여요)의 좋아요/싫어요를 기록합니다. PK에 `value`까지 포함시켜, 한 사람이 같은 `feedback_type`에 좋아요/싫어요를 동시에 독립적으로 누를 수 있게 합니다(`voter_key`만으로 PK를 잡으면 둘 중 하나만 가능해짐). 좋아요/싫어요 개수는 각각 `count(*) filter (where value = 1)`/`count(*) filter (where value = -1)`로 집계해 화면에 따로 표시하고, 4개 피드백 유형을 정렬할 때는 `sum(value)`(좋아요 - 싫어요 순수 점수)를 기준으로 사용합니다. 강의자가 "초기화"를 누르면 해당 `lecture_id`의 행을 전부 삭제합니다.
+
+```sql
 create table lecture_feedback_votes (
   lecture_id uuid references lectures(id) on delete cascade,
   feedback_type text not null check (feedback_type in ('cold', 'hot', 'quiet', 'unclear')),
   voter_key uuid not null,
-  value smallint not null check (value in (1, -1)), -- 좋아요/싫어요
+  value smallint not null check (value in (1, -1)),
   primary key (lecture_id, feedback_type, voter_key, value)
 );
--- 좋아요/싫어요 개수는 각각 count(*) filter (where value = 1) / count(*) filter (where value = -1)로 집계해 화면에 따로 표시.
--- 4개 피드백 유형을 정렬할 때는 sum(value)(좋아요 - 싫어요 순수 점수)를 기준으로 사용.
--- 강의자가 "초기화" 누르면 해당 lecture_id의 행을 전부 delete
+```
 
--- 게시글 + 답글 통합 트리 (parent_id로 무한 depth)
+#### `posts` 테이블
+
+게시글과 답글을 하나로 통합한 자기참조 트리로, `parent_id`가 `null`이면 최상위 게시글, 값이 있으면 답글입니다(무한 depth). 최상위 글을 삭제하면 답글도 `on delete cascade`로 재귀 삭제됩니다. `author_id`는 비회원이면 `null`이고, 회원이 탈퇴해도 `on delete set null`로 글은 남고 작성자 정보만 사라집니다. `guest_token`은 비회원 글 수정/삭제 인증용이며, 강의 종료 후 무효 처리는 `lectures.end_time` 비교로 앱/RLS에서 판단합니다. `status`는 최상위 게시글만 사용(답글은 `null`)하고, `resolved_at`은 해결됨으로 바뀐 시각으로 해결된 게시글 정렬 기준이며 미해결로 되돌아가면 다시 `null` 처리됩니다. `created_mode`는 강의자 모드/수강생 모드 중 어느 화면에서 썼는지를 저장해 화면에서 색을 구분하는 데 씁니다. 네 개의 `check` 제약은 각각: 작성자가 없으면(비회원) 반드시 익명이어야 함, 최상위 게시글은 `status` 필수·답글은 `status` 필수 `null`, 강의자 모드로 쓴 글은 답글+`opinion` 타입만 가능, `resolved`일 때만 `resolved_at`이 존재하도록 양방향 강제합니다.
+
+```sql
 create table posts (
   id uuid primary key default gen_random_uuid(),
   lecture_id uuid not null references lectures(id) on delete cascade,
-  parent_id uuid references posts(id) on delete cascade, -- null = 최상위 게시글, 삭제 시 답글도 재귀적으로 연쇄 삭제
-  author_id uuid references profiles(id) on delete set null, -- 비회원이면 null. 회원이 탈퇴해도 글은 남고 작성자 정보만 사라짐
+  parent_id uuid references posts(id) on delete cascade,
+  author_id uuid references profiles(id) on delete set null,
   is_anonymous boolean not null default true,
-  guest_token text, -- 비회원 글 수정/삭제 인증용 (강의 종료 후 무효 처리는 end_time 비교로 앱/RLS에서 판단)
+  guest_token text,
   type text not null check (type in ('question', 'opinion')),
-  status text check (status in ('unresolved', 'resolved')), -- 최상위 게시글만 사용, 답글은 null
-  resolved_at timestamptz, -- 해결됨으로 바뀐 시각. 해결된 게시글 정렬 기준. 미해결로 되돌아가면 다시 null 처리
+  status text check (status in ('unresolved', 'resolved')),
+  resolved_at timestamptz,
   content text not null,
   created_at timestamptz default now(),
-  created_mode text not null default 'student' check (created_mode in ('lecturer', 'student')), -- 강의자 모드/수강생 모드 중 어느 화면에서 썼는지 (화면에서 색 구분용)
-  check (author_id is not null or is_anonymous = true), -- 작성자가 없으면(비회원) 반드시 익명이어야 함
-  check ((parent_id is null) = (status is not null)), -- 최상위 게시글은 status 필수, 답글은 status 필수 null
-  check (created_mode <> 'lecturer' or (parent_id is not null and type = 'opinion')), -- 강의자 모드로 쓴 글은 답글+opinion 타입만 가능
-  check ((status = 'resolved') = (resolved_at is not null)) -- resolved일 때만 resolved_at 존재, 양방향 강제
+  created_mode text not null default 'student' check (created_mode in ('lecturer', 'student')),
+  check (author_id is not null or is_anonymous = true),
+  check ((parent_id is null) = (status is not null)),
+  check (created_mode <> 'lecturer' or (parent_id is not null and type = 'opinion')),
+  check ((status = 'resolved') = (resolved_at is not null))
 );
+```
 
--- 좋아요 (게시글/답글 공용, 중복 방지)
+#### `post_likes` 테이블
+
+게시글/답글 공용 좋아요이며, PK로 중복 투표를 방지합니다. `voter_key`는 회원이면 `auth.uid()`, 비회원이면 `guest_token`(`crypto.randomUUID()`)을 사용합니다.
+
+```sql
 create table post_likes (
   post_id uuid references posts(id) on delete cascade,
-  voter_key uuid not null, -- 회원: auth.uid(), 비회원: guest_token(crypto.randomUUID())
+  voter_key uuid not null,
   primary key (post_id, voter_key)
 );
 ```
 
 ### 뷰
 
+#### `posts_public` 뷰
+
+`posts`는 테이블 자체 SELECT 권한이 없어(아래 [RLS 정책 → `posts`](#posts) 참고) 이 뷰로만 조회할 수 있습니다. `guest_token`은 완전히 제외하고, `author_id`(uid)도 통째로 숨긴 뒤 `is_anonymous`가 `false`인 글만 `profiles.name`을 조인해서 보여줍니다.
+
 ```sql
--- posts는 테이블 자체 SELECT 권한이 없어 이 뷰로만 조회 가능(아래 RLS 정책 참고).
--- guest_token은 완전히 제외하고, author_id(uid)도 통째로 숨긴 뒤
--- is_anonymous가 false인 글만 profiles.name을 조인해서 보여줌
 create view posts_public as
 select
   p.id,
@@ -165,14 +208,35 @@ select
   p.created_at
 from posts p
 left join profiles pr on pr.id = p.author_id;
+```
 
--- post_likes / lecture_feedback_votes도 테이블 자체 SELECT는 본인 투표 행만 가능하도록 좁혔으므로
--- (아래 RLS 정책 참고), voter_key 없이 집계된 개수만 보여주는 공개용 뷰를 따로 둠
+#### `posts_counts` 뷰
+
+"내 강의" 목록에서 강의별 게시글 개수를 보여주기 위한 집계 뷰입니다. 다른 두 counts 뷰와 달리 보안 목적이 아닙니다 — `posts_public`이 이미 전체 공개라 숨길 값이 없습니다. PostgREST가 서버 사이드 `group by`를 지원하지 않아서, 여러 강의의 게시글 개수를 한 번의 요청으로 가져오기 위한 효율성 목적으로만 추가했습니다.
+
+```sql
+create view posts_counts as
+select lecture_id, count(*) as post_count
+from posts
+group by lecture_id;
+```
+
+#### `post_likes_counts` 뷰
+
+`post_likes`도 테이블 자체 SELECT는 본인 투표 행만 가능하도록 좁혀서(아래 [RLS 정책 → `post_likes`](#post_likes) 참고), `voter_key` 없이 집계된 개수만 보여주는 공개용 뷰를 따로 둡니다.
+
+```sql
 create view post_likes_counts as
 select post_id, count(*) as like_count
 from post_likes
 group by post_id;
+```
 
+#### `lecture_feedback_votes_counts` 뷰
+
+`lecture_feedback_votes`도 마찬가지로 테이블 자체 SELECT는 본인 투표 행만 가능하도록 좁혀서(아래 [RLS 정책 → `lecture_feedback_votes`](#lecture_feedback_votes) 참고), `voter_key` 없이 강의·피드백 유형별 좋아요/싫어요 개수만 집계해 공개합니다.
+
+```sql
 create view lecture_feedback_votes_counts as
 select
   lecture_id,
@@ -181,15 +245,6 @@ select
   count(*) filter (where value = -1) as dislike_count
 from lecture_feedback_votes
 group by lecture_id, feedback_type;
-
--- posts_counts는 위 두 counts 뷰와 달리 보안 목적이 아님(posts_public이 이미 전체
--- 공개라 숨길 값이 없음) — PostgREST가 서버 사이드 group by를 지원하지 않아서,
--- "내 강의" 목록에서 여러 강의의 게시글 개수를 한 번의 요청으로 가져오기 위한
--- 효율성 목적으로만 추가함
-create view posts_counts as
-select lecture_id, count(*) as post_count
-from posts
-group by lecture_id;
 ```
 
 ### 트리거 함수
@@ -743,8 +798,8 @@ create policy "post_likes_delete_own" on post_likes for delete
 
 - **허용은 정책, 차단은 트리거**: `posts_lecturer_update_status`/`posts_lecturer_delete`/`lecture_feedback_votes_lecturer_reset` 정책은 강의자에게 상태 전환/삭제/피드백 초기화를 **허용**하는 쪽을, `block_status_change_by_non_lecturer()` 트리거는 강의자가 아니면 절대 못 바꾸게 **차단**하는 쪽을 맡는 구조입니다.
 - **`posts_public` 뷰**: `posts` 테이블 자체는 SELECT 권한이 없어(위 [RLS 정책 → `posts`](#posts) 참고) 이 뷰로만 조회할 수 있습니다. `guest_token`은 완전히 제외하고, `author_id`(uid)도 통째로 숨긴 뒤 `is_anonymous`가 `false`인 글만 `profiles.name`을 조인해서 보여줍니다. 뷰가 `profiles`를 조인할 수 있는 건 Postgres 뷰가 기본적으로 조회자가 아니라 **뷰 소유자의 권한**으로 실행되기 때문으로, `profiles`가 본인만 조회 가능하도록 좁혀져 있어도 뷰 내부 조인에는 영향이 없습니다(수정/삭제 자체는 여전히 `posts` 테이블의 RLS 정책으로 처리).
+- **`posts_counts` 뷰는 `post_likes_counts`/`lecture_feedback_votes_counts`와 성격이 다릅니다**: 그 두 뷰는 `voter_key` 노출을 막기 위한 보안 목적이었지만, `posts_counts`가 조회하는 `posts_public`은 이미 전체 공개라 숨길 값이 없습니다. 이 뷰가 필요한 이유는 순전히 **PostgREST가 서버 사이드 `group by` 집계를 지원하지 않기 때문**입니다 — "내 강의" 목록 화면에서 강의마다 게시글 개수를 보여줘야 하는데, 뷰 없이는 강의 하나당 조회를 따로 보내야 하거나(요청 수 증가) 전체 게시글을 다 받아와 클라이언트에서 세야 합니다(대역폭 낭비). `lecture_id`별 `count(*)`만 집계해서, 여러 강의의 개수를 `.in('lecture_id', [...])` 한 번의 요청으로 가져올 수 있게 합니다.
 - **`post_likes_counts`/`lecture_feedback_votes_counts` 뷰**: `post_likes`/`lecture_feedback_votes`도 테이블 자체 SELECT는 본인 투표 행(`voter_key` 일치)만 가능하도록 좁혀서(위 [RLS 정책 → `post_likes`](#post_likes)/[`lecture_feedback_votes`](#lecture_feedback_votes) 참고), 남이 무엇을 눌렀는지는 직접 조회할 수 없습니다. 하지만 좋아요/피드백 개수는 누구나 봐야 하는 값이라, `voter_key` 없이 `count(*)`로 집계만 한 별도 뷰로 공개합니다. `post_likes_counts`는 `post_id`별 좋아요 개수, `lecture_feedback_votes_counts`는 `lecture_id`·`feedback_type`별 좋아요/싫어요 개수(`count(*) filter (where value = 1/-1)`)를 보여줍니다. "내가 이미 눌렀는지"는 이 뷰가 아니라 `post_likes`/`lecture_feedback_votes` 테이블에 본인 `voter_key`로 직접 SELECT해서 확인합니다(RLS가 본인 행만 허용하므로 가능).
-- **`posts_counts` 뷰는 위 두 counts 뷰와 성격이 다릅니다**: `post_likes_counts`/`lecture_feedback_votes_counts`는 `voter_key` 노출을 막기 위한 보안 목적이었지만, `posts_counts`가 조회하는 `posts_public`은 이미 전체 공개라 숨길 값이 없습니다. 이 뷰가 필요한 이유는 순전히 **PostgREST가 서버 사이드 `group by` 집계를 지원하지 않기 때문**입니다 — "내 강의" 목록 화면에서 강의마다 게시글 개수를 보여줘야 하는데, 뷰 없이는 강의 하나당 조회를 따로 보내야 하거나(요청 수 증가) 전체 게시글을 다 받아와 클라이언트에서 세야 합니다(대역폭 낭비). `lecture_id`별 `count(*)`만 집계해서, 여러 강의의 개수를 `.in('lecture_id', [...])` 한 번의 요청으로 가져올 수 있게 합니다.
 
 ## 실시간 접속자 수 (강의별)
 
