@@ -14,6 +14,7 @@
 - [8. 비회원 인증: `guest_token` + `x-guest-token` 헤더](#8-비회원-인증-guest_token--x-guest-token-헤더)
 - [9. 강의자/수강생 모드 색 구분: `posts_public.created_mode`](#9-강의자수강생-모드-색-구분-posts_publiccreated_mode)
 - [10. 테스트용 더미 데이터](#10-테스트용-더미-데이터)
+- [11. 글 작성/제출: `ai-correct`, `submit-post` Edge Function](#11-글-작성제출-ai-correct-submit-post-edge-function)
 
 ## 1. Supabase URL / API 키란 무엇인가
 
@@ -255,7 +256,7 @@ const rootCourses = topLevel.filter(root => 'title' in root)
 **남은 간극**
 
 - `date`/`startTime`/`endTime`/`location`/`capacity`는 **`registered`(즐겨찾기) 강의에는 필요 없습니다.** 이 값을 실제로 읽는 곳은 강의 수정 폼(`CreateCoursePage.tsx`)의 프리필뿐인데, 수정 기능 자체가 `ownership === 'owned'` 강의에만 열려 있어서(남의 강의는 수정 불가) `registered` 강의는 애초에 아무도 이 값을 안 봅니다. `owned` 강의는 이미 `nodes.select('*, lectures(start_time, end_time, location, max_participants)')`로 조인해서 채우고 있으니 이대로 두면 됩니다 — `get_my_favorite_subtrees()`에 `lectures` 조인을 추가할 필요는 없습니다.
-- **`questionCount`(프론트 라벨은 "게시글 {n}개")는 아직 `0`으로 고정돼 있습니다.** `posts_counts` 뷰(`lecture_id`별 게시글 개수)를 추가해뒀으니, 트리 조립 후 한 번에 채워 넣으면 됩니다.
+- **`questionCount`(프론트 라벨은 "게시글 {n}개") — ✅ 프론트 구현 완료.** `posts_counts` 뷰(`lecture_id`별 게시글 개수)를 트리 조립 후 한 번에 조회해 채워 넣습니다(`services/api.ts`의 `fillQuestionCounts()`, `findCourseByJoinCode()`의 단일 강의 조회 경로도 동일 처리).
   ```js
   const lectureIds = [...folders /* 재귀로 모은 course id 전부 */, ...rootCourses].map(c => c.id)
   const { data: counts } = await supabase.from('posts_counts').select('lecture_id, post_count').in('lecture_id', lectureIds)
@@ -281,7 +282,11 @@ const rootCourses = topLevel.filter(root => 'title' in root)
 
 세 요청(포스트/강의자 모드/수강생 모드) 다 로그인 시 한꺼번에 받아두지 말고, 모드 전환/페이지 진입 시점마다 그 모드에 맞는 것만 요청하면 됩니다.
 
+**`registerCourseByCode`와 `joinCourse`는 서로 다른 값을 받습니다** — 둘 다 "코드"라고 부르지만 실제로는 다른 식별자예요. `joinCourse`(강의 코드 입력 후 바로 입장, 목록엔 등록 안 함)는 4자리 숫자(`lecture_join_codes.code`)를 받아 그 코드로 `lecture_id`를 찾습니다. `registerCourseByCode`(내 강의 목록에 등록)는 강의 UUID(`nodes.id`)를 직접 입력받아 `nodes`를 바로 조회합니다 — `lecture_join_codes`를 거치지 않습니다. `services/api.ts`에서 전자는 `findCourseByJoinCode()`(4자리 정규식 검증), 후자는 `findCourseById()`(UUID 정규식 검증)로 분리되어 있습니다.
+
 ## 7. 강의 공유 코드(`join_code`) 조회/발급/재발급
+
+**✅ 프론트 구현 완료** — `services/api.ts`의 `getOrCreateJoinCode()`/`reissueJoinCode()`가 두 RPC를 감싸고, `ShareCourseModal.tsx`가 모달을 열 때 `course.joinCode`가 없으면 자동 발급하고 "재발급" 버튼도 제공합니다.
 
 강의 페이지의 "강의 코드 공유" 버튼은 `lecture_join_codes` 테이블을 **직접 INSERT/UPDATE로 건드릴 수 없습니다** — 발급/재발급은 반드시 RPC를 통해야 하고, 파기(강의 종료 등으로 코드를 없애는 것)만 테이블에 직접 DELETE하면 됩니다. 자세한 이유(4자리 코드 충돌 재시도, 테이블 권한 회수)는 [DB_DESIGN.md의 `get_or_create_join_code()`/`reissue_join_code()` 설명](./DB_DESIGN.md#get_or_create_join_code) 참고.
 
@@ -351,9 +356,82 @@ supabase 클라이언트는 앱 시작할 때 딱 한 번만 만들고(`supabase
 
 같은 계정이라도 강의자 모드로 쓴 글인지 수강생 모드로 쓴 글인지에 따라 화면 색을 다르게 표시해야 하는데(`author_id`가 강의 제작자와 같은지만으론 구분 안 됨), 그 판단은 조회한 **`posts_public`**(`posts`가 아님, [5번 "테이블 조회"](#테이블-조회) 참고) 행의 `created_mode` 컬럼 값(`'lecturer'` | `'student'`)만 보면 됩니다.
 
-- **`created_mode: 'lecturer'`로 글을 쓰는데 실제 그 강의를 만든 계정이 아니면 거부됩니다.** 지금은 클라이언트가 `posts`에 직접 insert하고 RLS(`auth.uid()`로 검증)가 이걸 막는 구조지만, [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md)에 정리된 대로 글 작성 자체가 곧 **`submit-post` Edge Function**을 통해서만 가능하도록 바뀔 예정이에요(아직 계획 단계, RLS도 함수도 실제로 바뀌지 않았음 — 지금은 여전히 클라이언트 직접 insert). 그 전환이 끝나면 `created_mode`를 실어 보내는 방식이 `posts.insert(...)` 호출에서 `submit-post` 요청 바디의 필드로 바뀔 뿐, "본인이 만든 강의가 아니면 거부"라는 동작 자체는 그대로 유지됩니다. 모드 상태 관리 버그로 이 값이 잘못 실릴 경우 조용히 무시되는 게 아니라 요청이 실패하니, 에러 핸들링에 유의하세요. 자세한 제약 내용은 [DB_DESIGN.md](./DB_DESIGN.md) 참고.
+- **`created_mode: 'lecturer'`로 글을 쓰는데 실제 그 강의를 만든 계정이 아니면 거부됩니다.** 글 작성은 [11번](#11-글-작성제출-ai-correct-submit-post-edge-function)에 정리된 **`submit-post` Edge Function**을 통해서만 이뤄지고(구현·배포 완료), 이 함수 내부에서 `lectures`/`nodes` 조인으로 소유권을 확인해 거부합니다. **다만 클라이언트가 이 함수를 우회해 `posts`에 직접 insert하는 것 자체를 막는 RLS 변경(`posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 정책 삭제 + INSERT 권한 회수)은 아직 적용 전**이라, 지금 당장은 클라이언트가 직접 insert해도 여전히 통과됩니다 — 프론트는 `submit-post`를 쓰도록 맞춰주세요. 모드 상태 관리 버그로 이 값이 잘못 실릴 경우 조용히 무시되는 게 아니라 요청이 실패하니, 에러 핸들링에 유의하세요. 자세한 제약 내용은 [DB_DESIGN.md](./DB_DESIGN.md) 참고.
 
 ## 10. 테스트용 더미 데이터
 
 `backend/supabase/seed.sql`에 실제 스키마에 맞춘 더미 데이터가 원격 DB에 반영되어 있어요(강의 폴더/강의, 질문/답글, 좋아요, 실시간 피드백 등). [`DUMMY_DATA.md`](./DUMMY_DATA.md)에서 확인할 수 있는데, 계정별·모드별로 "내 강의" 페이지에 어떤 강의/폴더 트리가 보이는지(강의 입장 코드, 즐겨찾기 관계 포함)뿐 아니라, 일부 강의(트리와 그래프, 데이터베이스 설계 입문)에 실제로 등록되어 있는 질문/답글 트리 구조도 정리되어 있으니 강의 페이지 테스트할 때도 참고하세요.
+
+## 11. 글 작성/제출: `ai-correct`, `submit-post` Edge Function
+
+글 작성(새 질문/의견/답글)은 `posts`에 직접 insert하지 않고, 두 개의 Edge Function을 씁니다. 원래 설계 의도는 [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md)에 있지만, **실제 구현은 그 문서의 무상태(stateless) 설계에서 아래처럼 바뀌었으니 계약은 이 문서(11번)를 기준으로 삼으세요** — 자세한 변경 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고.
+
+- **`ai-correct`**: 문구를 다듬어주기만 하는, 적절성/유사도 검사와 완전히 분리된 함수. 글 작성 중 "AI 교정" 버튼을 눌렀을 때만 호출하면 됩니다.
+- **`submit-post`**: 실제 제출을 담당. 적절성 검사(OpenAI Moderation) → (질문 타입이면) 유사 질문 탐지 → 저장까지 한 번에 처리합니다.
+
+두 함수 다 `supabase.functions.invoke(...)`로 호출하고(anon key 인증은 supabase-js가 알아서 붙여줌), 로그인한 회원이면 `Authorization` 헤더가 자동으로 실리고, 비회원이면 [8번](#8-비회원-인증-guest_token--x-guest-token-헤더)의 `x-guest-token` 헤더를 직접 실어 보내야 합니다.
+
+### `ai-correct`
+
+```js
+const { data, error } = await supabase.functions.invoke('ai-correct', {
+  body: { content: draftText },
+})
+// data: { corrected: string }
+```
+
+OpenAI 호출이 실패해도(키 미설정, API 오류 등) 에러를 던지지 않고 `corrected`에 원문을 그대로 돌려줍니다 — 교정은 부가 기능이라 실패해도 작성 흐름을 막지 않는 설계입니다.
+
+### `submit-post`
+
+**요청 바디 — 신규 제출**:
+```ts
+{
+  lecture_id: string
+  parent_id: string | null      // 답글이면 부모 post id, 최상위 글이면 null
+  type: 'question' | 'opinion'
+  content: string
+  created_mode: 'lecturer' | 'student'
+  is_anonymous: boolean
+  author_id?: string | null     // 생략 가능. 보내면 인증된 identity와 일치해야 함(불일치 시 403)
+}
+```
+
+**응답은 `result` 필드로 분기합니다**:
+
+| HTTP 상태 | `result` | 의미 / 나머지 필드 |
+|---|---|---|
+| 201 | `created` | 저장 완료. `post`에 생성된 행(`id`/`content`/`status`/`created_at` 등) |
+| 422 | `rejected` | 적절성 검사 탈락. `reason`에 사유(카테고리 포함) |
+| 409 | `similar_found` | 이미 답이 있을 만큼 비슷한 글 발견, **아직 저장 안 됨**. `draft_id`(강행 제출용), `similar_id`(보여줄 유사 글 id) |
+| 400/403 | `invalid` | 필수 필드 누락/enum 오류/`author_id` 불일치/강의자 모드 소유권 불일치 등. `reason` |
+
+```js
+const { data, error } = await supabase.functions.invoke('submit-post', {
+  body: { lecture_id, parent_id, type, content, created_mode, is_anonymous },
+})
+
+if (data.result === 'created') {
+  // 완료 — data.post 사용
+} else if (data.result === 'similar_found') {
+  // "이미 비슷한 질문이 있어요" UI. data.similar_id로 해당 글 보여주기,
+  // "그래도 제출" 선택 시 draft_id로 강행 제출(아래)
+} else if (data.result === 'rejected') {
+  alert(data.reason)
+}
+```
+
+**강행 제출(유사 질문이 있어도 그대로 제출)**: `similar_found` 응답의 `draft_id`를 그대로 실어 **같은 `submit-post` 함수**를 다시 호출하면 됩니다(별도 함수 아님, 유사도 검사만 건너뛰고 나머지 로직 재사용).
+
+```js
+const { data } = await supabase.functions.invoke('submit-post', {
+  body: { draft_id: draftId },
+})
+// -> { result: 'created', post }
+```
+
+- **"취소"/"유사 글만 보고 돌아가기"는 아무 API도 호출할 필요 없습니다.** 스테이징된 `draft_id`를 그냥 버려두면 됩니다(고아 드래프트는 무해함, [DB_DESIGN.md의 `post_drafts`](./DB_DESIGN.md#post_drafts) 참고).
+- **`created_at`은 강행 제출 시점이 실제 기록됩니다** — 처음 유사 질문이 발견된 시점(`draft` 생성 시점)이 아니라, `draft_id`로 강행 제출을 호출한 바로 그 순간이 `created_at`이 됩니다.
+- 다른 사람의 `draft_id`로 강행 제출을 시도하면 identity(회원 `auth.uid()` 또는 `x-guest-token`)가 draft 소유자와 다르므로 `403`으로 거부됩니다.
+- 유사 질문 탐지는 `type === 'question'`일 때만 동작합니다(`opinion`/답글은 항상 바로 저장 시도).
 

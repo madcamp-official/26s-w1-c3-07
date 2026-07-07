@@ -12,6 +12,7 @@
     - [`lecture_join_codes`](#lecture_join_codes)
     - [`lecture_feedback_votes`](#lecture_feedback_votes)
     - [`posts`](#posts)
+    - [`post_drafts`](#post_drafts)
     - [`post_likes`](#post_likes)
   - [뷰](#뷰)
     - [`posts_public`](#posts_public)
@@ -30,6 +31,7 @@
     - [`get_my_favorite_subtrees()`](#get_my_favorite_subtrees)
     - [`get_or_create_join_code()`](#get_or_create_join_code)
     - [`reissue_join_code()`](#reissue_join_code)
+    - [`get_similarity_candidates()`](#get_similarity_candidates)
   - [접근 제어 (RLS 정책 및 테이블 권한)](#접근-제어-rls-정책-및-테이블-권한)
     - [`profiles`](#profiles-1)
     - [`nodes`](#nodes-1)
@@ -58,6 +60,7 @@
 | `lecture_join_codes` | 강의 입장용 4자리 숫자 코드 (발급/재발급/파기 가능, 즐겨찾기 등록용 코드와는 별개). 발급/재발급은 `get_or_create_join_code()`/`reissue_join_code()` RPC로만 가능 |
 | `lecture_feedback_votes` | 실시간 피드백(추워요/더워요/소리 작아요/잘 안 보여요) 좋아요/싫어요 |
 | `posts` | 게시글 + 답글 통합 트리, 질문/의견 타입, 미해결/해결, 비회원 인증(`guest_token`) |
+| `post_drafts` | `submit-post`(service_role) 전용 스크래치 테이블. 유사 질문 발견 시 최종 제출본을 임시 저장해뒀다가 강행 제출 시 `posts`로 옮김 — `anon`/`authenticated`는 GRANT/RLS 둘 다 없어서 접근 불가 |
 | `post_likes` | 게시글/답글 좋아요 |
 | `posts_public` (뷰) | `posts`에서 `guest_token`/`author_id`를 뺀 공개 조회용 뷰(비익명 글만 작성자 이름 노출). 프론트는 `posts` 대신 이 뷰를 조회 |
 | `posts_counts` (뷰) | `posts`를 `lecture_id`별로 `count(*)`한 게시글 개수 집계 뷰. `posts_public`처럼 숨길 값이 있어서가 아니라, 여러 강의의 개수를 한 번의 요청으로 가져오기 위한 효율성 목적 |
@@ -174,6 +177,28 @@ create table posts (
   check ((status = 'resolved') = (resolved_at is not null)),
   constraint posts_author_id_xor_guest_token check ((author_id is null) <> (guest_token is null))
 );
+```
+
+#### `post_drafts`
+
+`submit-post` Edge Function이 유사 질문을 발견했을 때 최종 제출본을 잠깐 저장해두는 스크래치 테이블입니다. 사용자가 "강행 제출"을 누르면 이 행 내용 그대로 `posts`에 옮기고 삭제하며(옮길 때 `created_at`은 이 테이블의 스테이징 시각이 아니라 강행 제출한 실제 시점으로 새로 채워짐), "보러 가기"/"취소"를 누르면 아무 것도 안 해도 됩니다 — `posts`에 반영되는 것도, 누구에게 노출되는 것도 아니라 고아로 남아도 무해하고, 필요하면 나중에 `created_at` 기준 오래된 것만 가끔 청소하면 됩니다. `anon`/`authenticated`에게 GRANT/RLS 정책이 둘 다 없어서(RLS는 켜져 있지만 정책이 0개라 기본 거부), `submit-post`(`service_role`)만 접근할 수 있습니다.
+
+```sql
+create table post_drafts (
+  id uuid primary key default gen_random_uuid(),
+  lecture_id uuid not null references lectures(id) on delete cascade,
+  parent_id uuid references posts(id) on delete cascade,
+  author_id uuid references profiles(id) on delete set null,
+  is_anonymous boolean not null,
+  guest_token uuid,
+  type text not null check (type in ('question', 'opinion')),
+  content text not null,
+  created_mode text not null check (created_mode in ('lecturer', 'student')),
+  created_at timestamptz not null default now()
+);
+
+alter table post_drafts enable row level security;
+revoke all on post_drafts from anon, authenticated;
 ```
 
 #### `post_likes`
@@ -578,6 +603,37 @@ revoke all on function reissue_join_code(uuid) from public;
 grant execute on function reissue_join_code(uuid) to authenticated;
 ```
 
+#### `get_similarity_candidates()`
+
+`submit-post` Edge Function이 유사도 검사를 하기 전에 비교 대상 후보를 가져오는 내부 헬퍼입니다. 비교 범위는 같은 강의의 **미해결 질문 + 그 답글 전부**(무한 depth, 답글 타입 무관)로, 재귀 CTE로 미해결 최상위 질문들을 찾은 뒤 그 아래 답글을 전부 따라 내려갑니다. `submit-post`(`service_role`)만 호출하는 용도라 새 함수 생성 시 기본으로 열리는 `PUBLIC EXECUTE`를 회수하고 `service_role`에만 다시 부여했습니다 — 이 함수 자체가 `posts_public`으로도 이미 보이는 내용(`id`/`content`)만 반환해서 위험한 노출은 아니지만, "서버 전용"이라는 설계 의도와 권한을 맞춰두기 위함입니다.
+
+```sql
+create or replace function get_similarity_candidates(p_lecture_id uuid)
+returns table (id uuid, content text)
+as $$
+  with recursive unresolved_roots as (
+    select posts.id
+    from posts
+    where posts.lecture_id = p_lecture_id
+      and posts.parent_id is null
+      and posts.status = 'unresolved'
+  ),
+  thread as (
+    select posts.id, posts.content
+    from posts
+    where posts.id in (select id from unresolved_roots)
+    union all
+    select p.id, p.content
+    from posts p
+    join thread t on p.parent_id = t.id
+  )
+  select id, content from thread;
+$$ language sql stable;
+
+revoke execute on function get_similarity_candidates(uuid) from public, anon, authenticated;
+grant execute on function get_similarity_candidates(uuid) to service_role;
+```
+
 ### 접근 제어 (RLS 정책 및 테이블 권한)
 
 행 단위 제어는 RLS 정책으로, 테이블/컬럼 단위 접근 자체는 `REVOKE`/`GRANT`로 각각 다루며, 테이블별로 RLS만 쓰는 경우도 있고 `posts`/`lecture_join_codes`처럼 둘을 같이 쓰는 경우도 있습니다(`REVOKE`가 필요한 이유는 각 테이블 섹션 설명 참고).
@@ -709,7 +765,7 @@ RLS는 "누가 행에 접근 가능한가"만 결정할 뿐, "어떤 테이블/�
 
 강의자는 자기 강의(`lectures.id` 소유)에 속한 게시글이면 남의 글이라도 상태 전환(미해결↔해결) 및 삭제(부적절한 글 제거)가 가능합니다. Postgres는 같은 명령어에 정책이 여러 개면 OR로 합쳐지므로, 이 정책은 `posts_update_own`/`posts_delete_own`과 나란히 적용됩니다.
 
-**(계획 단계, 아직 미적용)** AI 적절성 검사/유사 질문 탐지/교정을 포함한 글 제출 흐름을 `submit-post` Edge Function(`service_role`, RLS 우회)으로 통합하고, 클라이언트가 검사를 우회해 직접 쓰지 못하도록 아래 `posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 두 INSERT 정책을 삭제하고 `anon`/`authenticated`의 `posts` INSERT 권한 자체를 회수할 계획입니다. 자세한 요청/응답 계약과 이유는 [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md) 참고. 지금은 아직 이 두 정책이 그대로 살아있고, 클라이언트가 직접 insert 가능합니다.
+AI 적절성 검사(OpenAI Moderation API)/유사 질문 탐지(GPT-4o-mini + `get_similarity_candidates()` RPC, 아래 [RPC 함수](#rpc-함수) 참고)를 포함한 글 제출 흐름은 `submit-post` Edge Function(`service_role`, RLS 우회)으로 구현·배포 완료(원래 설계 의도는 [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md)에 있으나 실제 구현은 그 무상태 설계에서 달라졌으므로, 정확한 요청/응답 계약은 [SUPABASE_GUIDE.md 11번](./SUPABASE_GUIDE.md#11-글-작성제출-ai-correct-submit-post-edge-function), 실제 구현 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고). **다만 클라이언트가 이 검사를 우회해 `posts`에 직접 쓰지 못하게 막는 부분(아래 `posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 두 INSERT 정책 삭제 + `anon`/`authenticated`의 `posts` INSERT 권한 자체 회수)은 아직 적용 전** — 지금은 프론트가 `submit-post`를 쓰도록 유도하는 단계이고, 이 두 정책이 그대로 살아있어 클라이언트가 직접 insert도 여전히 가능합니다.
 
 ```sql
 revoke select on posts from anon, authenticated;
@@ -851,7 +907,7 @@ create policy "post_likes_delete_own" on post_likes for delete
 
 ## 배포 현황
 
-- 별도의 Express 백엔드 서버 없이 Supabase(Postgres + Auth + Realtime + RLS)만으로 구성. AI 교정/필터링/유사도 검사 등 서버 로직이 필요한 부분은 Express를 새로 띄우지 않고 **Supabase Edge Function으로 확정**(`submit-post`, 계획 단계 — 자세한 내용은 [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md)와 [TODO.md #3](./TODO.md#3-ai-보조-기능-서버-아키텍처-결정-edge-function-확정) 참고).
+- 별도의 Express 백엔드 서버 없이 Supabase(Postgres + Auth + Realtime + RLS)만으로 구성. AI 교정/필터링/유사도 검사 등 서버 로직이 필요한 부분은 Express를 새로 띄우지 않고 **Supabase Edge Function으로 구현·배포 완료**(`ai-correct`, `submit-post` — 호출 방법은 [SUPABASE_GUIDE.md 11번](./SUPABASE_GUIDE.md#11-글-작성제출-ai-correct-submit-post-edge-function), 실제 구현 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고).
 - 이 문서의 SQL은 `backend/supabase/migrations/`에 마이그레이션 파일로 옮겨져 실제 Supabase 프로젝트(project ref: `zilvdbwoieplhrpjqnlo`)에 적용되어 있습니다.
   - `20260705062713_init_schema.sql` — 테이블/함수·트리거/RLS 초기 스키마 전체
   - `20260705064427_lecturer_permissions.sql` — 강의자 권한 정책(`posts_lecturer_update_status`, `posts_lecturer_delete`, `feedback_lecturer_reset`), `trg_block_status_change` 트리거, `posts_public` 뷰
@@ -887,3 +943,6 @@ create policy "post_likes_delete_own" on post_likes for delete
   - `20260707170000_posts_guest_token_uuid_and_xor_constraint.sql` — 강의 종료 후 `guest_token` 무효화 로직은 도입하지 않기로 확정(생일 문제 계산 근거는 [TODO.md](./TODO.md#해결된-것-참고용-기록) 참고). `posts.guest_token`을 `text`에서 `uuid`로 바꿔 형식을 DB 레벨에서 강제하고(`post_likes`/`lecture_feedback_votes.voter_key`와 동일 타입), `posts_author_id_guest_token_exclusive` 제약을 `posts_author_id_xor_guest_token`(정확히 하나만 값을 가짐)으로 강화. `posts_update_own`/`posts_delete_own`/`posts_public.is_mine`의 `guest_token` 비교도 헤더 값을 `::uuid`로 캐스팅하도록 갱신
   - `20260707180000_posts_grant_select_for_rls_update_delete.sql` — 프론트에서 답글 수정/질문 해결 처리가 42501로 막히는 버그 발견(원인: `20260706093000`에서 `posts`의 SELECT를 통째로 회수해, UPDATE 정책이 멀쩡해도 GRANT 단계에서부터 막힘). `grant select on posts to anon, authenticated`로 우선 복구했으나, 이것만으론 부족했음이 곧 드러남(아래 항목 참고)
   - `20260707190000_posts_select_policy_for_update_delete_rls.sql` — 위 GRANT 복구만으로 여전히 UPDATE/DELETE가 0행 매치로 실패하는 걸 발견. 진짜 원인은 Postgres가 UPDATE/DELETE의 대상 행을 찾을 때 SELECT 커맨드에 대한 RLS 가시성도 요구한다는 것이었고, `posts`에 SELECT 정책이 하나도 없어(기본값: 전부 안 보임) UPDATE/DELETE 전용 정책과 무관하게 항상 실패하고 있었음. UPDATE/DELETE가 허용하는 행과 정확히 같은 조건으로 `posts_select_own`/`posts_select_lecturer` SELECT 정책을 추가해 가시성을 확보하고, `guest_token`/`author_id` 노출을 막기 위해 `revoke select on posts` 후 이 두 컬럼만 제외하고 다시 `grant select (컬럼 목록)`으로 컬럼 단위 제한. 실제 REST API로 회원/비회원/강의자 세 경로 모두 수정·삭제가 되는지, `guest_token`/`author_id`는 여전히 직접 조회가 막히는지 라이브에서 검증 완료
+  - `20260707200000_post_drafts_staging_table.sql` — `submit-post`에서 유사 질문이 발견됐을 때 "강행 제출"을 처리하기 위한 스테이징 테이블 `post_drafts` 신설. 원래 글 내용(`lecture_id`/`parent_id`/`author_id`/`is_anonymous`/`guest_token`/`type`/`content`/`created_mode`)을 그대로 담아두고, `created_at`은 스테이징 시점이 아니라 나중에 강행 제출이 실제 실행되는 시점 값이 되도록 INSERT 시 명시적으로 넣지 않고 DB `default now()`에 맡김(강행 제출 INSERT에서도 동일하게 `created_at`을 생략해 실제 제출 순간이 그대로 기록되게 함). RLS는 켜두되 정책을 하나도 만들지 않고 `anon`/`authenticated`에서 `revoke all`로 완전히 차단 — `service_role`만 접근 가능(어차피 BYPASSRLS라 정책 여부와 무관하게 접근 가능하므로 정책을 안 만들어도 무방). "취소"는 별도 API 없이 그냥 드래프트를 방치하는 것으로 처리(고아 드래프트는 무해하며 나중에 일괄 정리하면 됨), "강행 제출"만 드래프트를 읽고 요청자 identity를 대조한 뒤 삭제하고 실제 INSERT로 이어짐
+  - `20260707210000_get_similarity_candidates_rpc.sql` — `submit-post`의 유사도 검사가 AI에게 넘길 비교 대상을 얻기 위한 RPC. 같은 강의의 미해결(`status = 'unresolved'`) 질문 게시글들과 그 답글 트리 전체(재귀 CTE로 `parent_id` 체인을 끝까지 따라감)를 `(id, content)` 쌍으로 반환
+  - `20260707211000_restrict_get_similarity_candidates_execute.sql` — 새 함수가 기본으로 `PUBLIC`에 EXECUTE 권한이 열려 있는 Postgres 기본 동작을 발견하고, `anon`/`authenticated`/`public`의 실행 권한을 회수하고 `service_role`에만 부여 — 클라이언트가 이 RPC를 직접 호출해 다른 사람 글 내용을 긁어가지 못하게 함(`submit-post`를 거치지 않은 직접 호출 차단)

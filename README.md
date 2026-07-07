@@ -171,8 +171,10 @@
 | RPC | `get_my_favorite_subtrees` | 수강생 모드 "내 강의"에서 즐겨찾기한 노드들의 서브트리를 한 번에 조회 | 파라미터 없음, 로그인 필요 | 즐겨찾기 루트별 서브트리 행 목록(`anchor_node_id`로 그룹핑) |
 | RPC | `get_or_create_join_code` | 강의 공유 코드 조회/발급 (있으면 반환, 없으면 그 자리에서 발급) | `p_lecture_id`(uuid), 강의 소유자로 로그인 필요 | 4자리 코드 문자열, 소유자가 아니면 에러 |
 | RPC | `reissue_join_code` | 강의 공유 코드 재발급 (기존 코드 폐기 후 새로 발급) | `p_lecture_id`(uuid), 강의 소유자로 로그인 필요 | 새 4자리 코드 문자열, 소유자가 아니면 에러 |
+| Edge Function | `ai-correct` | 글 초안을 AI로 다듬어 제안(적절성/유사도 검사 없음, 저장도 안 함) | `{ content }` | `{ corrected }` |
+| Edge Function | `submit-post` | 글 제출: 적절성 검사 → (질문이면) 유사 질문 탐지 → 저장. 유사 질문 발견 시 `draft_id`로 강행 제출 가능(같은 함수 재호출) | `{ lecture_id, parent_id, type, content, created_mode, is_anonymous }` 또는 강행 제출 시 `{ draft_id }` | `{ result: 'created', post }` / `{ result: 'rejected', reason }` / `{ result: 'similar_found', draft_id, similar_id }` |
 
-Supabase 연동 방법(URL/API 키, 클라이언트 설정, 코드 예시)은 [SUPABASE_GUIDE.md](./SUPABASE_GUIDE.md) 참고.
+Supabase 연동 방법(URL/API 키, 클라이언트 설정, 코드 예시)은 [SUPABASE_GUIDE.md](./SUPABASE_GUIDE.md) 참고, `submit-post`의 상세 계약은 [SUPABASE_GUIDE.md 11번](./SUPABASE_GUIDE.md#11-글-작성제출-ai-correct-submit-post-edge-function) 참고.
 
 일반 테이블 조회/작성(select/insert 등)은 Supabase REST API 표준 패턴을 그대로 따르고, 테이블 구조는 [DB_DESIGN.md](./DB_DESIGN.md)에 정리되어 있어 위 표에는 따로 표기하지 않음. 이 표는 이름만으로는 파라미터/반환값을 알 수 없는 **RPC/Edge Function 전용**.
 
