@@ -2,29 +2,17 @@
 
 ## 목차
 
-- [🚨 posts UPDATE/DELETE가 SELECT 권한 부재로 항상 실패](#-posts-updatedelete가-select-권한-부재로-항상-실패-긴급)
 - [🚨 강의자의 실시간 피드백 초기화가 조용히 0건 삭제됨](#-강의자의-실시간-피드백-초기화가-조용히-0건-삭제됨-긴급)
-- [guest_token 관련](#guest_token-관련)
-  - [1. `guest_token` 무효화 조건](#1-guest_token-무효화-조건-강의-종료-후)
 - [AI 보조 기능 관련](#ai-보조-기능-관련)
-  - [2. 유사도 검사 비교 대상 범위](#2-유사도-검사-비교-대상-범위-미해결-게시글만-답글도-포함)
-  - [3. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정](#3-유사도-비교를-위한-벡터-컬럼-추가-여부-결정)
-  - [4. AI 보조 기능 서버 아키텍처 결정](#4-ai-보조-기능-서버-아키텍처-결정-edge-function-확정)
+  - [1. 유사도 검사 비교 대상 범위](#1-유사도-검사-비교-대상-범위-미해결-게시글만-답글도-포함)
+  - [2. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정](#2-유사도-비교를-위한-벡터-컬럼-추가-여부-결정)
+  - [3. AI 보조 기능 서버 아키텍처 결정](#3-ai-보조-기능-서버-아키텍처-결정-edge-function-확정)
 - [Realtime 관련](#realtime-관련)
-  - [5. `max_participants`(최다 참여 인원) 강제 여부 결정](#5-max_participants최다-참여-인원-강제-여부-결정)
+  - [4. `max_participants`(최다 참여 인원) 강제 여부 결정](#4-max_participants최다-참여-인원-강제-여부-결정)
+  - [5. "내 강의" 목록에서 강의별 접속자 수(`participantCount`) 표시](#5-내-강의-목록에서-강의별-접속자-수participantcount-표시)
 - [join_code 관련](#join_code-관련)
   - [6. `lecture_join_codes` 파기 시점/주체 결정](#6-lecture_join_codes-파기delete-시점주체-결정)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
-
-## 🚨 `posts` UPDATE/DELETE가 SELECT 권한 부재로 항상 실패 (긴급)
-
-**증상**: 본인이 쓴 답글도 "수정하기" 버튼은 정확히 뜨는데(`is_mine` 판별은 정상), 실제로 수정을 시도하면 항상 실패함. 실브라우저(Playwright)로 재현 확인.
-
-**원인**: `posts` UPDATE 요청이 `401 permission denied for table posts`(Postgres 코드 `42501`, hint: `GRANT SELECT ON public.posts TO anon`)로 거부됨. RLS 정책(`posts_update_own`)이나 `x-guest-token` 헤더 문제가 아님(둘 다 정상 동작 확인) — `posts` 테이블 자체의 SELECT 권한이 `anon`/`authenticated`에서 완전히 회수돼 있고(`revoke select on posts from anon, authenticated`) `posts`에 SELECT 정책도 전혀 없는 상태(전부 `posts_public` 뷰로 우회)라서, PostgreSQL이 UPDATE/DELETE의 `USING`/`WITH CHECK` 절을 평가하는 데 필요한 최소 SELECT 권한 자체가 없어 UPDATE/DELETE가 RLS 통과 여부와 무관하게 항상 막히는 것으로 추정됨.
-
-**영향 범위**: `posts_update_own`/`posts_delete_own`/`posts_lecturer_update_status`/`posts_lecturer_delete`/`posts_update_lecturer_mode_matches_owner`를 쓰는 모든 경로(답글 수정, 글 삭제, 강의자 상태 전환·삭제) 전부 같은 이유로 실패할 가능성이 높음. 답글 수정만 실측했고 나머지는 미확인이나 근본 원인이 같으므로 함께 점검 필요.
-
-**요청사항**: `posts`에 최소한의 SELECT GRANT를 다시 부여(`grant select on posts to anon, authenticated`)하되, 실제 조회 노출은 계속 RLS(SELECT 정책을 만들지 않거나 `using (false)`로 막아두기)로 제어. GRANT 자체를 회수하는 방식은 조회뿐 아니라 UPDATE/DELETE까지 함께 막아버림.
 
 ## 🚨 강의자의 실시간 피드백 초기화가 조용히 0건 삭제됨 (긴급)
 
@@ -59,47 +47,35 @@ reset role;
 ```
 `auth.uid()`가 `null`로 나온다면, `set local request.jwt.claims`로 세션을 흉내낸 방식 자체가 `auth.uid()` 헬퍼가 기대하는 형식과 달라서 생긴 재현 아티팩트일 수 있음 — 이 경우 실제 PostgREST 요청 시점의 Postgres 로그(`statement:` 라인)를 직접 대조해야 함.
 
-## guest_token 관련
-
-### 1. `guest_token` 무효화 조건 (강의 종료 후)
-
-`posts_update_own`/`posts_delete_own`, `post_likes`/`lecture_feedback_votes` 관련 정책 전부에 "강의 종료 시각(`lectures.end_time`) 이후엔 `guest_token` 무효화" 조건이 아직 안 들어감.
-
-`posts.author_id`/`guest_token` 동시 null 허용 여부는 이미 결정·구현 완료(자세한 내용은 [해결된 것](#해결된-것-참고용-기록) 참고) — `posts_author_id_guest_token_exclusive` 체크 제약으로 "둘 다 값을 갖는 경우"만 막고, `(author_id is null and guest_token is null)` 상태(무효화된 비회원 글)는 그대로 허용됨. 아래는 여전히 미결정인 무효화 시점/방식 관련 검토 내용.
-
-**관련해서 검토한 것들:**
-
-- **무효화 구현 방식 두 가지**:
-  1. **`pg_cron` 배치**: 주기적으로(예: 5~15분마다) `update posts set guest_token = null where guest_token is not null and lecture_id in (select node_id from lectures where end_time < now() - interval '1 hour')` 같은 걸 반복 실행. 멱등적이라 반복 실행해도 안전하지만, `pg_cron` 확장을 켜야 하고 폴링 주기만큼 무효화가 지연될 수 있음.
-  2. **RLS 조건에 시각 비교를 직접 추가 (배치 job 불필요, 추천)**: 데이터를 지우지 않고 `posts_update_own`/`posts_delete_own`/`post_likes_*`/`lecture_feedback_votes_*` 정책의 `guest_token` 매칭 조건에 `now() < (해당 강의 end_time) + interval '1 hour'`를 추가. 매 요청 시점에 실제 시각으로 판단하니 지연 없이 정확하고, `pg_cron` 같은 별도 스케줄 인프라가 필요 없음.
-  
-  아직 어느 방식으로 갈지 결정 안 됨.
-
 ## AI 보조 기능 관련
 
-### 2. 유사도 검사 비교 대상 범위 (미해결 게시글만? 답글도 포함?)
+### 1. 유사도 검사 비교 대상 범위 (미해결 게시글만? 답글도 포함?)
 
 README엔 "글 작성 시(답글 포함) 미해결 게시글들과의 유사도 검사"라고 되어 있는데, 비교 대상이 미해결 게시글(최상위 글)들만인지 그 밑 답글 내용까지 포함할지 미정. 결정에 따라 유사도 검사 API가 LLM에 넘기는 데이터 범위가 달라짐.
 
-### 3. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정
+### 2. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정
 
 원래 기획 단계에서는 세션당 질문 수가 적을 것으로 예상해 임베딩(pgvector) 대신 "기존 질문 목록을 프롬프트에 통째로 넣고 LLM이 판단"하는 방식으로 시작하기로 했음. `posts`에 `embedding vector` 컬럼 + pgvector 확장을 추가해서 임베딩 기반 유사도 검색으로 갈지, 아니면 계속 LLM 프롬프트 방식으로 갈지 아직 결정 안 됨. 강의당 질문 수가 예상보다 많아지면 프롬프트에 다 넣기엔 비효율적이라 재검토가 필요할 수 있음.
 
-### 4. AI 보조 기능 서버 아키텍처 결정 (Edge Function 확정)
+### 3. AI 보조 기능 서버 아키텍처 결정 (Edge Function 확정)
 
-**Supabase Edge Function으로 확정.** 별도 Express 서버는 띄우지 않음. AI 교정/적절성 검사/유사 질문 탐지(#2, #3)와 글 제출 자체를 하나의 Edge Function(`submit-post`)으로 통합하는 설계를 [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md)에 정리함 — 요청/응답 계약, 5가지 결과 분기(정상 생성/적절성 거부/유사 질문 발견/교정 반환), 무상태(stateless) 설계 이유까지 확정.
+**Supabase Edge Function으로 확정.** 별도 Express 서버는 띄우지 않음. AI 교정/적절성 검사/유사 질문 탐지(#1, #2)와 글 제출 자체를 하나의 Edge Function(`submit-post`)으로 통합하는 설계를 [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md)에 정리함 — 요청/응답 계약, 5가지 결과 분기(정상 생성/적절성 거부/유사 질문 발견/교정 반환), 무상태(stateless) 설계 이유까지 확정.
 
 이 설계의 핵심은 클라이언트가 검사를 우회해 `posts`에 직접 쓰지 못하게 막는 것 — **`posts` INSERT를 `anon`/`authenticated`에서 완전히 회수하고, 글 생성은 오직 `submit-post`(service_role, RLS 우회)를 통해서만 가능하도록 전환할 계획**. `service_role`은 `BYPASSRLS`라 REVOKE와 무관하게 계속 insert 가능. 기존 3개 더미 함수(`ai-correct`/`ai-moderate`/`ai-similarity`)는 삭제하고 `submit-post` 하나로 통합.
 
 **아직 실제로 적용된 건 아님** — RLS 변경(`posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 삭제)도, `submit-post` 함수 코드도 아직 만들어서 push하지 않았음. 지금은 계획 단계이고, `posts` insert는 지금도 여전히 클라이언트가 직접 할 수 있음. UPDATE/DELETE 관련 RLS(글 수정/삭제)는 이번 변경 범위 밖이라 그대로 유지.
 
-여전히 미결정: #2(유사도 비교 범위)/#3(벡터 컬럼 여부) — `submit-post`의 `checkSimilarity`는 지금 설계상 더미(항상 통과)라 이 결정이 늦어져도 프론트 연동에는 지장 없음.
+여전히 미결정: #1(유사도 비교 범위)/#2(벡터 컬럼 여부) — `submit-post`의 `checkSimilarity`는 지금 설계상 더미(항상 통과)라 이 결정이 늦어져도 프론트 연동에는 지장 없음.
 
 ## Realtime 관련
 
-### 5. `max_participants`(최다 참여 인원) 강제 여부 결정
+### 4. `max_participants`(최다 참여 인원) 강제 여부 결정
 
 컬럼만 있고 실제 입장 제한 로직/참여자 카운트 테이블이 없음. 정보 표시용인지 실제 강제해야 하는지 확인 필요 (강제한다면 Realtime **Presence** 또는 별도 카운트 확인 로직 추가 필요, `DB_DESIGN.md`의 "실시간 접속자 수" 섹션 참고).
+
+### 5. "내 강의" 목록에서 강의별 접속자 수(`participantCount`) 표시
+
+`Course.participantCount`는 정적으로 저장된 값이 아니라 Realtime **Presence**로 그때그때 세는 값이라(`DB_DESIGN.md`의 "실시간 접속자 수" 섹션 참고), "내 강의" 목록 화면(트리 조회 시점)에는 애초에 채워지지 않고 강의실 페이지에 들어가야만 알 수 있음. 목록 화면에서 강의별 접속자 수를 보여주려면 별도 설계가 필요 — 예를 들어 목록에 있는 강의 수만큼 채널을 동시에 구독해야 하는지(비용/성능), 아니면 서버 쪽에서 주기적으로 집계해 뷰/테이블로 내려주는 방식으로 갈지 결정 안 됨. 아직 미해결(자세한 내용은 [SUPABASE_GUIDE.md 6번의 "남은 간극"](./SUPABASE_GUIDE.md#6-트리-구조-데이터-조회-내-강의-페이지--강의-페이지) 참고).
 
 ## join_code 관련
 
@@ -129,7 +105,7 @@ README엔 "글 작성 시(답글 포함) 미해결 게시글들과의 유사도 
   - **프론트 구현 완료** — `frontend` 브랜치의 `services/api.ts`(`getCourseFolders`/`getStandaloneCourses`/`nodeToItem`/`buildFolderTree`/`buildFavoriteRoots`)가 위 설계 그대로 `nodes`/`favorites`/`get_my_favorite_subtrees()`를 실제로 조회하도록 구현됨.
   - 이 과정에서 남은 간극 두 가지 발견: (1) `Course.questionCount`(라벨은 "게시글 {n}개")가 아직 `0`으로 고정됨 → `posts_counts` 뷰(`lecture_id`별 `count(*)`) 추가로 해결(`backend/supabase/migrations/20260707023348_posts_counts_view.sql`). 다른 counts 뷰(`post_likes_counts` 등)와 달리 보안 목적이 아니라, PostgREST가 group by를 직접 지원 안 해서 여러 강의 개수를 한 번에 가져오기 위한 효율성 목적. **프론트 구현 완료** — `services/api.ts`의 `fillQuestionCounts()`가 트리 조립 후 `posts_counts`를 일괄 조회해 매핑(`findCourseByJoinCode()`의 단일 강의 조회 경로도 동일 처리). (2) `Course.participantCount`는 Presence 기반이라 이 트리 조회 시점엔 채울 수 없어 여전히 별도 설계 필요(미해결).
   - `date`/`startTime`/`endTime`/`location`/`capacity`(`lectures` 조인)는 `registered`(즐겨찾기) 강의에는 애초에 필요 없다고 결론남 — 그 값을 읽는 유일한 곳(강의 수정 폼 프리필)이 `owned` 강의에만 열려 있어서. `owned` 강의는 이미 `nodes.select('*, lectures(...))'`로 정상 조회 중이라 `get_my_favorite_subtrees()`에 조인을 추가할 필요 없음.
-- `posts.author_id`/`guest_token` 동시 null 허용 여부 검토 → `posts_author_id_guest_token_exclusive` 체크 제약(`author_id is null or guest_token is null`) 추가로 해결. 이 제약이 생기면서 `posts_update_own`/`posts_delete_own` 정책의 `guest_token` 비교 조건 앞에 있던 `author_id is null and` 가드가 논리적으로 중복이 되어 함께 제거. `posts_public` 뷰에는 원본 식별자를 노출하지 않으면서 "본인 글인지"만 알려주는 `is_mine` boolean 컬럼 추가(수정/삭제 버튼 조건부 노출용) → `backend/supabase/migrations/20260707151700_posts_author_guest_token_exclusive.sql`, `20260707153000_drop_redundant_guest_token_guard.sql`, `20260707153500_posts_public_is_mine.sql`. **프론트 구현 완료** — `QuestionReply.isEditable`을 `posts_public.is_mine`으로 채움(`services/api.ts`). 처음엔 `getQuestionsFromDb()`의 `posts_public` 조회에 `x-guest-token` 헤더가 누락되어 있어서, 게스트가 방금 쓴 글에도 `is_mine`이 항상 `false`로 나와 수정 버튼이 안 뜨는 버그가 있었음 → `withGuestHeader()` 적용으로 수정.
-- **`posts_public`에 `created_mode` 컬럼 추가** → 강의자가 쓴 답글을 화면에서 파란색으로 정확히 구분하는 데 필요(자세한 내용은 [SUPABASE_GUIDE.md 9번 항목](./SUPABASE_GUIDE.md#9-강의자수강생-모드-색-구분-posts_publiccreated_mode) 참고). **프론트 구현 완료** — `services/api.ts`의 `postAuthorRole()`이 이 컬럼을 직접 읽어 판별하도록 교체. 이전에는 뷰에 이 컬럼이 없어서 "실명 + 표시 이름이 강의 소유자 이름과 일치"라는 근사치를 썼었는데, 강의 소유자 실명 자체를 `profiles` RLS(본인만 SELECT 가능) 때문에 알아낼 수 없어 이 근사치가 사실상 항상 실패하고 있었음. 컬럼 추가로 근사치를 걷어내고 정확한 판별로 교체.
-- **강의 공유 코드(`join_code`) 발급/재발급 RPC** — `lecture_join_codes`는 원래 클라이언트가 직접 INSERT하는 방식으로 설계돼 있었으나, `code`가 4자리 숫자(공간 10000개)라 다른 강의와 값이 겹칠 확률이 무시 못 할 수준이라 충돌 재시도 로직이 필요했음. `get_or_create_join_code()`(있으면 반환, 없으면 발급)/`reissue_join_code()`(기존 코드 폐기 후 재발급) RPC로 재시도 로직을 서버 쪽에 두고, 직접 쿼리로 발급/재발급을 못 하게 `lecture_join_codes`의 INSERT/UPDATE 테이블 권한 자체를 `anon`/`authenticated`에서 회수(파기/DELETE는 그대로 직접 쿼리 허용). 이 프로젝트는 `FORCE ROW LEVEL SECURITY`를 안 걸어놔서 `SECURITY DEFINER` 함수가 RLS를 우회하므로, "호출자가 이 강의의 소유자인가" 체크를 함수 안에 직접 재구현하고, 이제 도달 불가능해진 `lecture_join_codes_owner_all`(insert 전용, 이름도 `_all`이라 `for all` 정책처럼 오해될 수 있었음) 정책은 삭제 → `backend/supabase/migrations/20260707120000_join_code_issue_functions.sql`. `DB_DESIGN.md`/`README.md`/`SUPABASE_GUIDE.md`에도 반영(프론트 호출 패턴은 `SUPABASE_GUIDE.md`의 "강의 공유 코드" 섹션 참고). **프론트 구현 완료** — `services/api.ts`의 `getOrCreateJoinCode()`/`reissueJoinCode()`가 두 RPC를 감싸고, `ShareCourseModal.tsx`가 모달을 열 때 코드가 없으면 자동 발급 + "재발급" 버튼 제공.
-- **`guest_token` 프론트 구현 완료** — `services/guestToken.ts`의 `getGuestToken()`이 `localStorage`(`qroom_guest_token` 키)에 최초 1회 UUID를 생성/저장하고 재사용. `services/api.ts`의 `withGuestHeader()` 헬퍼가 비회원 요청에만 `.setHeader('x-guest-token', ...)`을 붙이고, `posts` insert/update, `posts_public` 조회, `post_likes` insert/delete, `lecture_feedback_votes` select/insert/delete 전 경로에 적용됨.
+- `posts.author_id`/`guest_token` 동시 null 허용 여부 검토(1차) → `posts_author_id_guest_token_exclusive` 체크 제약(`author_id is null or guest_token is null`) 추가로 해결. 이 제약이 생기면서 `posts_update_own`/`posts_delete_own` 정책의 `guest_token` 비교 조건 앞에 있던 `author_id is null and` 가드가 논리적으로 중복이 되어 함께 제거. `posts_public` 뷰에는 원본 식별자를 노출하지 않으면서 "본인 글인지"만 알려주는 `is_mine` boolean 컬럼 추가(수정/삭제 버튼 조건부 노출용) → `backend/supabase/migrations/20260707151700_posts_author_guest_token_exclusive.sql`, `20260707153000_drop_redundant_guest_token_guard.sql`, `20260707153500_posts_public_is_mine.sql`.
+- **`guest_token` 무효화 조건 → "무효화 로직 불필요"로 결론**: 강의 종료 후 다른 비회원이 같은 강의 페이지에 계속 들어오다 보면 언젠가 기존 글 작성자와 `guest_token`이 우연히 겹칠 수 있다는 우려가 있었음(그 경우 남의 글을 수정할 수 있게 됨). 이걸 "강의 하나에 쌓인 토큰들 중 겹치는 쌍이 하나라도 나올 확률"(생일 문제)로 계산해보면, `guest_token`이 `crypto.randomUUID()`(UUID v4, 122비트 무작위성) 기반일 때 확률이 의미 있는 수준(1%)에 이르려면 강의 하나에 약 3.3×10^17명이 방문해야 하는데, 현실적으로 도달 불가능한 규모라 무시 가능하다고 판단. 그래서 배치(`pg_cron`)나 RLS 시각 비교 같은 무효화 로직은 도입하지 않고 `guest_token`을 영구 보존하기로 결정. 대신 이 결론이 성립하려면 "둘 다 null"인 상태(무효화된 비회원 글)가 더 이상 나올 이유가 없으므로, 위 1차 제약을 `posts_author_id_xor_guest_token`(`(author_id is null) <> (guest_token is null)`, 정확히 하나만 값을 가짐)으로 강화하고, `guest_token` 컬럼 타입도 `text`에서 `uuid`로 바꿔 형식을 DB 레벨에서 강제(`post_likes`/`lecture_feedback_votes.voter_key`와 동일한 타입으로 통일, RLS의 `guest_token` 비교도 헤더 값을 `::uuid`로 캐스팅하도록 갱신) → `backend/supabase/migrations/20260707170000_posts_guest_token_uuid_and_xor_constraint.sql`.
+- **강의 공유 코드(`join_code`) 발급/재발급 RPC** — `lecture_join_codes`는 원래 클라이언트가 직접 INSERT하는 방식으로 설계돼 있었으나, `code`가 4자리 숫자(공간 10000개)라 다른 강의와 값이 겹칠 확률이 무시 못 할 수준이라 충돌 재시도 로직이 필요했음. `get_or_create_join_code()`(있으면 반환, 없으면 발급)/`reissue_join_code()`(기존 코드 폐기 후 재발급) RPC로 재시도 로직을 서버 쪽에 두고, 직접 쿼리로 발급/재발급을 못 하게 `lecture_join_codes`의 INSERT/UPDATE 테이블 권한 자체를 `anon`/`authenticated`에서 회수(파기/DELETE는 그대로 직접 쿼리 허용). 이 프로젝트는 `FORCE ROW LEVEL SECURITY`를 안 걸어놔서 `SECURITY DEFINER` 함수가 RLS를 우회하므로, "호출자가 이 강의의 소유자인가" 체크를 함수 안에 직접 재구현하고, 이제 도달 불가능해진 `lecture_join_codes_owner_all`(insert 전용, 이름도 `_all`이라 `for all` 정책처럼 오해될 수 있었음) 정책은 삭제 → `backend/supabase/migrations/20260707120000_join_code_issue_functions.sql`. `DB_DESIGN.md`/`README.md`/`SUPABASE_GUIDE.md`에도 반영(프론트 호출 패턴은 `SUPABASE_GUIDE.md`의 "강의 공유 코드" 섹션 참고).
+- **`posts` 답글 수정/질문 해결 처리가 42501로 막히는 버그** — 프론트에서 `updateReply`/`resolveQuestion`이 `posts`에 직접 `.update()`를 호출하다가 발견. 1차 원인은 `posts`의 SELECT가 통째로 회수돼 있어서 UPDATE의 WHERE 절 평가에 필요한 기본 SELECT 권한(GRANT, RLS와 별개)조차 없었던 것 → `grant select on posts to anon, authenticated`로 복구(`backend/supabase/migrations/20260707180000_posts_grant_select_for_rls_update_delete.sql`). 그런데 이것만으론 여전히 0행 매치로 실패 → 진짜 원인은 Postgres가 UPDATE/DELETE의 대상 행을 찾을 때 SELECT 커맨드에 대한 RLS 가시성도 요구한다는 것이었고, `posts`엔 SELECT 정책이 하나도 없어(기본 전부 안 보임) `posts_update_own` 등 UPDATE 전용 정책과 무관하게 항상 실패하고 있었음. UPDATE/DELETE가 허용하는 행과 정확히 같은 조건으로 `posts_select_own`/`posts_select_lecturer` SELECT 정책을 추가하고, `guest_token`/`author_id` 노출을 막기 위해 이 두 컬럼만 제외하고 나머지 컬럼만 GRANT하는 방식으로 컬럼 단위 제한을 유지 → `backend/supabase/migrations/20260707190000_posts_select_policy_for_update_delete_rls.sql`. 회원/비회원/강의자 세 경로 모두 실제 REST API로 수정 성공을 확인했고, `guest_token`/`author_id` 직접 조회는 여전히 42501로 막히는 것도 확인함. 프론트에서 `.update().select()`처럼 체이닝하면 `select('*')`가 실행돼 컬럼 제한에 걸리니, `.select()`를 생략하거나 허용된 컬럼만 명시해야 함(`SUPABASE_GUIDE.md` 5번 참고).

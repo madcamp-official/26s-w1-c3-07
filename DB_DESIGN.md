@@ -152,7 +152,7 @@ create table lecture_feedback_votes (
 
 #### `posts`
 
-게시글과 답글을 하나로 통합한 자기참조 트리로, `parent_id`가 `null`이면 최상위 게시글, 값이 있으면 답글입니다(무한 depth). 최상위 글을 삭제하면 답글도 `on delete cascade`로 재귀 삭제됩니다. `author_id`는 비회원이면 `null`이고, 회원이 탈퇴해도 `on delete set null`로 글은 남고 작성자 정보만 사라집니다. `guest_token`은 비회원 글 수정/삭제 인증용이며, 강의 종료 후 무효 처리는 `lectures.end_time` 비교로 앱/RLS에서 판단합니다. `status`는 최상위 게시글만 사용(답글은 `null`)하고, `resolved_at`은 해결됨으로 바뀐 시각으로 해결된 게시글 정렬 기준이며 미해결로 되돌아가면 다시 `null` 처리됩니다. `created_mode`는 강의자 모드/수강생 모드 중 어느 화면에서 썼는지를 저장해 화면에서 색을 구분하는 데 씁니다. 다섯 개의 `check` 제약은 각각: 작성자가 없으면(비회원) 반드시 익명이어야 함, 최상위 게시글은 `status` 필수·답글은 `status` 필수 `null`, 강의자 모드로 쓴 글은 답글+`opinion` 타입만 가능, `resolved`일 때만 `resolved_at`이 존재하도록 양방향 강제, `author_id`와 `guest_token`이 동시에 값을 갖지 못하도록 강제(`posts_author_id_guest_token_exclusive`, 회원 글에 의미 없는 `guest_token`이 같이 들어가는 걸 막는 데이터 정합성 제약입니다 — 둘 다 `null`인 상태(예: 강의 종료 후 `guest_token`을 `null`로 지워 무효화하는 방식)는 그대로 허용됩니다).
+게시글과 답글을 하나로 통합한 자기참조 트리로, `parent_id`가 `null`이면 최상위 게시글, 값이 있으면 답글입니다(무한 depth). 최상위 글을 삭제하면 답글도 `on delete cascade`로 재귀 삭제됩니다. `author_id`는 비회원이면 `null`이고, 회원이 탈퇴해도 `on delete set null`로 글은 남고 작성자 정보만 사라집니다. `guest_token`은 비회원 글 수정/삭제 인증용인 `uuid`이며(`crypto.randomUUID()`로 생성, 자세한 이유는 아래 "비회원 익명 식별자" 절 참고), 강의가 끝나도 무효화하지 않고 영구 보존합니다 — 왜 무효화가 필요 없는지는 아래 CHECK 제약 설명 참고. `status`는 최상위 게시글만 사용(답글은 `null`)하고, `resolved_at`은 해결됨으로 바뀐 시각으로 해결된 게시글 정렬 기준이며 미해결로 되돌아가면 다시 `null` 처리됩니다. `created_mode`는 강의자 모드/수강생 모드 중 어느 화면에서 썼는지를 저장해 화면에서 색을 구분하는 데 씁니다. 다섯 개의 `check` 제약은 각각: 작성자가 없으면(비회원) 반드시 익명이어야 함, 최상위 게시글은 `status` 필수·답글은 `status` 필수 `null`, 강의자 모드로 쓴 글은 답글+`opinion` 타입만 가능, `resolved`일 때만 `resolved_at`이 존재하도록 양방향 강제, `author_id`와 `guest_token` 중 **정확히 하나만** 값을 가지도록 강제(`posts_author_id_xor_guest_token`). 원래는 "둘 다 값을 갖는 경우"만 막고 "둘 다 `null`"(강의 종료 후 `guest_token`을 지워 무효화하는 상태)은 허용했었는데, `guest_token`이 `crypto.randomUUID()`(UUID v4, 122비트 무작위성) 기반이라 강의 하나에 쌓인 토큰들 사이에서 우연히 겹치는 쌍이 하나라도 나올 확률(생일 문제로 계산)이 현실적인 방문자 수 규모에서는 무시 가능한 수준이라고 판단해 무효화 로직 자체를 도입하지 않기로 결정했고, 그러면 "둘 다 `null`"인 상태가 나올 이유가 없어져 제약을 XOR로 강화했습니다(자세한 계산 근거는 [TODO.md](./TODO.md#해결된-것-참고용-기록) 참고).
 
 ```sql
 create table posts (
@@ -161,7 +161,7 @@ create table posts (
   parent_id uuid references posts(id) on delete cascade,
   author_id uuid references profiles(id) on delete set null,
   is_anonymous boolean not null default true,
-  guest_token text,
+  guest_token uuid,
   type text not null check (type in ('question', 'opinion')),
   status text check (status in ('unresolved', 'resolved')),
   resolved_at timestamptz,
@@ -172,13 +172,13 @@ create table posts (
   check ((parent_id is null) = (status is not null)),
   check (created_mode <> 'lecturer' or (parent_id is not null and type = 'opinion')),
   check ((status = 'resolved') = (resolved_at is not null)),
-  constraint posts_author_id_guest_token_exclusive check (author_id is null or guest_token is null)
+  constraint posts_author_id_xor_guest_token check ((author_id is null) <> (guest_token is null))
 );
 ```
 
 #### `post_likes`
 
-게시글/답글 공용 좋아요이며, PK로 중복 투표를 방지합니다. `voter_key`는 회원이면 `auth.uid()`, 비회원이면 `guest_token`(`crypto.randomUUID()`)을 사용합니다.
+게시글/답글 공용 좋아요이며, PK로 중복 투표를 방지합니다. `voter_key`는 회원이면 `auth.uid()`, 비회원이면 `guest_token`을 사용합니다(생성 방법은 아래 "비회원 익명 식별자" 절 참고).
 
 ```sql
 create table post_likes (
@@ -192,7 +192,7 @@ create table post_likes (
 
 #### `posts_public`
 
-`posts`는 테이블 자체 SELECT 권한이 없어(아래 [RLS 정책 → `posts`](#posts-1) 참고) 이 뷰로만 조회할 수 있습니다. `guest_token`은 완전히 제외하고, `author_id`(uid)도 통째로 숨긴 뒤 `is_anonymous`가 `false`인 글만 `profiles.name`을 조인해서 보여줍니다. `is_mine`은 원본 식별자(`author_id`/`guest_token`)를 노출하지 않으면서 "이 글이 내가 쓴 글인지"만 boolean으로 계산해서 얹은 컬럼으로, 프론트가 수정/삭제 버튼을 조건부로 노출할 때 씁니다. `author_id = auth.uid()`(회원)이거나 `guest_token = x-guest-token 헤더`(비회원)이면 `true`이고, 실제 쓰기 권한(`posts_update_own`/`posts_delete_own`)과 정확히 같은 조건이라 "버튼은 보이는데 실제로는 막히는" 불일치가 없습니다. `coalesce(..., false)`로 감싼 이유는, 예를 들어 게스트가 회원 글을 볼 때 `author_id = auth.uid()`가 `uuid = null` 비교라 `false`가 아니라 `null`이 되는 등 SQL 3진 논리상 결과가 `null`이 될 수 있어서, 이를 명시적으로 `false`로 정리하지 않으면 `is_mine`이 `null`/`true`/`false` 세 상태를 갖게 되기 때문입니다. `created_mode`는 강의자 모드로 쓴 글(답글, 청색 표시)과 수강생 모드로 쓴 글을 프론트가 구분해서 표시하는 데 필요한데, 이 뷰가 `posts.created_mode` 컬럼이 생기기 전에 먼저 만들어진 뒤로 이후의 재생성들에서 계속 빠져 있다가 뒤늦게 추가되었습니다.
+`posts`는 테이블 자체 SELECT 권한이 없어(아래 [RLS 정책 → `posts`](#posts-1) 참고) 이 뷰로만 조회할 수 있습니다. `guest_token`은 완전히 제외하고, `author_id`(uid)도 통째로 숨긴 뒤 `is_anonymous`가 `false`인 글만 `profiles.name`을 조인해서 보여줍니다. `is_mine`은 원본 식별자(`author_id`/`guest_token`)를 노출하지 않으면서 "이 글이 내가 쓴 글인지"만 boolean으로 계산해서 얹은 컬럼으로, 프론트가 수정/삭제 버튼을 조건부로 노출할 때 씁니다. `author_id = auth.uid()`(회원)이거나 `guest_token = x-guest-token 헤더`(비회원, `guest_token`이 `uuid` 타입이라 헤더 값을 `::uuid`로 캐스팅해서 비교)이면 `true`이고, 실제 쓰기 권한(`posts_update_own`/`posts_delete_own`)과 정확히 같은 조건이라 "버튼은 보이는데 실제로는 막히는" 불일치가 없습니다. `coalesce(..., false)`로 감싼 이유는, 예를 들어 게스트가 회원 글을 볼 때 `author_id = auth.uid()`가 `uuid = null` 비교라 `false`가 아니라 `null`이 되는 등 SQL 3진 논리상 결과가 `null`이 될 수 있어서, 이를 명시적으로 `false`로 정리하지 않으면 `is_mine`이 `null`/`true`/`false` 세 상태를 갖게 되기 때문입니다. `created_mode`는 강의자 모드로 쓴 글(답글, 청색 표시)과 수강생 모드로 쓴 글을 프론트가 구분해서 표시하는 데 필요한데, 이 뷰가 `posts.created_mode` 컬럼이 생기기 전에 먼저 만들어진 뒤로 이후의 재생성들에서 계속 빠져 있다가 뒤늦게 추가되었습니다.
 
 ```sql
 create view posts_public as
@@ -210,7 +210,7 @@ select
   p.created_mode,
   coalesce(
     p.author_id = auth.uid()
-    or p.guest_token = (current_setting('request.headers', true)::json ->> 'x-guest-token'),
+    or p.guest_token = (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid,
     false
   ) as is_mine
 from posts p
@@ -582,7 +582,7 @@ grant execute on function reissue_join_code(uuid) to authenticated;
 
 행 단위 제어는 RLS 정책으로, 테이블/컬럼 단위 접근 자체는 `REVOKE`/`GRANT`로 각각 다루며, 테이블별로 RLS만 쓰는 경우도 있고 `posts`/`lecture_join_codes`처럼 둘을 같이 쓰는 경우도 있습니다(`REVOKE`가 필요한 이유는 각 테이블 섹션 설명 참고).
 
-읽기는 테이블마다 성격이 달라 크게 셋으로 나뉩니다: (1) 강의 입장 흐름에 필요한 `nodes`/`lectures`/`lecture_join_codes`는 소유자가 아닌 사람도 읽어야 하므로 그대로 공개(`using (true)`), (2) `profiles`/`favorites`/`post_likes`/`lecture_feedback_votes`는 RLS로 본인 행만 조회 가능하도록 좁힘(`post_likes`/`lecture_feedback_votes`는 여기에 더해, 남에게 `voter_key`를 보여주지 않으면서 전체 개수는 알려야 해서 `post_likes_counts`/`lecture_feedback_votes_counts` 뷰로 집계를 따로 공개), (3) `posts`는 유일하게 테이블 자체 SELECT 권한을 완전히 회수해서 본인 글조차 원본 테이블로는 못 읽고, `guest_token`/`author_id`를 뺀 `posts_public` 뷰로만 조회 가능합니다. 쓰기는 전부 "본인 것만" 원칙으로 제한합니다.
+읽기는 테이블마다 성격이 달라 크게 셋으로 나뉩니다: (1) 강의 입장 흐름에 필요한 `nodes`/`lectures`/`lecture_join_codes`는 소유자가 아닌 사람도 읽어야 하므로 그대로 공개(`using (true)`), (2) `profiles`/`favorites`/`post_likes`/`lecture_feedback_votes`는 RLS로 본인 행만 조회 가능하도록 좁힘(`post_likes`/`lecture_feedback_votes`는 여기에 더해, 남에게 `voter_key`를 보여주지 않으면서 전체 개수는 알려야 해서 `post_likes_counts`/`lecture_feedback_votes_counts` 뷰로 집계를 따로 공개), (3) `posts`는 유일하게 행 단위 제한(본인 글 또는 자기 강의의 글)과 컬럼 단위 제한(`guest_token`/`author_id` 제외)을 함께 씁니다 — UPDATE/DELETE가 대상 행을 찾으려면 SELECT 정책도 있어야 해서(아래 [RLS 정책 → `posts`](#posts-1) 참고) 단순 회수만으로는 부족했기 때문입니다. 여러 사람의 글을 한 번에 봐야 하는 목록 조회는 `guest_token`/`author_id`를 뺀 `posts_public` 뷰로 합니다. 쓰기는 전부 "본인 것만" 원칙으로 제한합니다.
 
 #### `profiles`
 
@@ -701,7 +701,9 @@ create policy "lecture_feedback_votes_lecturer_reset" on lecture_feedback_votes 
 
 #### `posts`
 
-RLS는 "누가 행에 접근 가능한가"만 결정할 뿐, "어떤 테이블/컬럼에 접근 가능한가"는 별도의 GRANT 권한 문제입니다. 전체 공개 SELECT 정책을 열어둔 채로 `guest_token` 컬럼을 그대로 두면, RLS와 무관하게 `posts` 테이블에 직접 `select`를 날리는 것만으로 `guest_token`이 노출되어 남의 글을 수정/삭제할 수 있게 됩니다. 그래서 테이블 자체의 SELECT 권한을 `anon`/`authenticated`에서 회수하고, `guest_token`과 `author_id`를 뺀 `posts_public` 뷰(위 "뷰" 섹션 참고)로만 조회 가능하게 만들었습니다. 회원/비회원 누구나 글을 쓸 수 있지만(단 `author_id`는 본인 것만 주장 가능), 수정/삭제는 `post_likes`와 같은 방식으로 처리합니다 — 회원은 `auth.uid()`, 비회원은 `x-guest-token` 헤더 값과 `guest_token` 일치 여부로 확인합니다. `posts_update_own`/`posts_delete_own`의 `guest_token` 비교 조건에는 원래 `author_id is null and` 가드가 앞에 붙어 있었는데, 위 [테이블 → `posts`](#posts)의 `posts_author_id_guest_token_exclusive` 제약이 생기면서 `guest_token = 헤더`가 참이라는 것 자체가 이미 `author_id is null`을 함의하게 되어 가드가 논리적으로 중복이 되었고, 그래서 제거했습니다.
+RLS는 "누가 행에 접근 가능한가"만 결정할 뿐, "어떤 테이블/컬럼에 접근 가능한가"는 별도의 GRANT 권한 문제입니다. 전체 공개 SELECT 정책을 열어둔 채로 `guest_token` 컬럼을 그대로 두면, RLS와 무관하게 `posts` 테이블에 직접 `select`를 날리는 것만으로 `guest_token`이 노출되어 남의 글을 수정/삭제할 수 있게 됩니다. 그래서 `guest_token`/`author_id` 두 컬럼만 컬럼 단위로 GRANT에서 계속 제외하고, 나머지 컬럼은 아래 두 SELECT 정책이 허용하는 행(본인 글 또는 자기 강의의 글)에 한해 직접 조회도 가능합니다. 목록 조회처럼 여러 사람의 글을 한 번에 봐야 하는 화면은 여전히 `posts_public` 뷰(위 "뷰" 섹션 참고)를 쓰세요. 회원/비회원 누구나 글을 쓸 수 있지만(단 `author_id`는 본인 것만 주장 가능), 수정/삭제는 `post_likes`와 같은 방식으로 처리합니다 — 회원은 `auth.uid()`, 비회원은 `x-guest-token` 헤더 값(`::uuid`로 캐스팅)과 `guest_token` 일치 여부로 확인합니다. `posts_update_own`/`posts_delete_own`의 `guest_token` 비교 조건에는 원래 `author_id is null and` 가드가 앞에 붙어 있었는데, 위 [테이블 → `posts`](#posts)의 옛 배타 제약(`author_id is null or guest_token is null`)이 생기면서 `guest_token = 헤더`가 참이라는 것 자체가 이미 `author_id is null`을 함의하게 되어 가드가 논리적으로 중복이 되었고, 그래서 제거했습니다. 이후 무효화 로직을 도입하지 않기로 결정하면서 이 제약이 `posts_author_id_xor_guest_token`(정확히 하나만 값을 가짐)으로 강화됐고, `guest_token` 컬럼 타입도 `uuid`로 바뀌었습니다.
+
+**`posts_select_own`/`posts_select_lecturer`가 왜 필요한가**: Postgres는 UPDATE/DELETE가 대상 행을 찾을 때(WHERE 절 평가) SELECT 커맨드에 대한 RLS 가시성도 함께 요구합니다. `posts`에 SELECT 정책이 하나도 없으면 `posts_update_own`/`posts_lecturer_delete` 등 UPDATE/DELETE 전용 정책이 아무리 맞아도 대상 행 자체가 "안 보이는" 걸로 취급되어 전부 0행 매치로 실패합니다(실제로 프론트에서 답글 수정/질문 해결 처리가 42501로 막히는 버그로 발견됨). 그래서 UPDATE/DELETE가 허용하는 행과 정확히 같은 조건으로 SELECT 정책 두 개를 추가해 가시성을 확보했습니다. `guest_token`/`author_id`는 이 SELECT로도 여전히 컬럼 단위로 막혀 있어서(위 GRANT 참고), `select('*')`나 `select('guest_token')`류는 여전히 42501로 거부됩니다 — 정책이 "행 가시성"을 열어준 것과 "컬럼 접근권"은 별개라 이 둘을 조합해야 안전합니다. 프론트에서 `.update()` 뒤에 `.select()`를 체이닝할 땐 `select('*')`가 아니라 허용된 컬럼만 명시하거나(`return=representation` 대신 `return=minimal`, 즉 `.select()` 자체를 생략) `createPost`가 이미 쓰고 있는 방식을 그대로 따르세요.
 
 `created_mode = 'lecturer'`로 쓰려는 시도가 실제 강의 제작자에 의한 것인지 확인합니다(왜 필요한지는 설계 노트의 `posts.created_mode` 참고). 같은 행 안의 값끼리만 비교하면 되는 답글+`opinion` 타입 제약은 테이블 `check`로 처리했지만, 이 author_id-제작자 일치 확인은 다른 테이블(`nodes`) 조회가 필요해 `check` 제약으로는 표현할 수 없어서(서브쿼리 금지) RLS로 구현했습니다. UPDATE 쪽은 `RESTRICTIVE`로 만들어서 `posts_update_own`/`posts_lecturer_update_status` 등 다른 정책과 OR가 아니라 AND로 합쳐지게 했습니다.
 
@@ -711,25 +713,40 @@ RLS는 "누가 행에 접근 가능한가"만 결정할 뿐, "어떤 테이블/�
 
 ```sql
 revoke select on posts from anon, authenticated;
+grant select (id, lecture_id, parent_id, is_anonymous, type, status, resolved_at, content, created_at, created_mode)
+  on posts to anon, authenticated;
 ```
 
 ```sql
 alter table posts enable row level security;
+create policy "posts_select_own" on posts for select
+  using (
+    author_id = auth.uid()
+    or guest_token = (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid
+  );
+create policy "posts_select_lecturer" on posts for select
+  using (
+    exists (
+      select 1 from lectures join nodes on nodes.id = lectures.id
+      where lectures.id = posts.lecture_id and nodes.created_by = auth.uid()
+    )
+  );
+
 create policy "posts_insert_anyone" on posts for insert
   with check (author_id is null or author_id = auth.uid());
 create policy "posts_update_own" on posts for update
   using (
     author_id = auth.uid()
-    or guest_token = (current_setting('request.headers', true)::json ->> 'x-guest-token')
+    or guest_token = (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid
   )
   with check (
     author_id = auth.uid()
-    or guest_token = (current_setting('request.headers', true)::json ->> 'x-guest-token')
+    or guest_token = (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid
   );
 create policy "posts_delete_own" on posts for delete
   using (
     author_id = auth.uid()
-    or guest_token = (current_setting('request.headers', true)::json ->> 'x-guest-token')
+    or guest_token = (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid
   );
 
 create policy "posts_insert_lecturer_mode_matches_owner" on posts for insert
@@ -823,16 +840,18 @@ create policy "post_likes_delete_own" on post_likes for delete
 
 ## 비회원 익명 식별자: `guest_token` (여러 기능에서 공용으로 사용)
 
-비회원의 신원을 나타내는 토큰을 **`guest_token`**이라고 부르기로 함. 브라우저의 **localStorage**(탭 간 공유되는 저장소, sessionStorage 아님)에 한 번 생성해 저장하고, 아래 곳에서 동일하게 재사용:
+비회원의 신원을 나타내는 토큰을 **`guest_token`**이라고 부르기로 함. **반드시 `crypto.randomUUID()`로 생성**(UUID v4, 122비트 무작위성)해서 브라우저의 **localStorage**(탭 간 공유되는 저장소, sessionStorage 아님)에 한 번 저장하고, 아래 곳에서 동일하게 재사용:
 - `posts.guest_token` — 본인 글 수정/삭제 인증 (`posts_update_own`/`posts_delete_own` RLS 정책이 `x-guest-token` 헤더로 읽어서 대조)
 - `post_likes` / `lecture_feedback_votes`의 `voter_key` — 중복 투표 방지 (역시 `x-guest-token` 헤더로 대조)
 - Presence key — 접속자 수 집계
 
 즉 어느 기능이든 서버에 요청할 때 **`x-guest-token`** 헤더 하나만 실어 보내면 됩니다.
 
+**왜 `crypto.randomUUID()`를 반드시 써야 하는지**: `posts.guest_token`은 `uuid` 타입으로 DB에서 형식이 강제되지만, 그 값이 *얼마나 예측 불가능한지*는 프론트가 실제로 CSPRNG 기반 UUID v4를 생성해야만 보장됩니다. 강의 종료 후에도 `guest_token`을 무효화하지 않고 영구 보존하기로 한 건 이 전제가 성립한다는 가정 위에서 내린 결정입니다 — 짧거나 예측 가능한 값을 쓰면 "우연히 겹치는 비회원이 남의 글을 수정하게 되는" 위험이 실제로 커집니다.
+
 ## 배포 현황
 
-- 별도의 Express 백엔드 서버 없이 Supabase(Postgres + Auth + Realtime + RLS)만으로 구성. AI 교정/필터링/유사도 검사 등 서버 로직이 필요한 부분은 Express를 새로 띄우지 않고 **Supabase Edge Function으로 확정**(`submit-post`, 계획 단계 — 자세한 내용은 [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md)와 [TODO.md #4](./TODO.md#4-ai-보조-기능-서버-아키텍처-결정-edge-function-확정) 참고).
+- 별도의 Express 백엔드 서버 없이 Supabase(Postgres + Auth + Realtime + RLS)만으로 구성. AI 교정/필터링/유사도 검사 등 서버 로직이 필요한 부분은 Express를 새로 띄우지 않고 **Supabase Edge Function으로 확정**(`submit-post`, 계획 단계 — 자세한 내용은 [`SUBMIT_POST_PLAN.md`](./SUBMIT_POST_PLAN.md)와 [TODO.md #3](./TODO.md#3-ai-보조-기능-서버-아키텍처-결정-edge-function-확정) 참고).
 - 이 문서의 SQL은 `backend/supabase/migrations/`에 마이그레이션 파일로 옮겨져 실제 Supabase 프로젝트(project ref: `zilvdbwoieplhrpjqnlo`)에 적용되어 있습니다.
   - `20260705062713_init_schema.sql` — 테이블/함수·트리거/RLS 초기 스키마 전체
   - `20260705064427_lecturer_permissions.sql` — 강의자 권한 정책(`posts_lecturer_update_status`, `posts_lecturer_delete`, `feedback_lecturer_reset`), `trg_block_status_change` 트리거, `posts_public` 뷰
@@ -865,3 +884,6 @@ create policy "post_likes_delete_own" on post_likes for delete
   - `20260707153000_drop_redundant_guest_token_guard.sql` — 위 제약으로 인해 `posts_update_own`/`posts_delete_own` 정책의 `guest_token` 비교 조건 앞에 있던 `author_id is null and` 가드가 논리적으로 중복이 되어 제거
   - `20260707153500_posts_public_is_mine.sql` — `posts_public` 뷰에 `is_mine` boolean 컬럼 추가. 원본 식별자(`author_id`/`guest_token`)를 노출하지 않으면서 "본인 글인지" 여부만 계산해서 알려줘 프론트가 수정/삭제 버튼을 조건부로 노출할 수 있게 함
   - `20260707160000_posts_public_add_created_mode.sql` — `posts_public` 뷰에 `created_mode` 컬럼 추가. 이 뷰가 `posts.created_mode` 컬럼이 생기기 전에 먼저 만들어진 뒤로 이후 재생성(`restrict_public_read_access`, `rename_columns_and_my_nodes_table`, `posts_public_is_mine`)에서 계속 누락되어 있던 것을 뒤늦게 발견해서 추가
+  - `20260707170000_posts_guest_token_uuid_and_xor_constraint.sql` — 강의 종료 후 `guest_token` 무효화 로직은 도입하지 않기로 확정(생일 문제 계산 근거는 [TODO.md](./TODO.md#해결된-것-참고용-기록) 참고). `posts.guest_token`을 `text`에서 `uuid`로 바꿔 형식을 DB 레벨에서 강제하고(`post_likes`/`lecture_feedback_votes.voter_key`와 동일 타입), `posts_author_id_guest_token_exclusive` 제약을 `posts_author_id_xor_guest_token`(정확히 하나만 값을 가짐)으로 강화. `posts_update_own`/`posts_delete_own`/`posts_public.is_mine`의 `guest_token` 비교도 헤더 값을 `::uuid`로 캐스팅하도록 갱신
+  - `20260707180000_posts_grant_select_for_rls_update_delete.sql` — 프론트에서 답글 수정/질문 해결 처리가 42501로 막히는 버그 발견(원인: `20260706093000`에서 `posts`의 SELECT를 통째로 회수해, UPDATE 정책이 멀쩡해도 GRANT 단계에서부터 막힘). `grant select on posts to anon, authenticated`로 우선 복구했으나, 이것만으론 부족했음이 곧 드러남(아래 항목 참고)
+  - `20260707190000_posts_select_policy_for_update_delete_rls.sql` — 위 GRANT 복구만으로 여전히 UPDATE/DELETE가 0행 매치로 실패하는 걸 발견. 진짜 원인은 Postgres가 UPDATE/DELETE의 대상 행을 찾을 때 SELECT 커맨드에 대한 RLS 가시성도 요구한다는 것이었고, `posts`에 SELECT 정책이 하나도 없어(기본값: 전부 안 보임) UPDATE/DELETE 전용 정책과 무관하게 항상 실패하고 있었음. UPDATE/DELETE가 허용하는 행과 정확히 같은 조건으로 `posts_select_own`/`posts_select_lecturer` SELECT 정책을 추가해 가시성을 확보하고, `guest_token`/`author_id` 노출을 막기 위해 `revoke select on posts` 후 이 두 컬럼만 제외하고 다시 `grant select (컬럼 목록)`으로 컬럼 단위 제한. 실제 REST API로 회원/비회원/강의자 세 경로 모두 수정·삭제가 되는지, `guest_token`/`author_id`는 여전히 직접 조회가 막히는지 라이브에서 검증 완료
