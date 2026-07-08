@@ -399,10 +399,20 @@ supabase 클라이언트는 앱 시작할 때 딱 한 번만 만들고(`supabase
 const { data, error } = await supabase.functions.invoke('ai-correct', {
   body: { content: draftText },
 })
-// data: { corrected: string }
+// data: { corrected: string, used_ai: boolean }
 ```
 
 OpenAI 호출이 실패해도(키 미설정, API 오류 등) 에러를 던지지 않고 `corrected`에 원문을 그대로 돌려줍니다 — 교정은 부가 기능이라 실패해도 작성 흐름을 막지 않는 설계입니다.
+
+**`used_ai`로 "AI가 실제로 고쳤는지"와 "AI 연결이 실패해서 원문이 그대로 나온 건지"를 구분하세요.** `corrected`만 보면 두 경우가 똑같이 원문과 같은 텍스트로 나올 수 있어요(AI가 정말 고칠 게 없다고 판단한 경우 vs AI 호출 자체가 실패한 경우). `used_ai === false`면 `corrected`는 AI가 다듬은 게 아니라 원문 그대로라는 뜻이니, 이 경우엔 "AI 교정에 실패했습니다. 잠시 후 다시 시도해주세요" 같은 안내를 보여주고 `corrected`를 초안으로 자동 채우지 않는 걸 권장합니다(반대로 `used_ai === true`인데 `corrected === draftText`면 AI가 원문 그대로도 괜찮다고 판단한 정상 케이스입니다).
+
+```js
+if (!data.used_ai) {
+  // AI 연결 실패 — corrected는 원문과 동일. 실패 안내를 보여주고 원문 그대로 두는 걸 권장.
+} else {
+  setAiDraft(data.corrected) // 실제로 AI가 처리한 결과(원문과 같아도 정상)
+}
+```
 
 ### `submit-post`
 
@@ -423,10 +433,17 @@ OpenAI 호출이 실패해도(키 미설정, API 오류 등) 에러를 던지지
 
 | HTTP 상태 | `result` | 의미 / 나머지 필드 |
 |---|---|---|
-| 201 | `created` | 저장 완료. `post`에 생성된 행(`id`/`content`/`status`/`created_at` 등) |
+| 201 | `created` | 저장 완료. `post`에 생성된 행(`id`/`content`/`status`/`created_at` 등), `moderation_checked`/`similarity_checked`(아래 참고) |
 | 422 | `rejected` | 적절성 검사 탈락. `reason`에 왜 부적절한지 한 문장 사유 |
-| 409 | `similar_found` | 이미 답이 있을 만큼 비슷한 글 발견, **아직 저장 안 됨**. `draft_id`(강행 제출용), `similar_id`(보여줄 유사 글 id) |
+| 409 | `similar_found` | 이미 답이 있을 만큼 비슷한 글 발견, **아직 저장 안 됨**. `draft_id`(강행 제출용), `similar_id`(보여줄 유사 글 id), `moderation_checked`/`similarity_checked` |
 | 400/403/404/405/500 | `invalid` | `reason`에 사유. 400: 필수 필드 누락/enum 오류/비회원인데 비익명 등. 403: `author_id` 불일치, 강의자 모드 소유권 불일치. 404: 강행 제출 시 `draft_id`가 없거나(이미 소비됨) 다른 사람 draft. 405: POST가 아닌 메서드. 500: 그 외 예기치 못한 오류 |
+
+**`moderation_checked`/`similarity_checked`로 AI 검사가 실제로 수행됐는지 확인하세요.** `ai-correct`의 `used_ai`와 같은 이유예요 — AI 호출이 실패(키 누락/API 오류)하면 적절성 검사는 항상 통과로, 유사도 검사는 항상 "유사 글 없음"으로 안전하게 폴백하기 때문에, 글이 그냥 정상 등록된 것처럼 보여도 실제로는 검사를 못 거쳤을 수 있습니다.
+
+- `moderation_checked: boolean` — `true`면 AI가 실제로 적절성을 판단한 것, `false`면 AI 연결이 실패해서 검사를 건너뛰고 통과시킨 것.
+- `similarity_checked: boolean | null` — `type: 'question'`일 때만 의미가 있어요. `true`면 AI가 실제로 유사도를 판단한 것(비교할 후보 글이 아예 없어서 "유사 글 없음"이 자명한 경우도 `true`), `false`면 AI 연결이 실패해서 검사를 건너뛴 것. `opinion`/답글처럼 애초에 유사도 검사 대상이 아니면 `null`.
+- **강행 제출(`{draft_id}`) 응답에는 이 두 필드가 없습니다** — 적절성/유사도 검사는 최초 스테이징 시점에 이미 끝났고 강행 제출은 재검사하지 않기 때문이에요.
+- 두 값이 `false`인 경우 글 자체는 정상 등록되니 제출을 막을 필요는 없고, "적절성/유사도 검사가 일시적으로 동작하지 않았어요" 정도의 안내만 보여주면 충분합니다(필수 처리는 아님).
 
 ```js
 const { data, error } = await supabase.functions.invoke('submit-post', {
