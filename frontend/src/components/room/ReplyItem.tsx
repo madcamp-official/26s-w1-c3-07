@@ -5,14 +5,13 @@ import { cn } from '../../utils/cn'
 
 interface ReplyItemProps {
   reply: QuestionReply
-  canLike?: boolean
   onLike?: () => void
   onReply?: () => void
   onEdit?: (content: string) => Promise<void>
   onDelete?: () => void
 }
 
-export default function ReplyItem({ reply, canLike = true, onLike, onReply, onEdit, onDelete }: ReplyItemProps) {
+export default function ReplyItem({ reply, onLike, onReply, onEdit, onDelete }: ReplyItemProps) {
   const isLecturer = reply.authorRole === 'lecturer'
   const isOpinion = reply.postType === 'opinion'
   const [isEditing, setIsEditing] = useState(false)
@@ -95,12 +94,7 @@ export default function ReplyItem({ reply, canLike = true, onLike, onReply, onEd
         <button
           type="button"
           onClick={onLike}
-          disabled={!canLike}
-          className={cn(
-            'inline-flex items-center gap-1.5 text-xs font-bold transition disabled:cursor-not-allowed',
-            reply.isLikedByMe ? 'text-violet-600' : 'text-slate-400',
-            canLike && !reply.isLikedByMe && 'hover:text-violet-600',
-          )}
+          className={cn('inline-flex items-center gap-1.5 text-xs font-bold transition', reply.isLikedByMe ? 'text-violet-600' : 'text-slate-400 hover:text-violet-600')}
           aria-pressed={reply.isLikedByMe}
         >
           <ThumbsUp className={cn('size-3.5', reply.isLikedByMe && 'fill-violet-600')} />{reply.likeCount}

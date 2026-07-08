@@ -131,7 +131,6 @@ export default function CourseRoomPage() {
                 key={question.id}
                 question={question}
                 canResolve={isInstructor}
-                canLike={!isInstructor}
                 isHighlighted={question.id === highlightId}
                 onLike={likeQuestion}
                 onResolve={resolveQuestion}
