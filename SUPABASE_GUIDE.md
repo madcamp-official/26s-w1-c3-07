@@ -118,7 +118,7 @@ const { data } = await supabase
   .single()
 ```
 
-**⚠️ 중요**: `posts`/`post_likes`/`lecture_feedback_votes` 테이블은 `anon`/`authenticated`에게 전체 SELECT 권한이 없습니다(`posts`는 `guest_token`/`author_id` 두 컬럼만 제외하고 나머지는 본인 글·자기 강의 글에 한해 조회 가능, 나머지 둘은 본인 투표 행만 조회 가능). 그래서 여러 사람의 글/투표를 한 번에 조회할 땐 아래 뷰로 하세요. 아래 `posts_public`/`post_likes_counts` 예시 코드는 아직 `App.jsx`에 실제로 쓰인 적은 없고, DB 스키마/RLS 설계를 근거로 유도한 패턴이에요 — 실제로 붙여서 테스트해보고 문제 있으면 알려주세요.
+**⚠️ 중요**: `posts`/`post_likes`/`lecture_feedback_votes` 테이블은 `anon`/`authenticated`에게 전체 SELECT 권한이 없습니다(`posts`는 `guest_token`/`author_id` 두 컬럼만 제외하고 나머지는 본인 글·자기 강의 글에 한해 조회 가능, 나머지 둘은 본인 투표 행만 조회 가능). 그래서 여러 사람의 글/투표를 한 번에 조회할 땐 아래 뷰로 하세요. **✅ `frontend/src/services/api.ts`에 구현·라이브 검증 완료** — 아래 `posts_public`/`post_likes_counts` 예시 코드 그대로 쓰이고 있습니다.
 
 **⚠️ `updateReply`/`resolveQuestion`처럼 `posts`에 직접 `.update()`(또는 `.delete()`)할 때 주의**: `.update({...}).select()`처럼 `.select()`를 체이닝하면 내부적으로 `select('*')`가 실행되는데, `guest_token`/`author_id`는 컬럼 단위로 막혀 있어서 `42501 permission denied`가 납니다. `createPost`가 이미 하고 있듯 `.select()`를 아예 생략하거나(성공하면 `204 No Content`만 옴), 굳이 결과가 필요하면 `select('id, content, status')`처럼 허용된 컬럼만 명시하세요.
 
