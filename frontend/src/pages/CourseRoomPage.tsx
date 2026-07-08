@@ -9,7 +9,7 @@ import Sidebar from '../components/navigation/Sidebar'
 import Button from '../components/ui/Button'
 import ShareCourseModal from '../components/course/ShareCourseModal'
 import { useCourseRoom } from '../hooks/useCourseRoom'
-import { getCurrentUser } from '../services/api'
+import { getCurrentUser, signInWithGoogle } from '../services/api'
 import type { QuestionFilter } from '../types/room'
 import type { User } from '../types/user'
 import { cn } from '../utils/cn'
@@ -80,7 +80,7 @@ export default function CourseRoomPage() {
           {user ? (
             <span className="grid size-9 place-items-center rounded-full bg-violet-600 text-sm font-extrabold text-white">{user.avatarText}</span>
           ) : (
-            <Button variant="secondary" onClick={() => navigate('/')}>Google 로그인</Button>
+            <Button variant="secondary" onClick={() => void signInWithGoogle()}>Google 로그인</Button>
           )}
         </div>
       </header>
