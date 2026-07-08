@@ -602,8 +602,22 @@ function getActiveDataset(): { folders: CourseFolder[]; rootCourses: Course[] } 
     : { folders: mockStudentFolders, rootCourses: mockStudentCourses }
 }
 
+/**
+ * 지금 보고 있는 화면(강의자/수강생 모드)에서 "내가 만든" 노드인지 판별합니다.
+ * created_by만 보면 안 되는 이유: 같은 계정이 강의자 모드로 만든 폴더/강의를
+ * 수강생 모드에서 즐겨찾기(등록)할 수 있는데, 이때 created_by는 여전히 본인이지만
+ * 지금 보이는 화면(수강생 모드) 기준으로는 "등록만 한" 항목이라 owned가 아닙니다.
+ * created_mode까지 함께 확인해야 "지금 이 화면에서 실제로 만든 것"만 owned로 판별됩니다.
+ */
 async function isOwnNode(nodeId: string, userId: string): Promise<boolean> {
-  const { data, error } = await supabase.from('nodes').select('id').eq('id', nodeId).eq('created_by', userId).maybeSingle<{ id: string }>()
+  const createdMode = roleToMode(mockCurrentUser.role)
+  const { data, error } = await supabase
+    .from('nodes')
+    .select('id')
+    .eq('id', nodeId)
+    .eq('created_by', userId)
+    .eq('created_mode', createdMode)
+    .maybeSingle<{ id: string }>()
   if (error) throw error
   return Boolean(data)
 }

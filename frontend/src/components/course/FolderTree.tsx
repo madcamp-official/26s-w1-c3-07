@@ -14,7 +14,7 @@ interface FolderNodeProps {
   onEditCourse?: (courseId: string) => void
   onRename: (itemId: string, itemType: TreeItemType, currentName: string) => void
   onMove: (itemId: string, itemType: TreeItemType, label: string) => void
-  onDelete: (itemId: string, itemType: TreeItemType, label: string) => void
+  onDelete: (itemId: string, itemType: TreeItemType, label: string, isOwned: boolean) => void
   onDrop: (payload: DragPayload, targetFolderId: string | null) => void
   renamingId: string | null
   renameValue: string
@@ -61,14 +61,14 @@ function FolderNode({ folder, depth = 0, isInstructor = false, onAddSubfolder, o
   }
 
   return (
-    <li>
+    <li id={`folder-${folder.id}`}>
       <div
         draggable={isOwned}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragLeave={() => setIsDragOver(false)}
         onDrop={handleDrop}
-        className={cn('group/folder relative flex items-center gap-2 rounded-xl pr-2', depth > 0 ? 'ml-6' : '', isDragOver && 'bg-violet-50 ring-2 ring-violet-300')}
+        className={cn('group/folder relative flex items-center gap-2 rounded-xl pr-2 scroll-mt-24', depth > 0 ? 'ml-6' : '', isDragOver && 'bg-violet-50 ring-2 ring-violet-300')}
       >
         <button
           type="button"
@@ -96,21 +96,24 @@ function FolderNode({ folder, depth = 0, isInstructor = false, onAddSubfolder, o
           )}
         </button>
 
-        {isOwned && !isRenaming && (
+        {!isRenaming && (
           <div className="flex items-center gap-1 opacity-0 transition group-hover/folder:opacity-100">
-            <button type="button" onClick={() => onAddSubfolder(folder.id)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-violet-600" aria-label="하위 폴더 추가">
-              <Plus className="size-4" />
-            </button>
+            {isOwned && (
+              <button type="button" onClick={() => onAddSubfolder(folder.id)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-violet-600" aria-label="하위 폴더 추가">
+                <Plus className="size-4" />
+              </button>
+            )}
             <div className="relative">
               <button type="button" onClick={() => setIsMenuOpen((current) => !current)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="폴더 메뉴">
                 <MoreHorizontal className="size-4" />
               </button>
               {isMenuOpen && (
                 <ItemActionsMenu
-                  onRename={() => onRename(folder.id, 'folder', folder.name)}
-                  onMove={() => onMove(folder.id, 'folder', folder.name)}
-                  onDelete={() => onDelete(folder.id, 'folder', folder.name)}
+                  onRename={isOwned ? () => onRename(folder.id, 'folder', folder.name) : undefined}
+                  onMove={isOwned ? () => onMove(folder.id, 'folder', folder.name) : undefined}
+                  onDelete={() => onDelete(folder.id, 'folder', folder.name, isOwned)}
                   onClose={() => setIsMenuOpen(false)}
+                  deleteLabel={isOwned ? '삭제' : '등록취소'}
                 />
               )}
             </div>
@@ -163,7 +166,7 @@ interface FolderTreeProps {
   onEditCourse?: (courseId: string) => void
   onRename: (itemId: string, itemType: TreeItemType, currentName: string) => void
   onMove: (itemId: string, itemType: TreeItemType, label: string) => void
-  onDelete: (itemId: string, itemType: TreeItemType, label: string) => void
+  onDelete: (itemId: string, itemType: TreeItemType, label: string, isOwned: boolean) => void
   onDrop: (payload: DragPayload, targetFolderId: string | null) => void
   renamingId: string | null
   renameValue: string

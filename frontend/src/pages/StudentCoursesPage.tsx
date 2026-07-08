@@ -40,6 +40,7 @@ interface ItemTarget {
   itemId: string
   itemType: TreeItemType
   label: string
+  isOwned?: boolean
 }
 
 export default function StudentCoursesPage() {
@@ -48,6 +49,7 @@ export default function StudentCoursesPage() {
   const { user, folders, courses, isLoading, error, sortOrder, setSortOrder, addFolder, registerCourse, moveItem, renameItem, deleteItem, reload } = useStudentCourses()
   const [isRegisterOpen, setIsRegisterOpen] = useState(false)
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false)
+  const [createFolderParentId, setCreateFolderParentId] = useState<string | null>(null)
   const [moveTarget, setMoveTarget] = useState<ItemTarget | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ItemTarget | null>(null)
   const [renameTarget, setRenameTarget] = useState<ItemTarget | null>(null)
@@ -130,7 +132,7 @@ export default function StudentCoursesPage() {
             </div>
           )}
           <div className="flex flex-wrap items-center gap-3">
-            <Button variant="dashed" onClick={() => setIsCreateFolderOpen(true)} className="rounded-full"><Plus className="size-4" />루트 폴더 만들기</Button>
+            <Button variant="dashed" onClick={() => { setCreateFolderParentId(null); setIsCreateFolderOpen(true) }} className="rounded-full"><Plus className="size-4" />루트 폴더 만들기</Button>
             <div className="flex rounded-2xl bg-slate-100 p-1">
               {sortOptions.map((option) => (
                 <button key={option.value} type="button" onClick={() => setSortOrder(option.value)} className={cn('rounded-xl px-4 py-2 text-sm font-bold transition', sortOrder === option.value ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600')}>
@@ -151,11 +153,11 @@ export default function StudentCoursesPage() {
           <FolderTree
             folders={folders}
             isInstructor={isInstructor}
-            onAddSubfolder={() => setIsCreateFolderOpen(true)}
+            onAddSubfolder={(parentId) => { setCreateFolderParentId(parentId); setIsCreateFolderOpen(true) }}
             onEditCourse={(courseId) => navigate(`/student/courses/${courseId}/edit`)}
             onRename={startRename}
             onMove={(itemId, itemType, label) => setMoveTarget({ itemId, itemType, label })}
-            onDelete={(itemId, itemType, label) => setDeleteTarget({ itemId, itemType, label })}
+            onDelete={(itemId, itemType, label, isOwned) => setDeleteTarget({ itemId, itemType, label, isOwned })}
             onDrop={(payload, targetFolderId) => void moveItem({ itemId: payload.itemId, itemType: payload.itemType, targetFolderId })}
             renamingId={renameTarget?.itemId ?? null}
             renameValue={renameValue}
@@ -174,7 +176,7 @@ export default function StudentCoursesPage() {
                 isInstructor={isInstructor}
                 onEdit={(courseId) => navigate(`/student/courses/${courseId}/edit`)}
                 onMove={(itemId, itemType, label) => setMoveTarget({ itemId, itemType, label })}
-                onDelete={(itemId, itemType, label) => setDeleteTarget({ itemId, itemType, label })}
+                onDelete={(itemId, itemType, label, isOwned) => setDeleteTarget({ itemId, itemType, label, isOwned })}
               />
             ))}
           </div>
@@ -183,8 +185,14 @@ export default function StudentCoursesPage() {
 
       <CreateItemModal
         isOpen={isCreateFolderOpen}
+        parentId={createFolderParentId}
         onClose={() => setIsCreateFolderOpen(false)}
-        onCreateFolder={addFolder}
+        onCreateFolder={async (name, parentId) => {
+          const folder = await addFolder(name, parentId)
+          window.setTimeout(() => {
+            document.getElementById(`folder-${folder.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }, 100)
+        }}
       />
       <RegisterByCodeModal isOpen={isRegisterOpen} onClose={() => setIsRegisterOpen(false)} onRegister={registerCourse} />
       <ShareCourseModal isOpen={shareCourse !== null} course={shareCourse} onClose={() => setShareCourse(null)} />
@@ -205,11 +213,17 @@ export default function StudentCoursesPage() {
       {deleteTarget && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/30 p-4 backdrop-blur-sm" role="presentation" onMouseDown={() => setDeleteTarget(null)}>
           <section role="alertdialog" aria-modal="true" className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
-            <h2 className="text-lg font-extrabold text-slate-900">삭제하시겠습니까?</h2>
-            <p className="mt-2 text-sm text-slate-500"><span className="font-bold text-slate-700">{deleteTarget.label}</span>을(를) 삭제하면 되돌릴 수 없습니다.</p>
+            <h2 className="text-lg font-extrabold text-slate-900">{deleteTarget.isOwned ? '삭제하시겠습니까?' : '등록취소 하시겠습니까?'}</h2>
+            <p className="mt-2 text-sm text-slate-500">
+              {deleteTarget.isOwned ? (
+                <><span className="font-bold text-slate-700">{deleteTarget.label}</span>을(를) 삭제하면 되돌릴 수 없습니다.</>
+              ) : (
+                <><span className="font-bold text-slate-700">{deleteTarget.label}</span>의 등록을 취소합니다. 원본은 그대로 남고, 내 목록에서만 제거됩니다.</>
+              )}
+            </p>
             <div className="mt-6 flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setDeleteTarget(null)}>취소</Button>
-              <Button onClick={() => void handleDelete()} className="bg-rose-600 hover:bg-rose-700">삭제</Button>
+              <Button onClick={() => void handleDelete()} className="bg-rose-600 hover:bg-rose-700">{deleteTarget.isOwned ? '삭제' : '등록취소'}</Button>
             </div>
           </section>
         </div>
