@@ -18,7 +18,7 @@ const studentNavigation = [
 
 const instructorNavigation = [
   { label: '내 강의', to: '/courses', Icon: BookOpen },
-  { label: '미답변 질문', to: '/questions', Icon: MessageCircleQuestion },
+  { label: '미해결 질문', to: '/questions', Icon: MessageCircleQuestion },
   { label: '설정', to: '/settings', Icon: Settings },
 ]
 

@@ -88,7 +88,7 @@ export default function UnansweredQuestionsPage() {
     setError(null)
     getUnansweredQuestions()
       .then(setData)
-      .catch(() => setError('미답변 질문을 불러오지 못했습니다.'))
+      .catch(() => setError('미해결 질문을 불러오지 못했습니다.'))
       .finally(() => setIsLoading(false))
   }
 
@@ -98,7 +98,7 @@ export default function UnansweredQuestionsPage() {
     navigate(questionId ? `/room/${courseId}?highlight=${questionId}` : `/room/${courseId}`)
 
   if (isLoading) {
-    return <div className="grid min-h-screen place-items-center"><div className="size-10 animate-spin rounded-full border-4 border-violet-100 border-t-violet-600" aria-label="미답변 질문 불러오는 중" /></div>
+    return <div className="grid min-h-screen place-items-center"><div className="size-10 animate-spin rounded-full border-4 border-violet-100 border-t-violet-600" aria-label="미해결 질문 불러오는 중" /></div>
   }
 
   if (error || !data) {
@@ -114,15 +114,12 @@ export default function UnansweredQuestionsPage() {
       <header className="border-b border-slate-100 bg-white px-4 py-5 sm:px-6 xl:px-10">
         <div className="mx-auto flex max-w-5xl items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-slate-400">모든 강의 · 미답변</p>
-            <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">미답변 질문</h1>
+            <p className="text-sm font-medium text-slate-400">모든 강의 · 미해결</p>
+            <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">미해결 질문</h1>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-4 py-2 text-sm font-bold text-amber-700">
-              <MessageCircleQuestion className="size-4" />{data.totalCount}개 미답변
-            </span>
-            <Button variant="secondary" onClick={() => navigate('/courses')}>내 강의</Button>
-          </div>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-4 py-2 text-sm font-bold text-amber-700">
+            <MessageCircleQuestion className="size-4" />{data.totalCount}개 미해결
+          </span>
         </div>
       </header>
 

@@ -973,10 +973,6 @@ async function getFeedbackOptionsFromDb(lectureId: string): Promise<FeedbackOpti
   }))
 }
 
-function isAnsweredByLecturer(question: Question): boolean {
-  return question.replies.some((reply) => reply.authorRole === 'lecturer')
-}
-
 /** posts 트리거가 브로드캐스트하는 post_change 페이로드(DB_DESIGN.md의 broadcast_post_change 참고). */
 export interface PostChangePayload {
   op: 'INSERT' | 'UPDATE' | 'DELETE'
@@ -1114,7 +1110,7 @@ function findUnansweredInCourses(
     const roomQuestions = mockCourseRooms[course.id]?.questions ?? questionsByCourseId.get(course.id) ?? []
 
     const questions = roomQuestions
-      .filter((question) => question.postType === 'question' && !isAnsweredByLecturer(question))
+      .filter((question) => question.postType === 'question' && !question.isResolved)
       .map((question) => ({ ...question, courseId: course.id, courseTitle: course.title }))
 
     if (questions.length > 0) groups.push({ id: course.id, title: course.title, questions })
@@ -1137,7 +1133,7 @@ function buildUnansweredTree(folders: CourseFolder[], questionsByCourseId: Map<s
   return nodes
 }
 
-/** 강의자의 모든 강의에서 강의자 본인이 아직 답변하지 않은 '질문' 유형 게시글만 폴더 구조로 모아 반환합니다. */
+/** 강의자의 모든 강의에서 미해결 상태인 '질문' 유형 게시글만 폴더 구조로 모아 반환합니다(강의자 답글 여부와 무관). */
 export async function getUnansweredQuestions(): Promise<{ folders: UnansweredFolderNode[]; standaloneCourses: Array<{ id: string; title: string; questions: UnansweredQuestion[] }>; totalCount: number }> {
   const userId = await requireAuthUserId()
   const { folders: activeFolders, rootCourses } = await getInstructorDataset(userId)
