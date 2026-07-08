@@ -4,7 +4,6 @@ export type FolderOwnership = 'owned' | 'registered'
 export interface Course {
   id: string
   title: string
-  participantCount: number
   questionCount: number
   updatedAt?: string
   color: ItemColor

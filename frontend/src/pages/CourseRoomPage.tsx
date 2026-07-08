@@ -185,7 +185,6 @@ export default function CourseRoomPage() {
         course={{
           id: room.id,
           title: room.title,
-          participantCount,
           questionCount: room.questions.length,
           color: 'purple',
           ownership: 'owned',

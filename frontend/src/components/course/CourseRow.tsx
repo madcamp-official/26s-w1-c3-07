@@ -39,7 +39,7 @@ export default function CourseRow({ course, isInstructor = false, isInBlockedFol
         <CourseIcon color={isOwned ? 'purple' : course.color} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-base font-extrabold text-slate-900 sm:text-lg">{course.title}</span>
-          <span className="mt-1.5 block"><CourseMeta participantCount={course.participantCount} questionCount={course.questionCount} updatedAt={course.updatedAt} /></span>
+          <span className="mt-1.5 block"><CourseMeta questionCount={course.questionCount} updatedAt={course.updatedAt} /></span>
         </span>
       </button>
 

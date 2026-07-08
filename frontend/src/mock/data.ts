@@ -29,7 +29,6 @@ export const mockInstructorFolders: CourseFolder[] = [
       {
         id: 'course-tree',
         title: '트리와 그래프',
-        participantCount: 34,
         questionCount: 8,
         updatedAt: '1일 전',
         color: 'purple',
@@ -48,7 +47,6 @@ export const mockInstructorCourses: Course[] = [
   {
     id: 'course-database',
     title: '데이터베이스 설계 입문',
-    participantCount: 41,
     questionCount: 5,
     color: 'purple',
     ownership: 'owned',
@@ -80,7 +78,6 @@ export const mockStudentFolders: CourseFolder[] = [
           {
             id: 'course-array',
             title: '배열과 연결 리스트',
-            participantCount: 34,
             questionCount: 12,
             updatedAt: '2시간 전',
             color: 'blue',
@@ -122,7 +119,6 @@ export const mockStudentCourses: Course[] = [
   {
     id: 'course-ai-seminar',
     title: 'AI 세미나: 파운데이션 모델',
-    participantCount: 88,
     questionCount: 31,
     color: 'blue',
     ownership: 'registered',
@@ -135,7 +131,6 @@ export const mockStudentCourses: Course[] = [
   {
     id: 'course-career-talk',
     title: '커리어 토크: 대기업 취업 전략',
-    participantCount: 56,
     questionCount: 7,
     color: 'blue',
     ownership: 'registered',
@@ -148,7 +143,6 @@ export const mockStudentCourses: Course[] = [
   {
     id: 'course-python',
     title: '파이썬 워크샵: 고급 패턴',
-    participantCount: 44,
     questionCount: 18,
     color: 'blue',
     ownership: 'registered',

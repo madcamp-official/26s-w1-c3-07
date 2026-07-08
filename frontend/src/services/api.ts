@@ -242,7 +242,6 @@ function nodeToItem(node: NodeRow, ownership: FolderOwnership): CourseFolder | C
     const course: Course = {
       id: node.id,
       title: node.name,
-      participantCount: 0,
       questionCount: 0,
       color: ownership === 'owned' ? 'purple' : 'blue',
       ownership,
@@ -443,7 +442,6 @@ async function findCourseByJoinCode(code: string): Promise<Course> {
   return {
     id: node.id,
     title: node.name,
-    participantCount: 0,
     questionCount: countRow?.post_count ?? 0,
     updatedAt: '방금 전',
     color: 'blue',
@@ -529,7 +527,6 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
   return {
     id: node.id,
     title: node.name,
-    participantCount: 0,
     questionCount: 0,
     color: 'purple',
     ownership: 'owned',
@@ -580,7 +577,6 @@ export async function updateCourse(input: UpdateCourseInput): Promise<Course> {
   return {
     id: node.id,
     title: node.name,
-    participantCount: 0,
     questionCount: 0,
     color: 'purple',
     ownership: 'owned',
