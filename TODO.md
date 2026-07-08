@@ -4,10 +4,15 @@
 
 - [Realtime 관련](#realtime-관련)
   - [5. "내 강의" 목록에서 강의별 접속자 수(`participantCount`) 표시](#5-내-강의-목록에서-강의별-접속자-수participantcount-표시)
+  - [6. 강의실 게시글/좋아요/피드백 실시간 갱신 — DB 쪽은 완료, 프론트 구독만 남음](#6-강의실-게시글좋아요피드백-실시간-갱신--db-쪽은-완료-프론트-구독만-남음)
 - [join_code 관련](#join_code-관련)
-  - [6. `lecture_join_codes` 파기 시점/주체 결정](#6-lecture_join_codes-파기delete-시점주체-결정)
+  - [7. `lecture_join_codes` 파기 시점/주체 결정](#7-lecture_join_codes-파기delete-시점주체-결정)
 - [nodes 관련](#nodes-관련)
-  - [7. `nodes` 트리에 사이클이 생기지 않도록 DB 차원에서 막는 제약 추가](#7-nodes-트리에-사이클이-생기지-않도록-db-차원에서-막는-제약-추가)
+  - [8. `nodes` 트리에 사이클이 생기지 않도록 DB 차원에서 막는 제약 추가](#8-nodes-트리에-사이클이-생기지-않도록-db-차원에서-막는-제약-추가)
+- [프론트 관련](#프론트-관련)
+  - [9. README 정렬 규칙이 실제 프론트에 구현되어 있지 않음](#9-readme-정렬-규칙이-실제-프론트에-구현되어-있지-않음)
+- [post_drafts 관련](#post_drafts-관련)
+  - [10. 오래된 `post_drafts` 정기 삭제 기능 추가](#10-오래된-post_drafts-정기-삭제-기능-추가)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
 
 ## Realtime 관련
@@ -16,17 +21,33 @@
 
 `Course.participantCount`는 정적으로 저장된 값이 아니라 Realtime **Presence**로 그때그때 세는 값이라(`DB_DESIGN.md`의 "실시간 접속자 수" 섹션 참고), "내 강의" 목록 화면(트리 조회 시점)에는 애초에 채워지지 않고 강의실 페이지에 들어가야만 알 수 있음. 목록 화면에서 강의별 접속자 수를 보여주려면 별도 설계가 필요 — 예를 들어 목록에 있는 강의 수만큼 채널을 동시에 구독해야 하는지(비용/성능), 아니면 서버 쪽에서 주기적으로 집계해 뷰/테이블로 내려주는 방식으로 갈지 결정 안 됨. 아직 미해결(자세한 내용은 [SUPABASE_GUIDE.md 6번의 "남은 간극"](./SUPABASE_GUIDE.md#6-트리-구조-데이터-조회-내-강의-페이지--강의-페이지) 참고).
 
+### 6. 강의실 게시글/좋아요/피드백 실시간 갱신 — DB 쪽은 완료, 프론트 구독만 남음
+
+DB 트리거로 브로드캐스트하는 것까지는 끝남(아래 "해결된 것" 참고). 남은 건 `frontend`에서 `lecture:<lectureId>` 채널에 `post_change`/`like_change`/`feedback_change`/`lecture_updated`/`lecture_details_updated` 이벤트 리스너를 붙이고, 받은 페이로드로 `useCourseRoom.ts`의 로컬 state를 갱신하는 작업뿐(호출 방법·페이로드 모양은 [SUPABASE_GUIDE.md 12번](./SUPABASE_GUIDE.md#12-강의-페이지-실시간-갱신-broadcast) 참고). `useRoomPresence`가 이미 같은 채널을 열어두니 그 채널을 재사용하면 됨.
+
 ## join_code 관련
 
-### 6. `lecture_join_codes` 파기(DELETE) 시점/주체 결정
+### 7. `lecture_join_codes` 파기(DELETE) 시점/주체 결정
 
 강의 종료 시 자동으로 지울지(예: `pg_cron`), 강의자가 수동으로 파기하기 전까진 남겨둘지. 안 지워져도 입장 시 `lectures.end_time` 확인이 안전망이라 급한 이슈는 아님.
 
 ## nodes 관련
 
-### 7. `nodes` 트리에 사이클이 생기지 않도록 DB 차원에서 막는 제약 추가
+### 8. `nodes` 트리에 사이클이 생기지 않도록 DB 차원에서 막는 제약 추가
 
 지금 `enforce_nodes_parent_rules()` 트리거는 부모 노드의 소유자/모드 일치, 부모가 강의(`type = 'lecture'`)가 아닌지만 검사하고, `parent_id` 체인에 사이클이 생기는 건 막지 않음. INSERT는 새 행이라 자기 자신의 자손이 될 수 없어 문제없지만, UPDATE로 어떤 노드의 `parent_id`를 그 노드 자신의 하위 노드 중 하나로 바꾸면(예: A → B → C인데 A의 부모를 C로 변경) 사이클이 생겨 무한 루프에 빠짐 — "위치 이동" 기능이 이런 이동을 실제로 허용하는지, 프론트에서 막고 있는지 확인 필요. 막는다면 부모 후보가 자기 자신의 자손 트리에 속하는지 재귀적으로 확인해야 해서 `check` 제약으로는 표현 불가(서브쿼리/재귀 금지), `enforce_nodes_parent_rules()` 트리거에 재귀 조회(`with recursive`)를 추가하는 방식이 될 것.
+
+## 프론트 관련
+
+### 9. README 정렬 규칙이 실제 프론트에 구현되어 있지 않음
+
+`README.md`의 필수 기능 명세(미해결 게시글은 좋아요 개수순, 같으면 제출 시각순 / 해결된 게시글은 해결된 시각순 / 답글은 제출 시각순)가 `frontend/src/services/api.ts`의 `getQuestionsFromDb`에는 반영되어 있지 않음. 지금은 최상위 게시글 전체를 상태 구분·좋아요 개수 없이 `createdAt` 하나로만 정렬하는데, 이 `createdAt`이 `formatRelativeTime()`으로 만든 "3분 전" 같은 상대시간 **문자열**이라 사전식 비교로는 실제 시간 순서도 보장 안 됨(예: "10분 전"과 "2분 전"을 비교하면 순서가 뒤집힐 수 있음). 답글은 정렬 자체가 없고, `posts_public` 조회 쿼리에도 `.order()`가 없어 Postgres가 반환하는 순서에 그대로 의존. 미해결/해결 상태별 정렬 기준 분리, 좋아요 개수 반영, 실제 타임스탬프(`created_at`/`resolved_at`) 기준 비교로 다시 구현 필요.
+
+## post_drafts 관련
+
+### 10. 오래된 `post_drafts` 정기 삭제 기능 추가
+
+유사 질문 발견 시 스테이징되는 `post_drafts`(`DB_DESIGN.md`의 `post_drafts` 테이블 참고)는 "취소"/"보러 가기"를 선택하면 아무 API 호출 없이 그냥 방치되는 설계라(고아 드래프트 자체는 무해함), 강행 제출되지 않은 드래프트가 테이블에 계속 쌓임. 설계 당시부터 "나중에 오래된 것만 가끔 청소하면 됨"으로 남겨뒀던 부분 — 아직 실제 삭제 로직은 없음. `pg_cron`으로 일정 기간(예: 하루) 지난 행을 주기적으로 지우는 방식이 가장 간단해 보이나, 정확한 보관 기간과 실행 주기는 결정 안 됨.
 
 ## 해결된 것 (참고용 기록)
 
@@ -72,3 +93,8 @@
   - 이 재설계 덕분에 애초에 검토를 시작했던 "강의자 모드로 쓴 글은 익명이 될 수 없다" 제약도 이제 안전하게 추가 가능해짐 — `created_mode`가 `author_id`와 별개 컬럼이라 탈퇴해도 그대로 남고, 탈퇴가 더 이상 `is_anonymous`를 건드리지 않아 탈퇴 여부와 무관하게 항상 성립하는 제약이 됨. `posts_lecturer_mode_not_anonymous`(`created_mode <> 'lecturer' or is_anonymous = false`) 추가 → `backend/supabase/migrations/20260708140000_posts_lecturer_mode_not_anonymous.sql`. 강의자 모드 실명 답글을 쓴 계정이 탈퇴하는 시나리오까지 라이브 DB에서 검증 완료.
 - **이름 없는 `check` 제약 전부 서술적 이름으로 통일** — Postgres가 자동으로 붙인 `<table>[_컬럼]_check[N]` 이름들을 이 프로젝트 스타일로 리네임(`nodes_check`→`nodes_lecture_requires_lecturer_mode`, `posts_check1`→`posts_status_matches_top_level` 등 13개). 일부는 과거 컬럼 리네임(`node_type`→`type`, `post_type`→`type`, `last_mode`→`mode`) 이후에도 옛 컬럼명을 그대로 가진 이름이라 이번에 같이 바로잡음 → `backend/supabase/migrations/20260708150000_rename_auto_generated_check_constraints.sql`. `DB_DESIGN.md`의 모든 테이블 SQL도 새 이름을 명시하도록 갱신.
 - **`max_participants`(최다 참여 인원) 강제 여부 결정 → "입장 자체는 강제 안 함"으로 결론** — 처음엔 DB/서버 차원에서 정원을 넘는 입장을 막는 걸 검토했으나, Presence는 웹소켓 채널 상태일 뿐이라 "채널에 등록 안 하고 페이지 정보만 요청하는" 접근을 막을 방법이 없고(막을 필요도 없다고 판단) 애초에 입장 자체를 강제하는 게 의미가 없다는 결론에 도달함. 대신 `max_participants`를 "실시간 집계(Presence track)에 반영되는 인원의 최대치"로 재정의 — 채널 구독 시점 인원이 이미 정원이면 그 사람은 `track()`하지 않고 관전만 하고(페이지 이용 자체는 완전히 정상 동작, "N명 참여 중" 카운트에만 안 잡힘), 화면에 표시되는 참여자 수가 항상 정원을 넘지 않도록 함. `frontend`에서 새로 딴 `frontend-realtime-presence` 브랜치에 `hooks/useRoomPresence.ts`로 구현(아직 `frontend`에 병합 전). 실제 dev 서버에서 정상 카운트 표시와, 정원 1명 + 시뮬레이션 참가자로 정원 초과 상황(카운트는 안 늘어나지만 페이지 접속/이용은 그대로 되는 것)까지 라이브로 검증 완료. `DB_DESIGN.md`의 "실시간 접속자 수" 섹션과 `SUPABASE_GUIDE.md` 11번에 반영.
+- **비회원이 `ai-correct`/`submit-post`를 호출하면 항상 실패하던 버그 발견·수정** — 비회원으로 강의실에서 글을 쓰면 AI 기능이 안 되는 것 같다는 제보로 실제 프리뷰 브라우저에서 재현. `_shared/cors.ts`의 `Access-Control-Allow-Headers`에 `x-guest-token`이 빠져 있어서, 비회원이 이 헤더를 실어 보내면 브라우저가 preflight 단계에서 실제 요청 자체를 차단하고 있었음(서버 로그엔 안 남고 브라우저에서만 조용히 `Failed to fetch`) — 로그인한 회원은 `x-guest-token`을 안 보내니까 이 버그를 안 만났던 것. 허용 헤더 목록에 `x-guest-token` 추가해 해결(`backend/supabase/functions/_shared/cors.ts`).
+  - 겸사겸사 "AI 연결이 실패해서 검사/교정을 건너뛴 것"과 "AI가 정상적으로 판단했는데 결과가 원문과 같거나 문제없다고 나온 것"을 프론트가 구분할 수 있는 플래그 추가. `ai-correct`는 `{ corrected, used_ai }`(`used_ai: false`면 `corrected`는 AI가 다듬은 게 아니라 원문 그대로), `submit-post`는 `created`/`similar_found` 응답에 `moderation_checked`/`similarity_checked`(`similarity_checked`는 `opinion`/답글처럼 대상이 아니면 `null`) 추가. 강행 제출(`{draft_id}`) 응답에는 재검사를 안 하므로 이 필드들이 없음. 실제 호출로 정상/opinion/question 세 케이스 모두 확인. `SUPABASE_GUIDE.md` 10번에 사용법 반영.
+- **강의 페이지 실시간 갱신(질문/답글, 좋아요, 실시간 피드백, 강의 제목/일정) — Broadcast from Database로 구현** — 처음엔 `posts`를 `supabase_realtime` publication에 추가해 `postgres_changes`로 구독하는 방식을 시도(`backend/supabase/migrations/20260708190000_posts_realtime_publication.sql`). 하지만 라이브 검증 결과 `postgres_changes`는 원본 테이블의 RLS를 그대로 타는데, `posts_select_own` 등은 `x-guest-token` 헤더 비교가 필요하고 WebSocket 연결은 커스텀 헤더를 못 실어서 비회원이 이벤트를 아예 못 받는다는 게 확인됨(guest_token으로 쓴 글을 insert하고 매칭 identity 없는 익명 연결이 그 INSERT 이벤트를 못 받는 것으로 재현).
+  - 그래서 `postgres_changes` 대신 **Broadcast from Database**(`realtime.send()` — 내부적으로 `realtime.messages` 테이블에 INSERT할 뿐이라 원본 테이블 RLS와 무관)로 전환. `posts`/`post_likes`/`lecture_feedback_votes`/`nodes`(강의 제목)/`lectures`(일정/장소/정원) 다섯 테이블에 `SECURITY DEFINER` 트리거를 달아 변경이 생기면 [Presence](#5-내-강의-목록에서-강의별-접속자-수participantcount-표시)와 같은 `lecture:<lecture_id>` 채널로 브로드캐스트 → `backend/supabase/migrations/20260708200000_broadcast_triggers_for_realtime_updates.sql`. `posts` 브로드캐스트는 `posts_public` 뷰를 재사용해 `guest_token`/`author_id` 노출 없이 안전한 필드만 실어 보냄. 계정 이름(`profiles.name`)은 한 사람이 여러 강의를 소유할 수 있어 채널 하나로 안 끝나는 부채살 구조라 이번 범위에서 제외하기로 결정.
+  - 라이브 리스너로 다섯 이벤트(`post_change`/`like_change`/`feedback_change`/`lecture_updated`/`lecture_details_updated`) 전부 실제 발신·수신 확인 완료(테스트 데이터는 전부 원복). `DB_DESIGN.md`의 "트리거 함수" 섹션과 배포 현황, `SUPABASE_GUIDE.md` 12번에 설계·구독 방법 반영. **프론트 구독 코드는 아직 없음** — 아래 열린 항목 #6 참고.
