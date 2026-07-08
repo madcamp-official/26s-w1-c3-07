@@ -83,58 +83,60 @@ export default function CourseRoomPage() {
         </div>
       </header>
 
-      <div className={cn('mx-auto max-w-4xl px-4 pt-6 sm:px-6', user && 'lg:ml-72')}>
-        <RoomHeader
-          title={room.title}
-          date={room.date}
-          lecturerName={room.lecturerName}
-          participantCount={room.participantCount}
-          questionCount={room.questions.length}
-        />
-
-        <div className="mt-5">
-          <FeedbackBar
-            options={sortedFeedbackOptions}
-            canVote={!isInstructor}
-            onVote={(key, vote) => void voteFeedback(key, vote)}
-            onAcknowledge={isInstructor ? (key) => void resetFeedback(key) : undefined}
+      <div className={cn('px-4 pt-6 sm:px-6', user && 'lg:pl-72')}>
+        <div className="mx-auto max-w-4xl">
+          <RoomHeader
+            title={room.title}
+            date={room.date}
+            lecturerName={room.lecturerName}
+            participantCount={room.participantCount}
+            questionCount={room.questions.length}
           />
-          {actionError && <p className="mt-2 text-sm font-medium text-rose-500">{actionError}</p>}
-        </div>
 
-        <div className="mt-6 flex items-center justify-between gap-3">
-          <div className="inline-flex rounded-2xl bg-slate-100 p-1">
-            <button type="button" onClick={() => setFilter('unresolved')} className={cn('rounded-xl px-4 py-2 text-sm font-bold transition', filter === 'unresolved' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600')}>
-              미해결 · {unresolvedCount}
-            </button>
-            <button type="button" onClick={() => setFilter('resolved')} className={cn('rounded-xl px-4 py-2 text-sm font-bold transition', filter === 'resolved' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600')}>
-              해결됨 · {resolvedCount}
-            </button>
-          </div>
-          {!isInstructor && (
-            <Button onClick={() => navigate(`/room/${courseId}/write`)} className="rounded-full"><Plus className="size-5" />글 작성하기</Button>
-          )}
-        </div>
-
-        <div className="mt-5 space-y-4">
-          {visibleQuestions.length === 0 && (
-            <p className="rounded-3xl border border-dashed border-slate-200 bg-white py-12 text-center text-sm font-medium text-slate-400">
-              {filter === 'unresolved' ? '아직 미해결 질문이 없습니다.' : '해결된 질문이 없습니다.'}
-            </p>
-          )}
-          {visibleQuestions.map((question) => (
-            <QuestionThread
-              key={question.id}
-              question={question}
-              canResolve={isInstructor}
-              isHighlighted={question.id === highlightId}
-              onLike={likeQuestion}
-              onResolve={resolveQuestion}
-              onReply={(questionId, label) => navigate(`/room/${courseId}/write`, { state: { target: { questionId, label } } })}
-              onEditReply={editReply}
-              onDelete={setDeleteTargetId}
+          <div className="mt-5">
+            <FeedbackBar
+              options={sortedFeedbackOptions}
+              canVote={!isInstructor}
+              onVote={(key, vote) => void voteFeedback(key, vote)}
+              onAcknowledge={isInstructor ? (key) => void resetFeedback(key) : undefined}
             />
-          ))}
+            {actionError && <p className="mt-2 text-sm font-medium text-rose-500">{actionError}</p>}
+          </div>
+
+          <div className="mt-6 flex items-center justify-between gap-3">
+            <div className="inline-flex rounded-2xl bg-slate-100 p-1">
+              <button type="button" onClick={() => setFilter('unresolved')} className={cn('rounded-xl px-4 py-2 text-sm font-bold transition', filter === 'unresolved' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600')}>
+                미해결 · {unresolvedCount}
+              </button>
+              <button type="button" onClick={() => setFilter('resolved')} className={cn('rounded-xl px-4 py-2 text-sm font-bold transition', filter === 'resolved' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600')}>
+                해결됨 · {resolvedCount}
+              </button>
+            </div>
+            {!isInstructor && (
+              <Button onClick={() => navigate(`/room/${courseId}/write`)} className="rounded-full"><Plus className="size-5" />글 작성하기</Button>
+            )}
+          </div>
+
+          <div className="mt-5 space-y-4">
+            {visibleQuestions.length === 0 && (
+              <p className="rounded-3xl border border-dashed border-slate-200 bg-white py-12 text-center text-sm font-medium text-slate-400">
+                {filter === 'unresolved' ? '아직 미해결 질문이 없습니다.' : '해결된 질문이 없습니다.'}
+              </p>
+            )}
+            {visibleQuestions.map((question) => (
+              <QuestionThread
+                key={question.id}
+                question={question}
+                canResolve={isInstructor}
+                isHighlighted={question.id === highlightId}
+                onLike={likeQuestion}
+                onResolve={resolveQuestion}
+                onReply={(questionId, label) => navigate(`/room/${courseId}/write`, { state: { target: { questionId, label } } })}
+                onEditReply={editReply}
+                onDelete={setDeleteTargetId}
+              />
+            ))}
+          </div>
         </div>
       </div>
 
