@@ -9,7 +9,6 @@ import Sidebar from '../components/navigation/Sidebar'
 import Button from '../components/ui/Button'
 import ShareCourseModal from '../components/course/ShareCourseModal'
 import { useCourseRoom } from '../hooks/useCourseRoom'
-import { useRoomPresence } from '../hooks/useRoomPresence'
 import { getCurrentUser } from '../services/api'
 import type { QuestionFilter } from '../types/room'
 import type { User } from '../types/user'
@@ -19,13 +18,12 @@ export default function CourseRoomPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { room, isLoading, error, actionError, reload, likeQuestion, voteFeedback, resetFeedback, resolveQuestion, editQuestion, editReply, deletePost } = useCourseRoom(courseId)
+  const { room, isLoading, error, actionError, participantCount, reload, likeQuestion, voteFeedback, resetFeedback, resolveQuestion, editQuestion, editReply, deletePost } = useCourseRoom(courseId)
   const [user, setUser] = useState<User | null>(null)
   const [filter, setFilter] = useState<QuestionFilter>('unresolved')
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isShareOpen, setIsShareOpen] = useState(false)
-  const participantCount = useRoomPresence(room ? courseId : undefined, room?.capacity ?? null)
 
   const highlightId = searchParams.get('highlight')
   const isInstructor = user?.role === 'instructor'

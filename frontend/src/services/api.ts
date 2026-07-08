@@ -588,7 +588,7 @@ export async function updateCourse(input: UpdateCourseInput): Promise<Course> {
   }
 }
 
-function isPrivilegedEditor(): boolean {
+export function isPrivilegedEditor(): boolean {
   return mockCurrentUser.role === 'instructor'
 }
 
@@ -746,7 +746,7 @@ interface PostPublicRow {
   is_mine: boolean
 }
 
-function formatRelativeTime(isoDate: string): string {
+export function formatRelativeTime(isoDate: string): string {
   const diffMs = Date.now() - new Date(isoDate).getTime()
   const diffMinutes = Math.floor(diffMs / 60000)
   if (diffMinutes < 1) return '방금 전'
@@ -757,7 +757,7 @@ function formatRelativeTime(isoDate: string): string {
 }
 
 /** posts_public.created_mode를 그대로 사용해 강의자/수강생/익명을 정확히 판별합니다. */
-function postAuthorRole(row: Pick<PostPublicRow, 'is_anonymous' | 'created_mode'>): 'lecturer' | 'anonymous' | 'student' {
+export function postAuthorRole(row: Pick<PostPublicRow, 'is_anonymous' | 'created_mode'>): 'lecturer' | 'anonymous' | 'student' {
   if (row.is_anonymous) return 'anonymous'
   return row.created_mode === 'lecturer' ? 'lecturer' : 'student'
 }
@@ -766,7 +766,7 @@ function postAuthorRole(row: Pick<PostPublicRow, 'is_anonymous' | 'created_mode'
  * 익명 글은 항상 "익명"으로 표시합니다. 실명 글인데 author_display_name이 null이면
  * 작성자가 탈퇴한 회원이라는 뜻이라 "탈퇴한 계정입니다"로 표시합니다.
  */
-function resolvePostAuthorName(row: Pick<PostPublicRow, 'is_anonymous' | 'author_display_name'>): string {
+export function resolvePostAuthorName(row: Pick<PostPublicRow, 'is_anonymous' | 'author_display_name'>): string {
   if (row.is_anonymous) return '익명'
   return row.author_display_name ?? '탈퇴한 계정입니다'
 }
@@ -881,6 +881,115 @@ async function getFeedbackOptionsFromDb(lectureId: string): Promise<FeedbackOpti
 
 function isAnsweredByLecturer(question: Question): boolean {
   return question.replies.some((reply) => reply.authorRole === 'lecturer')
+}
+
+/** posts 트리거가 브로드캐스트하는 post_change 페이로드(DB_DESIGN.md의 broadcast_post_change 참고). */
+export interface PostChangePayload {
+  op: 'INSERT' | 'UPDATE' | 'DELETE'
+  id: string
+  lecture_id: string
+  parent_id: string | null
+  author_display_name?: string | null
+  is_anonymous?: boolean
+  type?: PostType
+  status?: 'unresolved' | 'resolved' | null
+  resolved_at?: string | null
+  content?: string
+  created_at?: string
+  created_mode?: DbMode
+}
+
+export interface LikeChangePayload {
+  post_id: string
+  like_count: number
+}
+
+export interface FeedbackChangePayload {
+  feedback_type: FeedbackKey
+  like_count: number
+  dislike_count: number
+}
+
+export interface LectureUpdatedPayload {
+  id: string
+  name: string
+}
+
+export interface LectureDetailsUpdatedPayload {
+  id: string
+  start_time: string
+  end_time: string
+  location: string | null
+  max_participants: number | null
+}
+
+interface RoomBroadcastHandlers {
+  onPostChange: (payload: PostChangePayload) => void
+  onLikeChange: (payload: LikeChangePayload) => void
+  onFeedbackChange: (payload: FeedbackChangePayload) => void
+  onLectureUpdated: (payload: LectureUpdatedPayload) => void
+  onLectureDetailsUpdated: (payload: LectureDetailsUpdatedPayload) => void
+  onParticipantCount: (count: number) => void
+}
+
+/**
+ * 강의실 실시간 채널(`lecture:<lectureId>`) 구독 - 브로드캐스트(질문/답글, 좋아요, 실시간
+ * 피드백, 강의 제목/일정)와 Presence(접속자 수)를 하나의 채널로 처리합니다.
+ *
+ * 반드시 한 채널이어야 함: 같은 웹소켓에서 같은 토픽으로 두 번째 join이 들어오면 Realtime
+ * 서버가 먼저 붙어 있던 채널을 닫아버리므로, Presence용/브로드캐스트용 채널을 따로 만들면
+ * 먼저 열린 쪽이 조용히 죽습니다(접속자 수가 0으로 고정되던 버그의 원인).
+ *
+ * `capacity`(`lectures.max_participants`)는 강의실 입장 자체를 막는 값이 아닙니다 -
+ * Presence는 웹소켓 채널 상태일 뿐이라 "이 채널에 등록 안 하고 그냥 페이지 정보만
+ * 요청하는" 접근을 DB/서버 차원에서 막을 방법이 없고(막을 필요도 없음), 그러니 입장
+ * 자체를 강제하는 건 애초에 의미가 없습니다. 대신 "실시간 집계에 반영되는(=track되는)
+ * 인원의 최대치"로 정의합니다 - 구독 시점 인원이 이미 정원이면 이 사람은 그냥
+ * track()하지 않고 관전만 합니다(페이지 이용 자체는 평소와 동일, 접속자 수 카운트에만
+ * 안 잡힘). 그래서 표시되는 참여자 수는 항상 `capacity`를 넘지 않습니다.
+ *
+ * 반환값을 호출해 구독을 해제합니다.
+ */
+export function subscribeToRoomChannel(lectureId: string, capacity: number | null, handlers: RoomBroadcastHandlers): () => void {
+  let cancelled = false
+  let hasDecided = false
+  let channel: ReturnType<typeof supabase.channel> | null = null
+
+  void (async () => {
+    const presenceKey = await getCurrentVoterKey()
+    if (cancelled) return
+
+    channel = supabase.channel(`lecture:${lectureId}`, {
+      config: { presence: { key: presenceKey } },
+    })
+
+    channel
+      .on('broadcast', { event: 'post_change' }, ({ payload }) => handlers.onPostChange(payload as PostChangePayload))
+      .on('broadcast', { event: 'like_change' }, ({ payload }) => handlers.onLikeChange(payload as LikeChangePayload))
+      .on('broadcast', { event: 'feedback_change' }, ({ payload }) => handlers.onFeedbackChange(payload as FeedbackChangePayload))
+      .on('broadcast', { event: 'lecture_updated' }, ({ payload }) => handlers.onLectureUpdated(payload as LectureUpdatedPayload))
+      .on('broadcast', { event: 'lecture_details_updated' }, ({ payload }) => handlers.onLectureDetailsUpdated(payload as LectureDetailsUpdatedPayload))
+      .on('presence', { event: 'sync' }, () => {
+        if (cancelled || !channel) return
+        const count = Object.keys(channel.presenceState()).length
+        handlers.onParticipantCount(count)
+
+        if (!hasDecided) {
+          hasDecided = true
+          const isFull = capacity != null && count >= capacity
+          if (!isFull) void channel.track({ joined_at: new Date().toISOString() })
+        }
+      })
+      .subscribe()
+  })()
+
+  return () => {
+    cancelled = true
+    if (channel) {
+      void channel.untrack()
+      void supabase.removeChannel(channel)
+    }
+  }
 }
 
 function collectAllCourses(folders: CourseFolder[], rootCourses: Course[]): Course[] {
