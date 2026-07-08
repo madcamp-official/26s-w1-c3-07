@@ -272,7 +272,7 @@ const rootCourses = topLevel.filter(root => 'title' in root)
 
 | mock 함수 | 규칙(주석 그대로) | 실제 Supabase 호출 |
 |---|---|---|
-| `moveCourseItem` (owned 폴더/강의) | 강의자는 소유권 제한 없이 자유 이동 | `nodes` `update`로 `parent_id` 변경. `nodes_update_own` + `enforce_nodes_parent_ownership`이 "내 것만, 같은 모드끼리만" 강제 |
+| `moveCourseItem` (owned 폴더/강의) | 강의자는 소유권 제한 없이 자유 이동 | `nodes` `update`로 `parent_id` 변경. `nodes_update_own` + `enforce_nodes_parent_rules`이 "내 것만, 같은 모드끼리만" 강제 |
 | `moveCourseItem` (registered 개별 강의) | "등록된 개별 강의는 보라 폴더로 이동 가능(소유권 유지)" | `nodes.parent_id`가 아니라 **`favorites` `update`로 `anchor_id` 변경**. `favorites_update_anchor_must_be_own_student_folder`가 "내 소유 폴더로만" 강제 |
 | `moveCourseItem` (registered 폴더) | "등록된 폴더 자체는 이동 불가" | 프론트에서 애초에 시도 자체를 안 함(UI에서 이미 막혀 있음) |
 | `renameCourseItem` | "강의자가 공유한 항목은 이름 변경 불가" | owned 항목만 `nodes` `update`(`name`). registered 항목은 애초에 UI에서 버튼이 안 보여야 함 — `nodes_update_own`도 어차피 남의 노드라 막음 |

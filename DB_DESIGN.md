@@ -23,7 +23,7 @@
     - [`block_status_change_by_non_lecturer()`](#block_status_change_by_non_lecturer)
     - [`set_resolved_at_on_status_change()`](#set_resolved_at_on_status_change)
     - [`unresolve_post_on_question_reply()`](#unresolve_post_on_question_reply)
-    - [`enforce_nodes_parent_ownership()`](#enforce_nodes_parent_ownership)
+    - [`enforce_nodes_parent_rules()`](#enforce_nodes_parent_rules)
     - [`handle_new_user()`](#handle_new_user)
   - [RPC 함수](#rpc-함수)
     - [`delete_own_account()`](#delete_own_account)
@@ -392,14 +392,23 @@ after insert on posts
 for each row execute function unresolve_post_on_question_reply();
 ```
 
-#### `enforce_nodes_parent_ownership()`
+#### `enforce_nodes_parent_rules()`
 
-`nodes_insert_own`/`nodes_update_own` RLS는 새로 쓰는 행 자신의 `created_by = auth.uid()`만 검사할 뿐, `parent_id`가 가리키는 부모 행의 소유자·모드는 검사하지 않습니다. 그래서 다른 사람 폴더 밑에 내 노드를 끼워 넣거나(INSERT), 같은 계정이라도 강의자 모드 폴더를 수강생 모드 폴더 밑으로 옮기는 것(UPDATE, "위치 이동" 기능)이 막혀 있지 않았습니다. 이 트리거는 `parent_id`가 가리키는 부모 노드와 `created_by`/`created_mode`가 반드시 일치하도록 강제해, `nodes.parent_id` 체인이 항상 한 사람·한 모드의 트리 안에서만 이어지게 합니다. 다른 행(부모 행)을 참조해야 해서 `check` 제약으로는 표현할 수 없어(서브쿼리 금지) 트리거로 구현했습니다.
+`nodes_insert_own`/`nodes_update_own` RLS는 새로 쓰는 행 자신의 `created_by = auth.uid()`만 검사할 뿐, `parent_id`가 가리키는 부모 행은 검사하지 않습니다. 그래서 다른 사람 폴더 밑에 내 노드를 끼워 넣거나(INSERT), 같은 계정이라도 강의자 모드 폴더를 수강생 모드 폴더 밑으로 옮기는 것(UPDATE, "위치 이동" 기능)이 막혀 있지 않았고, 강의(`type = 'lecture'`)를 다른 노드의 부모로 지정하는 것도(강의는 트리의 리프여야 함) 막혀 있지 않았습니다. 이 트리거는 `parent_id`가 가리키는 부모 노드가 (1) 강의가 아니고 (2) `created_by`/`created_mode`가 반드시 일치하도록 강제해, `nodes.parent_id` 체인이 항상 한 사람·한 모드의 트리 안에서만, 리프가 아닌 노드 밑으로만 이어지게 합니다. 다른 행(부모 행)을 참조해야 해서 `check` 제약으로는 표현할 수 없어(서브쿼리 금지) 트리거로 구현했습니다. (원래 이름은 `enforce_nodes_parent_ownership()`였는데, 소유권 검사만 하는 것처럼 보여 실제 검사 범위에 맞게 개명함)
 
 ```sql
-create or replace function enforce_nodes_parent_ownership()
+create or replace function enforce_nodes_parent_rules()
 returns trigger as $$
 begin
+  if new.parent_id is not null and exists (
+    select 1 from nodes parent
+    where parent.id = new.parent_id
+      and parent.type = 'lecture'
+  )
+  then
+    raise exception '강의는 자식 노드(폴더/강의)를 가질 수 없습니다';
+  end if;
+
   if new.parent_id is not null and exists (
     select 1 from nodes parent
     where parent.id = new.parent_id
@@ -413,9 +422,9 @@ begin
 end;
 $$ language plpgsql;
 
-create trigger trg_enforce_nodes_parent_ownership
+create trigger trg_enforce_nodes_parent_rules
 before insert or update on nodes
-for each row execute function enforce_nodes_parent_ownership();
+for each row execute function enforce_nodes_parent_rules();
 ```
 
 #### `handle_new_user()`
@@ -882,7 +891,7 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
 - **`posts.created_mode`(강의자 모드/수강생 모드 색 구분)**: 강의를 만든 계정이라도 강의자 모드로 쓸 때도, 수강생 모드로 쓸 때도 있어서, `author_id`가 강의 제작자와 같은지만으론 "이 글을 어느 화면에서 썼는지" 색으로 구분할 수 없습니다. 그래서 그 순간의 모드를 `created_mode`에 직접 저장합니다. 이 값 자체는 프론트가 정하는 자기신고값이고, 계정 본인이 뭘 선택하든(강의자가 자기 강의에 수강생처럼 참여하는 것도 정상 시나리오) 막을 이유가 없습니다. 다만 "제3자가 `created_mode = 'lecturer'`를 붙여 강의자 답변인 것처럼 위장"하는 건 막아야 합니다(구현 방식은 위 [SQL → 테이블](#테이블)의 `check` 제약과 [RLS 정책 → `posts`](#posts-1) 참고). 이전엔 트리거 + `x-mode` 헤더로 구현했었으나, 색 구분을 위해 값을 직접 저장하는 이 방식으로 대체했습니다.
 - 좋아요/피드백 투표는 각각 `post_likes`, `lecture_feedback_votes`로 분리해 중복 투표를 기본키로 방지합니다. `lecture_feedback_votes`는 PK에 `value`까지 포함해서(`lecture_id`, `feedback_type`, `voter_key`, `value`), 같은 사람이 같은 `feedback_type`에 좋아요와 싫어요를 동시에 독립적으로 남길 수 있습니다(둘 다 완전히 별개의 행이라 "좋아요 취소"와 "싫어요 취소"도 서로 영향 없이 따로 처리됨).
 - "내가 만든 강의/폴더"는 `nodes.created_by = 내 user_id`로 조회하되, 어느 모드의 "내 강의" 페이지인지에 따라 `created_mode`로 한 번 더 걸러야 합니다: 강의자 모드는 `created_mode = 'lecturer'`, 수강생 모드(개인 정리 폴더)는 `created_mode = 'student'`. 같은 계정이라도 두 모드에서 만든 폴더가 섞이지 않도록 하는 용도입니다.
-- **`nodes.parent_id`는 항상 같은 소유자·같은 모드의 트리 안에서만 이어짐**: `nodes_insert_own`/`nodes_update_own` RLS는 새로 쓰는 행 자신의 `created_by`만 확인할 뿐 부모 노드는 확인하지 않아서, 그대로 두면 남의 폴더 밑에 내 노드를 끼워 넣거나 내 강의자 모드 폴더를 내 수강생 모드 폴더 밑으로 옮기는 것(위치 이동)이 막히지 않습니다. `enforce_nodes_parent_ownership()` 트리거로 부모 노드와 `created_by`/`created_mode`가 일치하는지 강제합니다(구현 방식은 [SQL → 트리거 함수](#트리거-함수) 참고).
+- **`nodes.parent_id`는 항상 같은 소유자·같은 모드의, 리프가 아닌 노드 밑으로만 이어짐**: `nodes_insert_own`/`nodes_update_own` RLS는 새로 쓰는 행 자신의 `created_by`만 확인할 뿐 부모 노드는 확인하지 않아서, 그대로 두면 남의 폴더 밑에 내 노드를 끼워 넣거나 내 강의자 모드 폴더를 내 수강생 모드 폴더 밑으로 옮기는 것(위치 이동), 강의를 다른 노드의 부모로 지정하는 것까지 막히지 않습니다. `enforce_nodes_parent_rules()` 트리거로 부모 노드가 강의가 아니고 `created_by`/`created_mode`가 일치하는지 강제합니다(구현 방식은 [SQL → 트리거 함수](#트리거-함수) 참고).
 - `favorites`는 "남이 만든 강의/폴더를 즐겨찾기"하는 기록이며, `anchor_id`로 그 즐겨찾기를 내가 만든 어떤 개인 폴더 아래에 정리해뒀는지 나타냅니다(`null`이면 정리 안 하고 최상위). 즐겨찾기 대상(`node_id`)의 실제 `parent_id`는 원래 만든 사람의 트리 구조 그대로이며, 이 개인 정리 구조 때문에 바뀌지 않습니다.
 - **즐겨찾기는 강의자 모드로 만든 노드만 가능**: 남의 수강생 모드 개인 정리 폴더까지 즐겨찾기할 수 있으면 안 되기 때문입니다(구현 방식은 [RLS 정책 → `favorites`](#favorites-1) 참고).
 
@@ -960,6 +969,8 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
   - `20260707200000_post_drafts_staging_table.sql` — `submit-post`에서 유사 질문이 발견됐을 때 "강행 제출"을 처리하기 위한 스테이징 테이블 `post_drafts` 신설. 원래 글 내용(`lecture_id`/`parent_id`/`author_id`/`is_anonymous`/`guest_token`/`type`/`content`/`created_mode`)을 그대로 담아두고, `created_at`은 스테이징 시점이 아니라 나중에 강행 제출이 실제 실행되는 시점 값이 되도록 INSERT 시 명시적으로 넣지 않고 DB `default now()`에 맡김(강행 제출 INSERT에서도 동일하게 `created_at`을 생략해 실제 제출 순간이 그대로 기록되게 함). RLS는 켜두되 정책을 하나도 만들지 않고 `anon`/`authenticated`에서 `revoke all`로 완전히 차단 — `service_role`만 접근 가능(어차피 BYPASSRLS라 정책 여부와 무관하게 접근 가능하므로 정책을 안 만들어도 무방). "취소"는 별도 API 없이 그냥 드래프트를 방치하는 것으로 처리(고아 드래프트는 무해하며 나중에 일괄 정리하면 됨), "강행 제출"만 드래프트를 읽고 요청자 identity를 대조한 뒤 삭제하고 실제 INSERT로 이어짐
   - `20260707210000_get_similarity_candidates_rpc.sql` — `submit-post`의 유사도 검사가 AI에게 넘길 비교 대상을 얻기 위한 RPC. 같은 강의의 미해결(`status = 'unresolved'`) 질문 게시글들과 그 답글 트리 전체(재귀 CTE로 `parent_id` 체인을 끝까지 따라감)를 `(id, content)` 쌍으로 반환
   - `20260707211000_restrict_get_similarity_candidates_execute.sql` — 새 함수가 기본으로 `PUBLIC`에 EXECUTE 권한이 열려 있는 Postgres 기본 동작을 발견하고, `anon`/`authenticated`/`public`의 실행 권한을 회수하고 `service_role`에만 부여 — 클라이언트가 이 RPC를 직접 호출해 다른 사람 글 내용을 긁어가지 못하게 함(`submit-post`를 거치지 않은 직접 호출 차단)
+  - `20260708120000_enforce_nodes_parent_not_lecture.sql` — `nodes.parent_id`가 강의(`type = 'lecture'`) 노드를 가리키지 못하게 강제. 강의는 트리의 리프여야 하는데 이를 막는 제약이 없어서, 라이브 DB에 강의를 부모로 둔 노드가 실제로 하나 생겨 있던 걸 발견(테스트 중 수동으로 만든 데이터, 이후 올바른 부모로 직접 수정). 부모 행의 `type`을 참조해야 해서 `check` 제약으로는 표현 불가 → 기존 `enforce_nodes_parent_ownership()` 트리거에 조건 추가. 실제 INSERT로 차단되는지 검증 완료(이후 `20260708160000`에서 이 트리거/함수 이름을 검사 범위에 맞게 개명함)
   - `20260708130000_posts_deleted_author_placeholder.sql` — 탈퇴한 회원이 실명으로 쓴 글을 익명 처리하지 않고 "탈퇴한 계정입니다"로 표시할 수 있도록 스키마 변경. `anonymize_posts_before_profile_delete()` 트리거/함수를 삭제하고(더 이상 탈퇴 시 글을 강제로 `is_anonymous = true`로 바꾸지 않음), 이로 인해 깨지는 두 체크 제약을 손봄: `posts_check`(작성자 없으면 무조건 익명)를 `posts_guest_must_be_anonymous`(`guest_token`이 있으면, 즉 진짜 비회원 글이면 반드시 익명)로 좁히고, `posts_author_id_xor_guest_token`(정확히 하나만 값을 가짐)을 `posts_author_id_guest_token_not_both_set`(둘 다 값을 갖지는 않음, 둘 다 `null`은 허용)으로 다시 완화. 라이브 DB에서 실명 글을 쓴 회원이 탈퇴하는 시나리오를 직접 실행해 제약 위반 없이 통과하는지 검증 완료
   - `20260708140000_posts_lecturer_mode_not_anonymous.sql` — 강의자 모드로 쓴 글(`created_mode = 'lecturer'`)은 반드시 실명이어야 한다는 `posts_lecturer_mode_not_anonymous` 체크 제약 추가. 바로 위 변경으로 회원 탈퇴가 더 이상 `is_anonymous`를 건드리지 않게 되어, 이 제약이 탈퇴 여부와 무관하게 항상 성립하게 됨. 라이브 DB에서 강의자 모드 실명 답글을 쓴 계정이 탈퇴하는 시나리오까지 함께 검증 완료
   - `20260708150000_rename_auto_generated_check_constraints.sql` — Postgres가 이름 없는 `check` 제약에 자동으로 붙이는 `<table>[_컬럼]_check[N]` 이름들을 이 프로젝트 스타일(서술적 이름)로 통일. 일부는 과거 컬럼 리네임(`node_type`→`type`, `post_type`→`type`, `last_mode`→`mode`) 이후에도 옛 컬럼명을 그대로 가진 이름이라 이번에 같이 바로잡음(`nodes_node_type_check`→`nodes_type_valid`, `posts_post_type_check`→`posts_type_valid`, `profiles_last_mode_check`→`profiles_mode_valid` 등). `rename constraint`는 이름표만 바꾸는 메타데이터 작업이라 데이터/락 영향 없음. 이 문서의 모든 테이블 SQL도 새 이름을 명시하도록 갱신
+  - `20260708160000_rename_enforce_nodes_parent_ownership_to_rules.sql` — `enforce_nodes_parent_ownership()`/`trg_enforce_nodes_parent_ownership`이 `20260708120000`부터 소유권 검사뿐 아니라 "부모가 강의면 안 됨" 구조 검사까지 하게 됐는데 이름은 여전히 "ownership"만 검사하는 것처럼 보여서, `enforce_nodes_parent_rules()`/`trg_enforce_nodes_parent_rules`로 개명(`alter function ... rename to`/`alter trigger ... rename to`라 함수 본문·트리거 동작은 그대로, 이름표만 바뀜). 개명 후에도 강의를 부모로 지정하면 여전히 차단되는지 재검증 완료
