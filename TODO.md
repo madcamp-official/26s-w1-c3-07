@@ -4,10 +4,11 @@
 
 - [Realtime 관련](#realtime-관련)
   - [5. "내 강의" 목록에서 강의별 접속자 수(`participantCount`) 표시](#5-내-강의-목록에서-강의별-접속자-수participantcount-표시)
+  - [6. 강의실 게시글(질문/답글)이 실시간으로 갱신되지 않음](#6-강의실-게시글질문답글이-실시간으로-갱신되지-않음)
 - [join_code 관련](#join_code-관련)
-  - [6. `lecture_join_codes` 파기 시점/주체 결정](#6-lecture_join_codes-파기delete-시점주체-결정)
+  - [7. `lecture_join_codes` 파기 시점/주체 결정](#7-lecture_join_codes-파기delete-시점주체-결정)
 - [nodes 관련](#nodes-관련)
-  - [7. `nodes` 트리에 사이클이 생기지 않도록 DB 차원에서 막는 제약 추가](#7-nodes-트리에-사이클이-생기지-않도록-db-차원에서-막는-제약-추가)
+  - [8. `nodes` 트리에 사이클이 생기지 않도록 DB 차원에서 막는 제약 추가](#8-nodes-트리에-사이클이-생기지-않도록-db-차원에서-막는-제약-추가)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
 
 ## Realtime 관련
@@ -16,15 +17,26 @@
 
 `Course.participantCount`는 정적으로 저장된 값이 아니라 Realtime **Presence**로 그때그때 세는 값이라(`DB_DESIGN.md`의 "실시간 접속자 수" 섹션 참고), "내 강의" 목록 화면(트리 조회 시점)에는 애초에 채워지지 않고 강의실 페이지에 들어가야만 알 수 있음. 목록 화면에서 강의별 접속자 수를 보여주려면 별도 설계가 필요 — 예를 들어 목록에 있는 강의 수만큼 채널을 동시에 구독해야 하는지(비용/성능), 아니면 서버 쪽에서 주기적으로 집계해 뷰/테이블로 내려주는 방식으로 갈지 결정 안 됨. 아직 미해결(자세한 내용은 [SUPABASE_GUIDE.md 6번의 "남은 간극"](./SUPABASE_GUIDE.md#6-트리-구조-데이터-조회-내-강의-페이지--강의-페이지) 참고).
 
+### 6. 강의실 게시글(질문/답글)이 실시간으로 갱신되지 않음
+
+"다른 수강생이 쓴 글이 실시간으로 뜨나?"는 질문으로 확인된 미구현 기능. 현재 `frontend`의 `useCourseRoom.ts`는 낙관적 업데이트만 하고 있음 — 내가 직접 쓴 질문/답글은 `submit-post` 응답을 받은 즉시 로컬 state에 바로 얹지만, 다른 사람이 쓴 글은 페이지를 새로고침해야만 보임. `posts`에 대한 Supabase Realtime(`postgres_changes`) 구독이 전혀 없는 상태.
+
+이걸 실제로 구현하려면 DB 쪽 선행 작업이 필요함:
+- ✅ **완료**: `posts` 테이블을 `supabase_realtime` publication에 추가(`ALTER PUBLICATION supabase_realtime ADD TABLE posts;`) — `postgres_changes` 이벤트 자체가 발생하려면 필요한 설정인데 지금까지 어떤 마이그레이션에도 없었음 → `backend/supabase/migrations/20260708190000_posts_realtime_publication.sql`.
+- ⚠️ **확인됨 — RLS/인가 방식이 실제로 문제였음**: `posts`는 SELECT가 "본인 글 또는 자기 강의의 글"로 좁게 걸려 있고(`posts_select_own`/`posts_select_lecturer`, `DB_DESIGN.md`의 `posts` RLS 섹션 참고), Supabase Realtime의 `postgres_changes`는 RLS를 존중함. 라이브로 직접 검증: `guest_token`으로 작성된 글을 하나 insert하고, 매칭되는 identity 없이(익명 anon 연결) 구독 중이던 리스너가 그 INSERT 이벤트를 받는지 확인 → **못 받음**. `posts_select_own`이 `guest_token` 헤더 값과의 비교를 요구하는데, WebSocket 연결은 REST 요청과 달리 `x-guest-token` 같은 커스텀 헤더를 실을 방법이 없어서 예상대로 막힘. 즉 비회원은 이 방식으로는 애초에 실시간 갱신을 받을 수 없고, 다른 인가 방식(예: 뷰 기반 broadcast, Realtime Authorization 별도 설정)이 필요함. 회원(강의자/수강생)이 `posts_select_lecturer` 등으로 커버되는 경우까지는 아직 검증 안 함.
+- 대안으로, `posts` 원본 대신 `posts_public` 뷰를 Realtime으로 구독하는 것은 불가능함(Realtime은 물리 테이블의 WAL만 봄, 뷰는 구독 대상이 될 수 없음). 뷰가 감추는 `guest_token`/`author_id` 없이 안전하게 브로드캐스트하려면 별도 설계가 필요.
+
+결론적으로 publication 추가는 끝났지만, 비회원까지 포함해 안전하게 구독하려면 여전히 RLS/인가 방식 설계가 남아있음(회원 전용으로 우선 범위를 좁히거나, broadcast 기반으로 재설계하거나). 우선순위 낮으면 폴링(예: 5~10초 간격 재조회)으로 프론트만으로 우회하는 것도 가능.
+
 ## join_code 관련
 
-### 6. `lecture_join_codes` 파기(DELETE) 시점/주체 결정
+### 7. `lecture_join_codes` 파기(DELETE) 시점/주체 결정
 
 강의 종료 시 자동으로 지울지(예: `pg_cron`), 강의자가 수동으로 파기하기 전까진 남겨둘지. 안 지워져도 입장 시 `lectures.end_time` 확인이 안전망이라 급한 이슈는 아님.
 
 ## nodes 관련
 
-### 7. `nodes` 트리에 사이클이 생기지 않도록 DB 차원에서 막는 제약 추가
+### 8. `nodes` 트리에 사이클이 생기지 않도록 DB 차원에서 막는 제약 추가
 
 지금 `enforce_nodes_parent_rules()` 트리거는 부모 노드의 소유자/모드 일치, 부모가 강의(`type = 'lecture'`)가 아닌지만 검사하고, `parent_id` 체인에 사이클이 생기는 건 막지 않음. INSERT는 새 행이라 자기 자신의 자손이 될 수 없어 문제없지만, UPDATE로 어떤 노드의 `parent_id`를 그 노드 자신의 하위 노드 중 하나로 바꾸면(예: A → B → C인데 A의 부모를 C로 변경) 사이클이 생겨 무한 루프에 빠짐 — "위치 이동" 기능이 이런 이동을 실제로 허용하는지, 프론트에서 막고 있는지 확인 필요. 막는다면 부모 후보가 자기 자신의 자손 트리에 속하는지 재귀적으로 확인해야 해서 `check` 제약으로는 표현 불가(서브쿼리/재귀 금지), `enforce_nodes_parent_rules()` 트리거에 재귀 조회(`with recursive`)를 추가하는 방식이 될 것.
 
