@@ -127,9 +127,10 @@ const { data } = await supabase
 
 세 뷰 다 회원/비회원을 특정할 수 있는 값(`guest_token`, `author_id`, `voter_key`)을 빼고 공개하는 용도예요 (자세한 이유는 [DB_DESIGN.md](./DB_DESIGN.md) 참고). "내가 이미 좋아요/피드백을 눌렀는지"는 이 카운트 뷰가 아니라 `post_likes`/`lecture_feedback_votes` 테이블에 본인 `voter_key`로 직접 조회하면 됩니다(RLS가 본인 행만 보여주도록 허용되어 있음).
 
-**⚠️ `feedback_type` 값 변경: `dark` → `unclear`**: "잘 안 보여요" 피드백의 영어 키가 `dark`에서 `unclear`로 바뀌었습니다(라이브 DB에 반영 완료, `lecture_feedback_votes_feedback_type_valid` 제약도 `unclear`만 허용하도록 변경됨 — 이제 `dark`로 INSERT하면 제약 위반 에러가 납니다). `frontend` 브랜치는 아직 `dark`를 쓰고 있으니 아래 두 곳을 `unclear`로 바꿔주세요:
+**⚠️ `feedback_type` 값 변경: `dark` → `unclear`**: "잘 안 보여요" 피드백의 영어 키가 `dark`에서 `unclear`로 바뀌었습니다(라이브 DB에 반영 완료, `lecture_feedback_votes_feedback_type_valid` 제약도 `unclear`만 허용하도록 변경됨 — 이제 `dark`로 INSERT하면 제약 위반 에러가 납니다). `frontend` 브랜치는 아직 `dark`를 쓰고 있으니 아래 세 곳을 `unclear`로 바꿔주세요(라벨 텍스트 "잘 안 보여요"는 그대로 두고 키 이름만 변경):
 - `frontend/src/types/room.ts`의 `FeedbackKey` 타입(`'cold' | 'hot' | 'quiet' | 'dark'` → `... | 'unclear'`)
-- `frontend/src/services/api.ts`의 `FEEDBACK_KEYS`/`FEEDBACK_LABELS` 배열·객체 안의 `'dark'` 키(라벨 텍스트 "잘 안 보여요"는 그대로 두고 키 이름만 변경)
+- `frontend/src/services/api.ts`의 `FEEDBACK_KEYS`/`FEEDBACK_LABELS` 배열·객체 안의 `'dark'` 키
+- `frontend/src/mock/data.ts`의 목업 피드백 항목 2곳(`key: 'dark'`) — 실제 API 연동 전 목업 데이터라 타입 에러로 걸리겠지만 명시적으로 같이 바꿔주세요
 
 ```js
 const { data } = await supabase
