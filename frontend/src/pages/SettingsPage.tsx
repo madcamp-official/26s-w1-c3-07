@@ -168,7 +168,7 @@ export default function SettingsPage() {
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/30 p-4 backdrop-blur-sm" role="presentation" onMouseDown={() => setIsDeleteConfirmOpen(false)}>
           <section role="alertdialog" aria-modal="true" className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
             <h2 className="flex items-center gap-2 text-lg font-extrabold text-slate-900"><TriangleAlert className="size-5 text-rose-500" />정말 탈퇴하시겠습니까?</h2>
-            <p className="mt-2 text-sm text-slate-500">탈퇴하면 내 강의, 질문, 답글을 포함한 모든 정보가 삭제되며 되돌릴 수 없습니다.</p>
+            <p className="mt-2 text-sm text-slate-500">탈퇴하면 계정 정보가 영구히 삭제되며 되돌릴 수 없습니다. 작성하신 강의·질문·답글은 삭제되지 않고 그대로 남으며, 작성자 정보만 "탈퇴한 계정"으로 표시됩니다.</p>
             {accountActionError && <p className="mt-2 text-sm font-medium text-rose-500">{accountActionError}</p>}
             <div className="mt-6 flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setIsDeleteConfirmOpen(false)}>취소</Button>
