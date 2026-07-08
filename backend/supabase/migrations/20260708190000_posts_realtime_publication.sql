@@ -1,0 +1,11 @@
+-- 강의실 게시글(질문/답글)이 실시간으로 갱신되지 않는 문제(TODO.md #6)의 선행 작업.
+-- postgres_changes 이벤트는 테이블이 supabase_realtime publication에 포함돼 있어야만
+-- 발생하는데, 지금까지 posts는 어떤 마이그레이션에도 이 설정이 없어서 프론트가 채널을
+-- 구독해도 이벤트가 전혀 오지 않는 상태였음.
+--
+-- 이것만으로 프론트에서 바로 안전하게 구독할 수 있는 건 아님 - postgres_changes는 RLS를
+-- 존중하지만, 이 프로젝트의 posts_select_own/posts_select_lecturer 정책처럼 guest_token
+-- 헤더 비교가 섞인 조건이 Realtime 인가 컨텍스트(WebSocket 연결의 JWT)에서도 동일하게
+-- 평가되는지는 별도 검증이 필요함(특히 비회원은 연결에 x-guest-token 커스텀 헤더를 못 실음).
+-- 이 부분은 TODO.md #6에 미해결로 남겨둠.
+alter publication supabase_realtime add table posts;
