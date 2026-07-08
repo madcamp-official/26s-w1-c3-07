@@ -41,7 +41,7 @@ export default function ReplyItem({ reply, onLike, onReply, onEdit, onDelete }: 
 
   return (
     <div
-      className={cn('rounded-2xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-slate-50 p-4', isLecturer ? 'border-l-rose-500' : isOpinion ? 'border-l-blue-500' : 'border-l-violet-500')}
+      className={cn('rounded-2xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-slate-50 p-4', isLecturer ? 'border-l-rose-400' : isOpinion ? 'border-l-blue-400' : 'border-l-violet-400')}
       style={reply.depth > 0 ? { marginLeft: `${Math.min(reply.depth, 6) * 1.5}rem` } : undefined}
     >
       <div className="flex items-center justify-between gap-3">
