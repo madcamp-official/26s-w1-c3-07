@@ -167,6 +167,7 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
     date: '2026년 7월 3일 (금)',
     lecturerName: mockCurrentUser.name,
     participantCount: 34,
+    capacity: null,
     feedbackOptions: [
       { key: 'cold', label: '추워요', likeCount: 8, dislikeCount: 2, myVote: null },
       { key: 'hot', label: '더워요', likeCount: 1, dislikeCount: 4, myVote: null },
@@ -292,6 +293,7 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
     date: '2026년 7월 6일 (월)',
     lecturerName: mockCurrentUser.name,
     participantCount: 41,
+    capacity: null,
     feedbackOptions: [
       { key: 'cold', label: '추워요', likeCount: 2, dislikeCount: 0, myVote: null },
       { key: 'hot', label: '더워요', likeCount: 0, dislikeCount: 0, myVote: null },

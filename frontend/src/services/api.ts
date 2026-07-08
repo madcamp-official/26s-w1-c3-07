@@ -652,7 +652,7 @@ interface NodeWithLectureAndOwnerRow {
   id: string
   name: string
   created_by: string | null
-  lectures: { start_time: string; end_time: string; location: string | null } | null
+  lectures: { start_time: string; end_time: string; location: string | null; max_participants: number | null } | null
 }
 
 function formatLectureDate(startTime: string): string {
@@ -667,13 +667,14 @@ interface CourseRoomMeta {
   date: string
   lecturerName: string
   participantCount: number
+  capacity: number | null
 }
 
 /** 실제 DB(nodes+lectures)에서 강의 메타데이터만 조회합니다. */
 async function getCourseRoomFromDb(courseId: string): Promise<CourseRoomMeta> {
   const { data: node, error } = await supabase
     .from('nodes')
-    .select('id, name, created_by, lectures(start_time, end_time, location)')
+    .select('id, name, created_by, lectures(start_time, end_time, location, max_participants)')
     .eq('id', courseId)
     .eq('type', 'lecture')
     .single<NodeWithLectureAndOwnerRow>()
@@ -698,6 +699,7 @@ async function getCourseRoomFromDb(courseId: string): Promise<CourseRoomMeta> {
     date: node.lectures ? formatLectureDate(node.lectures.start_time) : '',
     lecturerName,
     participantCount: 0,
+    capacity: node.lectures?.max_participants ?? null,
   }
 }
 
