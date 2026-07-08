@@ -152,6 +152,7 @@
 | `lecture_join_codes` | 강의 입장용 4자리 숫자 코드 (발급/재발급/파기 가능, 즐겨찾기 등록용 코드와는 별개). 발급/재발급은 `get_or_create_join_code()`/`reissue_join_code()` RPC로만 가능 |
 | `lecture_feedback_votes` | 실시간 피드백(추워요/더워요/소리 작아요/잘 안 보여요) 좋아요/싫어요 |
 | `posts` | 게시글 + 답글 통합 트리, 질문/의견 타입, 미해결/해결, 비회원 인증(`guest_token`) |
+| `post_drafts` | `submit-post`(service_role) 전용 스크래치 테이블. 유사 질문 발견 시 최종 제출본을 임시 저장해뒀다가 강행 제출 시 `posts`로 옮김 |
 | `post_likes` | 게시글/답글 좋아요 |
 
 전체 SQL, 접근 제어(RLS 정책·테이블 권한), 트리거, 테이블 관계 상세 설명은 [`DB_DESIGN.md`](./DB_DESIGN.md) 참고.
