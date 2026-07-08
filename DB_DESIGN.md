@@ -121,7 +121,7 @@ create table favorites (
 
 #### `lectures`
 
-강의(`nodes.type = 'lecture'`)의 부가 속성을 담는 1:1 테이블로, `id`가 `nodes(id)`를 그대로 참조합니다. 입장 URL/QR은 별도 코드 없이 이 `id`(=`nodes.id`, UUID)를 그대로 사용하고(`/join/<id>`), 같은 `id`를 "즐겨찾기 등록 코드"로도 재사용합니다(강의뿐 아니라 강의 폴더도 이 코드로 `favorites`에 등록 가능). `max_participants`는 미설정(`null`) 또는 0 이상만 허용합니다.
+강의(`nodes.type = 'lecture'`)의 부가 속성을 담는 1:1 테이블로, `id`가 `nodes(id)`를 그대로 참조합니다. 입장 URL/QR은 별도 코드 없이 이 `id`(=`nodes.id`, UUID)를 그대로 사용하고(`/join/<id>`), 같은 `id`를 "즐겨찾기 등록 코드"로도 재사용합니다(강의뿐 아니라 강의 폴더도 이 코드로 `favorites`에 등록 가능). `max_participants`는 미설정(`null`) 또는 0 이상만 허용하고, `end_time`은 반드시 `start_time`보다 늦어야 합니다.
 
 ```sql
 create table lectures (
@@ -130,7 +130,8 @@ create table lectures (
   end_time timestamptz not null,
   location text,
   max_participants int,
-  constraint lectures_max_participants_non_negative check (max_participants is null or max_participants >= 0)
+  constraint lectures_max_participants_non_negative check (max_participants is null or max_participants >= 0),
+  constraint lectures_end_after_start check (end_time > start_time)
 );
 ```
 
@@ -1166,3 +1167,4 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
   - `20260708180000_feedback_type_dark_to_unclear.sql` — 피드백 유형 `dark`를 `unclear`로 변경(조명이 어둡다는 뜻으로 오해되기 쉬워서, 원래 의도인 "글씨가 작아서/흐려서 안 보임"에 맞게). 이전에 한 번 이 값을 바꾼 적이 있었지만 그땐 이미 적용된 `init_schema.sql`의 텍스트만 고치고 실제 `ALTER`를 안 해서 라이브 DB와 프론트가 계속 `dark`를 쓰고 있었고, 이번엔 기존 데이터를 `unclear`로 `UPDATE`한 뒤 `lecture_feedback_votes_feedback_type_valid` 제약을 실제로 `ALTER`해서 라이브 DB에 반영. 프론트(`frontend` 브랜치의 `FeedbackKey`/`FEEDBACK_KEYS`/`FEEDBACK_LABELS`)는 아직 `dark`를 쓰고 있어 별도로 갱신이 필요함([SUPABASE_GUIDE.md 참고](./SUPABASE_GUIDE.md#테이블-조회))
   - `20260708190000_posts_realtime_publication.sql` — 강의실 게시글 실시간 갱신(TODO.md #6) 구현의 선행 작업으로 `posts`를 `supabase_realtime` publication에 추가(`postgres_changes` 이벤트 자체가 발생하려면 필요). 라이브 검증 결과, 이것만으로는 비회원까지 안전하게 실시간 구독을 붙일 수 없다는 게 확인됨 — `posts_select_own`의 `guest_token` 헤더 비교 조건이 WebSocket 연결에선 평가될 방법이 없어(커스텀 헤더를 못 실음), guest_token으로 쓴 글의 INSERT 이벤트가 매칭 identity 없는 연결엔 전달 안 됨. 자세한 내용과 남은 과제는 TODO.md #6 참고
   - `20260708200000_broadcast_triggers_for_realtime_updates.sql` — `postgres_changes` 대신 Broadcast from Database(`realtime.send()`)로 방향을 바꿔 강의 페이지 실시간 갱신을 실제로 구현. `posts`/`post_likes`/`lecture_feedback_votes`/`nodes`(강의 제목)/`lectures`(일정/장소/정원) 다섯 테이블에 `SECURITY DEFINER` 트리거를 달아 변경이 생기면 `lecture:<lecture_id>` 채널로 브로드캐스트. `realtime.send()`는 원본 테이블 RLS와 무관한 별도 경로(`realtime.messages`에 INSERT할 뿐)라 회원/비회원 구분 없이 받을 수 있음. 계정 이름(`profiles.name`)은 한 사람이 여러 강의를 소유할 수 있어 채널 하나로 안 끝나는 부채살 구조라 이번 범위에서 제외. 자세한 설계는 [SQL → 트리거 함수 → 실시간 갱신용 Broadcast 트리거 5종](#실시간-갱신용-broadcast-트리거-5종), 프론트 구독 방법은 [SUPABASE_GUIDE.md](./SUPABASE_GUIDE.md) 참고. 라이브 리스너로 다섯 이벤트 전부 실제 발신·수신 확인 완료
+  - `20260708210000_lectures_end_after_start.sql` — `lectures.end_time`이 `start_time`보다 늦어야 한다는 `lectures_end_after_start` 체크 제약 추가. 라이브 DB에 이미 위반하는 테스트성 데이터 2건(`DUMMY_DATA.md` 시드 아님, 수동 테스트 중 생성된 것으로 보임)이 있어서 `end_time`을 `start_time` + 1시간으로 먼저 고친 뒤 제약 추가. 실제 UPDATE로 차단되는 것까지 검증 완료
