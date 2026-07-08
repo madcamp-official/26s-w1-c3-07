@@ -25,10 +25,10 @@ export default function QuestionThread({ question, canResolve = false, highlight
   const [editError, setEditError] = useState('')
   const isOpinion = question.postType === 'opinion'
   const isLecturer = question.authorRole === 'lecturer'
-  // 좋아요/답글/수정 펜의 색(hover·활성·채움)을 셀 왼쪽 테두리 색(의견=파랑, 질문=보라)과 맞춤.
-  const accentText = isOpinion ? 'text-blue-600' : 'text-violet-600'
-  const accentFill = isOpinion ? 'fill-blue-600' : 'fill-violet-600'
-  const accentHover = isOpinion ? 'hover:text-blue-600' : 'hover:text-violet-600'
+  // 좋아요/답글/수정 펜의 색(hover·활성·채움)을 셀 왼쪽 테두리 색(의견=하늘, 질문=보라)과 맞춤.
+  const accentText = isOpinion ? 'text-cyan-600' : 'text-violet-600'
+  const accentFill = isOpinion ? 'fill-cyan-600' : 'fill-violet-600'
+  const accentHover = isOpinion ? 'hover:text-cyan-600' : 'hover:text-violet-600'
 
   const handleResolve = async () => {
     if (!onResolve) return
@@ -65,14 +65,14 @@ export default function QuestionThread({ question, canResolve = false, highlight
       id={`post-${question.id}`}
       className={cn(
         'scroll-mt-6 rounded-3xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-white p-5 shadow-sm transition-all duration-700 ease-out sm:p-6',
-        isOpinion ? 'border-l-blue-400' : 'border-l-violet-400',
+        isOpinion ? 'border-l-cyan-400' : 'border-l-violet-400',
         question.id === highlightId && 'bg-slate-50 shadow-lg shadow-slate-300/60 ring-2 ring-slate-300',
       )}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 text-sm text-slate-400">
           <span className="font-bold text-slate-600">{question.authorName}</span>
-          {isLecturer && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">Lecturer</span>}
+          {isLecturer && <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-bold text-teal-700">Lecturer</span>}
           <span>·</span>
           <span>{question.createdAt}</span>
         </div>

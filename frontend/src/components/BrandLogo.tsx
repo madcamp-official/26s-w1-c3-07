@@ -13,7 +13,7 @@ export default function BrandLogo({ compact = false, inverted = false, to }: Bra
     <div className="flex items-center gap-3" aria-label="Qroom 홈">
       <span
         className={cn(
-          'grid shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-violet-500 to-purple-700 text-white shadow-lg shadow-violet-200',
+          'grid shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-violet-400 to-violet-600 text-white shadow-lg shadow-violet-200',
           compact ? 'size-10' : 'size-14',
         )}
       >

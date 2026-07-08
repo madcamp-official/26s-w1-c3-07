@@ -15,10 +15,10 @@ interface ReplyItemProps {
 export default function ReplyItem({ reply, isHighlighted = false, onLike, onReply, onEdit, onDelete }: ReplyItemProps) {
   const isLecturer = reply.authorRole === 'lecturer'
   const isOpinion = reply.postType === 'opinion'
-  // 좋아요/답글/수정 펜의 색(hover·활성·채움)을 셀 왼쪽 테두리 색(강의자=노랑, 의견=파랑, 질문답글=보라)과 맞춤.
-  const accentText = isLecturer ? 'text-amber-600' : isOpinion ? 'text-blue-600' : 'text-violet-600'
-  const accentFill = isLecturer ? 'fill-amber-600' : isOpinion ? 'fill-blue-600' : 'fill-violet-600'
-  const accentHover = isLecturer ? 'hover:text-amber-600' : isOpinion ? 'hover:text-blue-600' : 'hover:text-violet-600'
+  // 좋아요/답글/수정 펜의 색(hover·활성·채움)을 셀 왼쪽 테두리 색(강의자=청록, 의견=하늘, 질문답글=보라)과 맞춤.
+  const accentText = isLecturer ? 'text-teal-600' : isOpinion ? 'text-cyan-600' : 'text-violet-600'
+  const accentFill = isLecturer ? 'fill-teal-600' : isOpinion ? 'fill-cyan-600' : 'fill-violet-600'
+  const accentHover = isLecturer ? 'hover:text-teal-600' : isOpinion ? 'hover:text-cyan-600' : 'hover:text-violet-600'
   const [isEditing, setIsEditing] = useState(false)
   const [draft, setDraft] = useState(reply.content)
   const [isSaving, setIsSaving] = useState(false)
@@ -49,7 +49,7 @@ export default function ReplyItem({ reply, isHighlighted = false, onLike, onRepl
       id={`post-${reply.id}`}
       className={cn(
         'scroll-mt-6 rounded-2xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-slate-50 p-4 transition-all duration-700 ease-out',
-        isLecturer ? 'border-l-amber-400' : isOpinion ? 'border-l-blue-400' : 'border-l-violet-400',
+        isLecturer ? 'border-l-teal-400' : isOpinion ? 'border-l-cyan-400' : 'border-l-violet-400',
         isHighlighted && 'bg-slate-100 shadow-lg shadow-slate-300/60 ring-2 ring-slate-300',
       )}
       style={reply.depth > 0 ? { marginLeft: `${Math.min(reply.depth, 6) * 1.5}rem` } : undefined}
@@ -57,7 +57,7 @@ export default function ReplyItem({ reply, isHighlighted = false, onLike, onRepl
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="font-extrabold text-slate-800">{reply.authorName}</span>
-          {isLecturer && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">Lecturer</span>}
+          {isLecturer && <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-bold text-teal-700">Lecturer</span>}
           <span className="shrink-0 text-xs text-slate-400">{reply.createdAt}</span>
         </div>
         <div className="flex items-center gap-2">
