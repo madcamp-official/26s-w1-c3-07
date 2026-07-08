@@ -15,17 +15,18 @@
     - [`post_drafts`](#post_drafts)
     - [`post_likes`](#post_likes)
   - [뷰](#뷰)
+    - [`lectures_public`](#lectures_public)
+    - [`lecture_feedback_votes_counts`](#lecture_feedback_votes_counts)
     - [`posts_public`](#posts_public)
     - [`posts_counts`](#posts_counts)
     - [`post_likes_counts`](#post_likes_counts)
-    - [`lecture_feedback_votes_counts`](#lecture_feedback_votes_counts)
-    - [`lectures_public`](#lectures_public)
   - [트리거 함수](#트리거-함수)
     - [`block_status_change_by_non_lecturer()`](#block_status_change_by_non_lecturer)
     - [`set_resolved_at_on_status_change()`](#set_resolved_at_on_status_change)
     - [`unresolve_post_on_question_reply()`](#unresolve_post_on_question_reply)
     - [`enforce_nodes_parent_rules()`](#enforce_nodes_parent_rules)
     - [`handle_new_user()`](#handle_new_user)
+    - [실시간 갱신용 Broadcast 트리거 5종](#실시간-갱신용-broadcast-트리거-5종)
   - [RPC 함수](#rpc-함수)
     - [`delete_own_account()`](#delete_own_account)
     - [`get_my_favorite_subtrees()`](#get_my_favorite_subtrees)
@@ -63,11 +64,11 @@
 | `posts` | 게시글 + 답글 통합 트리, 질문/의견 타입, 미해결/해결, 비회원 인증(`guest_token`) |
 | `post_drafts` | `submit-post`(service_role) 전용 스크래치 테이블. 유사 질문 발견 시 최종 제출본을 임시 저장해뒀다가 강행 제출 시 `posts`로 옮김 — `anon`/`authenticated`는 GRANT/RLS 둘 다 없어서 접근 불가 |
 | `post_likes` | 게시글/답글 좋아요 |
+| `lectures_public` (뷰) | `lectures`+`nodes`+`profiles`를 조인해 강의 제목/일시/장소와 강의자 이름(`lecturer_name`)을 한 번에 보여주는 공개 조회용 뷰. `profiles`가 본인만 SELECT 가능해서 막혀 있던 강의자 이름을 이 뷰로 우회 노출 |
+| `lecture_feedback_votes_counts` (뷰) | `lecture_feedback_votes`에서 `voter_key` 없이 강의·피드백 유형별 좋아요/싫어요 개수만 집계한 공개 조회용 뷰 |
 | `posts_public` (뷰) | `posts`에서 `guest_token`/`author_id`를 뺀 공개 조회용 뷰(비익명 글만 작성자 이름 노출). 프론트는 `posts` 대신 이 뷰를 조회 |
 | `posts_counts` (뷰) | `posts`를 `lecture_id`별로 `count(*)`한 게시글 개수 집계 뷰. `posts_public`처럼 숨길 값이 있어서가 아니라, 여러 강의의 개수를 한 번의 요청으로 가져오기 위한 효율성 목적 |
 | `post_likes_counts` (뷰) | `post_likes`에서 `voter_key` 없이 게시글별 좋아요 개수만 집계한 공개 조회용 뷰 |
-| `lecture_feedback_votes_counts` (뷰) | `lecture_feedback_votes`에서 `voter_key` 없이 강의·피드백 유형별 좋아요/싫어요 개수만 집계한 공개 조회용 뷰 |
-| `lectures_public` (뷰) | `lectures`+`nodes`+`profiles`를 조인해 강의 제목/일시/장소와 강의자 이름(`lecturer_name`)을 한 번에 보여주는 공개 조회용 뷰. `profiles`가 본인만 SELECT 가능해서 막혀 있던 강의자 이름을 이 뷰로 우회 노출 |
 
 ## SQL
 
@@ -120,7 +121,7 @@ create table favorites (
 
 #### `lectures`
 
-강의(`nodes.type = 'lecture'`)의 부가 속성을 담는 1:1 테이블로, `id`가 `nodes(id)`를 그대로 참조합니다. 입장 URL/QR은 별도 코드 없이 이 `id`(=`nodes.id`, UUID)를 그대로 사용하고(`/join/<id>`), 같은 `id`를 "즐겨찾기 등록 코드"로도 재사용합니다(강의뿐 아니라 강의 폴더도 이 코드로 `favorites`에 등록 가능). `max_participants`는 미설정(`null`) 또는 0 이상만 허용합니다.
+강의(`nodes.type = 'lecture'`)의 부가 속성을 담는 1:1 테이블로, `id`가 `nodes(id)`를 그대로 참조합니다. 입장 URL/QR은 별도 코드 없이 이 `id`(=`nodes.id`, UUID)를 그대로 사용하고(`/join/<id>`), 같은 `id`를 "즐겨찾기 등록 코드"로도 재사용합니다(강의뿐 아니라 강의 폴더도 이 코드로 `favorites`에 등록 가능). `max_participants`는 미설정(`null`) 또는 0 이상만 허용하고, `end_time`은 반드시 `start_time`보다 늦어야 합니다.
 
 ```sql
 create table lectures (
@@ -129,7 +130,8 @@ create table lectures (
   end_time timestamptz not null,
   location text,
   max_participants int,
-  constraint lectures_max_participants_non_negative check (max_participants is null or max_participants >= 0)
+  constraint lectures_max_participants_non_negative check (max_participants is null or max_participants >= 0),
+  constraint lectures_end_after_start check (end_time > start_time)
 );
 ```
 
@@ -238,6 +240,41 @@ create table post_likes (
 
 ### 뷰
 
+#### `lectures_public`
+
+강의실 페이지에서 강의 제목/일시/장소와 강의자 이름을 한 번에 보여주기 위한 뷰입니다. `profiles`는 본인만 SELECT 가능(RLS)이라, 강의를 만든 본인이 아닌 사람(다른 강의자/수강생/비회원)이 강의실에 들어왔을 때는 `profiles.name`을 직접 조회할 수 없어 강의자 이름을 알 수 없는 문제가 있었습니다. `posts_public`이 `author_display_name`을 노출하는 것과 같은 원리로, 뷰는 조회자가 아니라 **뷰 소유자 권한**으로 실행되기 때문에 이 뷰 안에서는 `profiles`를 조인해도 RLS에 걸리지 않습니다. `lectures`/`nodes`가 이미 전체 공개라 이 뷰도 별도 RLS나 REVOKE 없이 기본 공개 SELECT 권한으로 충분합니다. `created_by`가 탈퇴 등으로 `null`이 되거나 `profiles.name`이 없는 경우 `lecturer_name`은 `null`이 되므로, 프론트에서 기본값 문자열로 폴백 처리해야 합니다.
+
+```sql
+create view lectures_public as
+select
+  l.id,
+  l.start_time,
+  l.end_time,
+  l.location,
+  l.max_participants,
+  n.name as title,
+  n.created_by,
+  p.name as lecturer_name
+from lectures l
+join nodes n on n.id = l.id
+left join profiles p on p.id = n.created_by;
+```
+
+#### `lecture_feedback_votes_counts`
+
+`lecture_feedback_votes`도 마찬가지로 테이블 자체 SELECT는 본인 투표 행만 가능하도록 좁혀서(아래 [RLS 정책 → `lecture_feedback_votes`](#lecture_feedback_votes-1) 참고), `voter_key` 없이 강의·피드백 유형별 좋아요/싫어요 개수만 집계해 공개합니다.
+
+```sql
+create view lecture_feedback_votes_counts as
+select
+  lecture_id,
+  feedback_type,
+  count(*) filter (where value = 1) as like_count,
+  count(*) filter (where value = -1) as dislike_count
+from lecture_feedback_votes
+group by lecture_id, feedback_type;
+```
+
 #### `posts_public`
 
 `posts`는 테이블 자체 SELECT 권한이 없어(아래 [RLS 정책 → `posts`](#posts-1) 참고) 이 뷰로만 조회할 수 있습니다. `guest_token`은 완전히 제외하고, `author_id`(uid)도 통째로 숨긴 뒤 `is_anonymous`가 `false`인 글만 `profiles.name`을 조인해서 보여줍니다. `is_mine`은 원본 식별자(`author_id`/`guest_token`)를 노출하지 않으면서 "이 글이 내가 쓴 글인지"만 boolean으로 계산해서 얹은 컬럼으로, 프론트가 수정/삭제 버튼을 조건부로 노출할 때 씁니다. `author_id = auth.uid()`(회원)이거나 `guest_token = x-guest-token 헤더`(비회원, `guest_token`이 `uuid` 타입이라 헤더 값을 `::uuid`로 캐스팅해서 비교)이면 `true`이고, 실제 쓰기 권한(`posts_update_own`/`posts_delete_own`)과 정확히 같은 조건이라 "버튼은 보이는데 실제로는 막히는" 불일치가 없습니다. `coalesce(..., false)`로 감싼 이유는, 예를 들어 게스트가 회원 글을 볼 때 `author_id = auth.uid()`가 `uuid = null` 비교라 `false`가 아니라 `null`이 되는 등 SQL 3진 논리상 결과가 `null`이 될 수 있어서, 이를 명시적으로 `false`로 정리하지 않으면 `is_mine`이 `null`/`true`/`false` 세 상태를 갖게 되기 때문입니다. `created_mode`는 강의자 모드로 쓴 글(답글, 청색 표시)과 수강생 모드로 쓴 글을 프론트가 구분해서 표시하는 데 필요한데, 이 뷰가 `posts.created_mode` 컬럼이 생기기 전에 먼저 만들어진 뒤로 이후의 재생성들에서 계속 빠져 있다가 뒤늦게 추가되었습니다.
@@ -267,12 +304,13 @@ left join profiles pr on pr.id = p.author_id;
 
 #### `posts_counts`
 
-"내 강의" 목록에서 강의별 게시글 개수를 보여주기 위한 집계 뷰입니다. 다른 두 counts 뷰와 달리 보안 목적이 아닙니다 — `posts_public`이 이미 전체 공개라 숨길 값이 없습니다. PostgREST가 서버 사이드 `group by`를 지원하지 않아서, 여러 강의의 게시글 개수를 한 번의 요청으로 가져오기 위한 효율성 목적으로만 추가했습니다.
+"내 강의" 목록에서 강의별 게시글 개수를 보여주기 위한 집계 뷰입니다. 다른 두 counts 뷰와 달리 보안 목적이 아닙니다 — `posts_public`이 이미 전체 공개라 숨길 값이 없습니다. PostgREST가 서버 사이드 `group by`를 지원하지 않아서, 여러 강의의 게시글 개수를 한 번의 요청으로 가져오기 위한 효율성 목적으로만 추가했습니다. `parent_id is null`로 최상위 게시글만 세고 답글은 제외합니다 — 프론트가 이 값을 "게시글 {n}개"로 표시하는데, 최상위 게시글은 `parent_id is null`(`posts_status_matches_top_level` 제약으로 보장)이라 이 조건으로 답글과 구분됩니다.
 
 ```sql
 create view posts_counts as
 select lecture_id, count(*) as post_count
 from posts
+where parent_id is null
 group by lecture_id;
 ```
 
@@ -285,41 +323,6 @@ create view post_likes_counts as
 select post_id, count(*) as like_count
 from post_likes
 group by post_id;
-```
-
-#### `lecture_feedback_votes_counts`
-
-`lecture_feedback_votes`도 마찬가지로 테이블 자체 SELECT는 본인 투표 행만 가능하도록 좁혀서(아래 [RLS 정책 → `lecture_feedback_votes`](#lecture_feedback_votes-1) 참고), `voter_key` 없이 강의·피드백 유형별 좋아요/싫어요 개수만 집계해 공개합니다.
-
-```sql
-create view lecture_feedback_votes_counts as
-select
-  lecture_id,
-  feedback_type,
-  count(*) filter (where value = 1) as like_count,
-  count(*) filter (where value = -1) as dislike_count
-from lecture_feedback_votes
-group by lecture_id, feedback_type;
-```
-
-#### `lectures_public`
-
-강의실 페이지에서 강의 제목/일시/장소와 강의자 이름을 한 번에 보여주기 위한 뷰입니다. `profiles`는 본인만 SELECT 가능(RLS)이라, 강의를 만든 본인이 아닌 사람(다른 강의자/수강생/비회원)이 강의실에 들어왔을 때는 `profiles.name`을 직접 조회할 수 없어 강의자 이름을 알 수 없는 문제가 있었습니다. `posts_public`이 `author_display_name`을 노출하는 것과 같은 원리로, 뷰는 조회자가 아니라 **뷰 소유자 권한**으로 실행되기 때문에 이 뷰 안에서는 `profiles`를 조인해도 RLS에 걸리지 않습니다. `lectures`/`nodes`가 이미 전체 공개라 이 뷰도 별도 RLS나 REVOKE 없이 기본 공개 SELECT 권한으로 충분합니다. `created_by`가 탈퇴 등으로 `null`이 되거나 `profiles.name`이 없는 경우 `lecturer_name`은 `null`이 되므로, 프론트에서 기본값 문자열로 폴백 처리해야 합니다.
-
-```sql
-create view lectures_public as
-select
-  l.id,
-  l.start_time,
-  l.end_time,
-  l.location,
-  l.max_participants,
-  n.name as title,
-  n.created_by,
-  p.name as lecturer_name
-from lectures l
-join nodes n on n.id = l.id
-left join profiles p on p.id = n.created_by;
 ```
 
 ### 트리거 함수
@@ -472,6 +475,162 @@ $$ language plpgsql;
 create trigger trg_handle_new_user
 after insert on auth.users
 for each row execute function handle_new_user();
+```
+
+#### 실시간 갱신용 Broadcast 트리거 5종
+
+강의 페이지(질문/답글, 좋아요, 실시간 피드백, 강의 제목/일정)를 실시간으로 갱신하기 위한 **Broadcast from Database** 트리거 5종입니다. `postgres_changes`(테이블 WAL을 직접 구독) 대신 `realtime.send()`(내부적으로 `realtime.messages` 테이블에 INSERT할 뿐인 함수)를 쓰는 이유는, `postgres_changes`는 원본 테이블의 RLS를 그대로 적용받는데 `posts`/`post_likes`/`lecture_feedback_votes`의 RLS는 `x-guest-token` 헤더 비교가 섞여 있고 WebSocket 연결은 커스텀 헤더를 못 실어서 비회원이 이벤트를 아예 못 받기 때문입니다(실제로 라이브 테스트로 확인함). `realtime.send()`는 원본 테이블 RLS와 무관한 별도 경로라 회원/비회원 구분 없이 받을 수 있고, 트리거가 원래 쓰기와 같은 트랜잭션 안에서 실행되므로 그 트랜잭션이 롤백되면 브로드캐스트도 같이 취소되는 장점도 있습니다.
+
+채널은 [Presence](#실시간-접속자-수-강의별)와 동일하게 `lecture:<lecture_id>`를 재사용합니다. 다섯 함수 모두 `SECURITY DEFINER`로 선언했는데, `posts`/`nodes`/`lectures`의 base 테이블 SELECT가 RLS로 좁게 막혀 있어서(예: 남이 쓴 글은 `posts_select_own`/`posts_select_lecturer`로 안 보임) 호출자(글을 쓰거나 좋아요를 누른 사람)의 권한이 아니라 정의자 권한으로 자유롭게 조회해야 하기 때문입니다(`unresolve_post_on_question_reply()`와 동일한 이유). `search_path`는 스키마 하이재킹 방지를 위해 빈 문자열로 고정합니다.
+
+- **`broadcast_post_change()`**(`posts` AFTER INSERT/UPDATE/DELETE) — `post_change` 이벤트. INSERT/UPDATE는 `posts_public` 뷰에서 안전한 필드만 골라 페이로드로 보냄(뷰가 이미 `guest_token`/`author_id`를 감추고 `is_anonymous`에 따라 작성자 이름을 조건부로 채워주므로 재사용). `is_mine`은 보는 사람마다 다른 값이라 브로드캐스트에는 안 실음(클라이언트가 자기 identity로 직접 판단). DELETE는 삭제된 행이 뷰에서도 이미 사라진 뒤라 `old`의 `id`/`lecture_id`/`parent_id`만 보냄(목록에서 지우는 데 그거면 충분).
+- **`broadcast_post_like_change()`**(`post_likes` AFTER INSERT/DELETE) — `like_change` 이벤트. `voter_key`는 안 보내고 `post_likes_counts`에서 그 글의 좋아요 개수만 다시 계산해서 `{post_id, like_count}`로 보냄.
+- **`broadcast_feedback_vote_change()`**(`lecture_feedback_votes` AFTER INSERT/DELETE) — `feedback_change` 이벤트. `lecture_feedback_votes_counts`에서 해당 `feedback_type`의 좋아요/싫어요 개수를 다시 계산해서 전송. 강의자의 "초기화"(여러 행 한꺼번에 DELETE)도 각 행마다 트리거가 돌아 결과적으로 최종 개수(0)로 수렴함.
+- **`broadcast_lecture_name_change()`**(`nodes` AFTER UPDATE) — `lecture_updated` 이벤트. `type = 'lecture'`이고 이름이 실제로 바뀐 경우에만 `{id, name}` 전송.
+- **`broadcast_lecture_details_change()`**(`lectures` AFTER UPDATE) — `lecture_details_updated` 이벤트. `{id, start_time, end_time, location, max_participants}` 전송.
+
+**계정 이름(`profiles.name`) 변경은 이 범위에서 제외**했습니다 — 한 사람이 강의를 여러 개 소유할 수 있어서 이름 하나가 바뀌면 그 사람 소유의 강의 채널 여러 곳에 각각 쏴야 하는 부채살 구조라, `nodes`/`lectures`(강의 하나 = 채널 하나)보다 한 단계 더 복잡하고 실익도 낮다고 판단해 보류함.
+
+```sql
+create or replace function broadcast_post_change()
+returns trigger
+security definer
+set search_path = ''
+as $$
+declare
+  payload jsonb;
+  target_lecture_id uuid;
+begin
+  if tg_op = 'DELETE' then
+    target_lecture_id := old.lecture_id;
+    payload := jsonb_build_object(
+      'op', 'DELETE', 'id', old.id, 'lecture_id', old.lecture_id, 'parent_id', old.parent_id
+    );
+  else
+    target_lecture_id := new.lecture_id;
+    select jsonb_build_object(
+      'id', p.id, 'lecture_id', p.lecture_id, 'parent_id', p.parent_id,
+      'author_display_name', p.author_display_name, 'is_anonymous', p.is_anonymous,
+      'type', p.type, 'status', p.status, 'resolved_at', p.resolved_at,
+      'content', p.content, 'created_at', p.created_at, 'created_mode', p.created_mode
+    ) into payload
+    from public.posts_public p
+    where p.id = new.id;
+    payload := payload || jsonb_build_object('op', tg_op);
+  end if;
+
+  perform realtime.send(payload, 'post_change', 'lecture:' || target_lecture_id::text, false);
+  return coalesce(new, old);
+end;
+$$ language plpgsql;
+
+create trigger trg_broadcast_post_change
+after insert or update or delete on posts
+for each row execute function broadcast_post_change();
+
+create or replace function broadcast_post_like_change()
+returns trigger
+security definer
+set search_path = ''
+as $$
+declare
+  affected_post_id uuid := coalesce(new.post_id, old.post_id);
+  target_lecture_id uuid;
+  count_val integer;
+begin
+  select lecture_id into target_lecture_id from public.posts where id = affected_post_id;
+  select like_count into count_val from public.post_likes_counts where post_id = affected_post_id;
+
+  perform realtime.send(
+    jsonb_build_object('post_id', affected_post_id, 'like_count', coalesce(count_val, 0)),
+    'like_change',
+    'lecture:' || target_lecture_id::text,
+    false
+  );
+  return coalesce(new, old);
+end;
+$$ language plpgsql;
+
+create trigger trg_broadcast_post_like_change
+after insert or delete on post_likes
+for each row execute function broadcast_post_like_change();
+
+create or replace function broadcast_feedback_vote_change()
+returns trigger
+security definer
+set search_path = ''
+as $$
+declare
+  affected_lecture_id uuid := coalesce(new.lecture_id, old.lecture_id);
+  affected_type text := coalesce(new.feedback_type, old.feedback_type);
+  counts record;
+begin
+  select like_count, dislike_count into counts
+  from public.lecture_feedback_votes_counts
+  where lecture_id = affected_lecture_id and feedback_type = affected_type;
+
+  perform realtime.send(
+    jsonb_build_object(
+      'feedback_type', affected_type,
+      'like_count', coalesce(counts.like_count, 0),
+      'dislike_count', coalesce(counts.dislike_count, 0)
+    ),
+    'feedback_change',
+    'lecture:' || affected_lecture_id::text,
+    false
+  );
+  return coalesce(new, old);
+end;
+$$ language plpgsql;
+
+create trigger trg_broadcast_feedback_vote_change
+after insert or delete on lecture_feedback_votes
+for each row execute function broadcast_feedback_vote_change();
+
+create or replace function broadcast_lecture_name_change()
+returns trigger
+security definer
+set search_path = ''
+as $$
+begin
+  if new.type = 'lecture' and new.name is distinct from old.name then
+    perform realtime.send(
+      jsonb_build_object('id', new.id, 'name', new.name),
+      'lecture_updated',
+      'lecture:' || new.id::text,
+      false
+    );
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trg_broadcast_lecture_name_change
+after update on nodes
+for each row execute function broadcast_lecture_name_change();
+
+create or replace function broadcast_lecture_details_change()
+returns trigger
+security definer
+set search_path = ''
+as $$
+begin
+  perform realtime.send(
+    jsonb_build_object(
+      'id', new.id, 'start_time', new.start_time, 'end_time', new.end_time,
+      'location', new.location, 'max_participants', new.max_participants
+    ),
+    'lecture_details_updated',
+    'lecture:' || new.id::text,
+    false
+  );
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trg_broadcast_lecture_details_change
+after update on lectures
+for each row execute function broadcast_lecture_details_change();
 ```
 
 ### RPC 함수
@@ -1006,5 +1165,8 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
   - `20260708150000_rename_auto_generated_check_constraints.sql` — Postgres가 이름 없는 `check` 제약에 자동으로 붙이는 `<table>[_컬럼]_check[N]` 이름들을 이 프로젝트 스타일(서술적 이름)로 통일. 일부는 과거 컬럼 리네임(`node_type`→`type`, `post_type`→`type`, `last_mode`→`mode`) 이후에도 옛 컬럼명을 그대로 가진 이름이라 이번에 같이 바로잡음(`nodes_node_type_check`→`nodes_type_valid`, `posts_post_type_check`→`posts_type_valid`, `profiles_last_mode_check`→`profiles_mode_valid` 등). `rename constraint`는 이름표만 바꾸는 메타데이터 작업이라 데이터/락 영향 없음. 이 문서의 모든 테이블 SQL도 새 이름을 명시하도록 갱신
   - `20260708160000_rename_enforce_nodes_parent_ownership_to_rules.sql` — `enforce_nodes_parent_ownership()`/`trg_enforce_nodes_parent_ownership`이 `20260708120000`부터 소유권 검사뿐 아니라 "부모가 강의면 안 됨" 구조 검사까지 하게 됐는데 이름은 여전히 "ownership"만 검사하는 것처럼 보여서, `enforce_nodes_parent_rules()`/`trg_enforce_nodes_parent_rules`로 개명(`alter function ... rename to`/`alter trigger ... rename to`라 함수 본문·트리거 동작은 그대로, 이름표만 바뀜). 개명 후에도 강의를 부모로 지정하면 여전히 차단되는지 재검증 완료
   - `20260708170000_lectures_public_view.sql` — 강의실 페이지에서 강의자 이름이 안 보이던 문제(`profiles`가 본인만 SELECT 가능해서, 강의를 만든 본인이 아니면 이름을 조회할 수 없었음) 해결용 `lectures_public` 뷰 추가. `posts_public`과 같은 원리(뷰 소유자 권한으로 `profiles` 우회 조인)로 강의 제목/일시/장소와 함께 강의자 이름(`lecturer_name`)을 공개 노출. `profiles` RLS 자체를 완화하지 않은 이유는 그러면 강의자뿐 아니라 가입한 모든 사용자 이름을 익명 스크래핑당할 수 있기 때문(자세한 내용은 "정책·트리거·뷰 보완 설명" 참고)
-  - `20260708180000_feedback_type_dark_to_unclear.sql` — 피드백 유형 `dark`를 `unclear`로 변경(조명이 어둡다는 뜻으로 오해되기 쉬워서, 원래 의도인 "글씨가 작아서/흐려서 안 보임"에 맞게). 이전에 한 번 이 값을 바꾼 적이 있었지만 그땐 이미 적용된 `init_schema.sql`의 텍스트만 고치고 실제 `ALTER`를 안 해서 라이브 DB와 프론트가 계속 `dark`를 쓰고 있었고, 이번엔 기존 데이터를 `unclear`로 `UPDATE`한 뒤 `lecture_feedback_votes_feedback_type_valid` 제약을 실제로 `ALTER`해서 라이브 DB에 반영. 프론트(`frontend` 브랜치의 `FeedbackKey`/`FEEDBACK_KEYS`/`FEEDBACK_LABELS`)는 아직 `dark`를 쓰고 있어 별도로 갱신이 필요함([SUPABASE_GUIDE.md 참고](./SUPABASE_GUIDE.md#테이블-조회))
+  - `20260708180000_feedback_type_dark_to_unclear.sql` — 피드백 유형 `dark`를 `unclear`로 변경(조명이 어둡다는 뜻으로 오해되기 쉬워서, 원래 의도인 "글씨가 작아서/흐려서 안 보임"에 맞게). 이전에 한 번 이 값을 바꾼 적이 있었지만 그땐 이미 적용된 `init_schema.sql`의 텍스트만 고치고 실제 `ALTER`를 안 해서 라이브 DB와 프론트가 계속 `dark`를 쓰고 있었고, 이번엔 기존 데이터를 `unclear`로 `UPDATE`한 뒤 `lecture_feedback_votes_feedback_type_valid` 제약을 실제로 `ALTER`해서 라이브 DB에 반영. 프론트(`FeedbackKey`/`FEEDBACK_KEYS`/`FEEDBACK_LABELS`)도 `unclear` 기준으로 갱신됨
   - `20260708190000_posts_realtime_publication.sql` — 강의실 게시글 실시간 갱신(TODO.md #6) 구현의 선행 작업으로 `posts`를 `supabase_realtime` publication에 추가(`postgres_changes` 이벤트 자체가 발생하려면 필요). 라이브 검증 결과, 이것만으로는 비회원까지 안전하게 실시간 구독을 붙일 수 없다는 게 확인됨 — `posts_select_own`의 `guest_token` 헤더 비교 조건이 WebSocket 연결에선 평가될 방법이 없어(커스텀 헤더를 못 실음), guest_token으로 쓴 글의 INSERT 이벤트가 매칭 identity 없는 연결엔 전달 안 됨. 자세한 내용과 남은 과제는 TODO.md #6 참고
+  - `20260708200000_broadcast_triggers_for_realtime_updates.sql` — `postgres_changes` 대신 Broadcast from Database(`realtime.send()`)로 방향을 바꿔 강의 페이지 실시간 갱신을 실제로 구현. `posts`/`post_likes`/`lecture_feedback_votes`/`nodes`(강의 제목)/`lectures`(일정/장소/정원) 다섯 테이블에 `SECURITY DEFINER` 트리거를 달아 변경이 생기면 `lecture:<lecture_id>` 채널로 브로드캐스트. `realtime.send()`는 원본 테이블 RLS와 무관한 별도 경로(`realtime.messages`에 INSERT할 뿐)라 회원/비회원 구분 없이 받을 수 있음. 계정 이름(`profiles.name`)은 한 사람이 여러 강의를 소유할 수 있어 채널 하나로 안 끝나는 부채살 구조라 이번 범위에서 제외. 자세한 설계는 [SQL → 트리거 함수 → 실시간 갱신용 Broadcast 트리거 5종](#실시간-갱신용-broadcast-트리거-5종), 프론트 구독 방법은 [SUPABASE_GUIDE.md](./SUPABASE_GUIDE.md) 참고. 라이브 리스너로 다섯 이벤트 전부 실제 발신·수신 확인 완료
+  - `20260708210000_lectures_end_after_start.sql` — `lectures.end_time`이 `start_time`보다 늦어야 한다는 `lectures_end_after_start` 체크 제약 추가. 라이브 DB에 이미 위반하는 테스트성 데이터 2건(`DUMMY_DATA.md` 시드 아님, 수동 테스트 중 생성된 것으로 보임)이 있어서 `end_time`을 `start_time` + 1시간으로 먼저 고친 뒤 제약 추가. 실제 UPDATE로 차단되는 것까지 검증 완료
+  - `20260708220000_posts_counts_top_level_only.sql` — `posts_counts`가 답글까지 포함해 `lecture_id`별 `posts` 전체를 세고 있었는데, 프론트(`CourseMeta.tsx`)는 이 값을 "게시글 {n}개"로 표시하고 있어 최상위 게시글만 세도록 `where parent_id is null` 추가. 라이브 DB에서 답글 포함 10건/최상위만 6건인 강의로 값이 6으로 바뀌는 것까지 확인
