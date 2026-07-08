@@ -79,24 +79,27 @@ Supabase Auth 사용자(`auth.users`)를 확장하는 회원 부가정보 테이
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   name text,
-  mode text not null default 'student' check (mode in ('lecturer', 'student'))
+  mode text not null default 'student',
+  constraint profiles_mode_valid check (mode in ('lecturer', 'student'))
 );
 ```
 
 #### `nodes`
 
-강의 폴더와 강의를 하나의 트리로 묶는 핵심 테이블로, `parent_id`가 자기 자신을 참조해 깊이 제한 없는 트리를 이룹니다. 폴더를 삭제하면 `on delete cascade`로 하위 노드가 재귀적으로 전부 삭제됩니다. `created_by`는 만든 사람이 탈퇴해도 `on delete set null`이라 강의/폴더 자체는 유지되고 작성자 정보만 사라집니다. `created_mode`는 같은 계정이 강의자/수강생 어느 모드에서 만들었는지를 구분하며, `check (type <> 'lecture' or created_mode = 'lecturer')` 제약으로 강의(`lecture`)는 항상 강의자 모드에서만 만들어지도록 강제합니다. `created_at`은 기본 정렬 기준(생성 시각순)이고, 수동 정렬 기능이 추가되면 그때 `position` 컬럼을 별도로 추가할 계획입니다.
+강의 폴더와 강의를 하나의 트리로 묶는 핵심 테이블로, `parent_id`가 자기 자신을 참조해 깊이 제한 없는 트리를 이룹니다. 폴더를 삭제하면 `on delete cascade`로 하위 노드가 재귀적으로 전부 삭제됩니다. `created_by`는 만든 사람이 탈퇴해도 `on delete set null`이라 강의/폴더 자체는 유지되고 작성자 정보만 사라집니다. `created_mode`는 같은 계정이 강의자/수강생 어느 모드에서 만들었는지를 구분하며, `nodes_lecture_requires_lecturer_mode` 제약(`check (type <> 'lecture' or created_mode = 'lecturer')`)으로 강의(`lecture`)는 항상 강의자 모드에서만 만들어지도록 강제합니다. `created_at`은 기본 정렬 기준(생성 시각순)이고, 수동 정렬 기능이 추가되면 그때 `position` 컬럼을 별도로 추가할 계획입니다.
 
 ```sql
 create table nodes (
   id uuid primary key default gen_random_uuid(),
   parent_id uuid references nodes(id) on delete cascade,
-  type text not null check (type in ('folder', 'lecture')),
+  type text not null,
   name text not null,
   created_by uuid references profiles(id) on delete set null,
-  created_mode text not null check (created_mode in ('lecturer', 'student')),
+  created_mode text not null,
   created_at timestamptz default now(),
-  check (type <> 'lecture' or created_mode = 'lecturer')
+  constraint nodes_type_valid check (type in ('folder', 'lecture')),
+  constraint nodes_created_mode_valid check (created_mode in ('lecturer', 'student')),
+  constraint nodes_lecture_requires_lecturer_mode check (type <> 'lecture' or created_mode = 'lecturer')
 );
 ```
 
@@ -123,7 +126,8 @@ create table lectures (
   start_time timestamptz not null,
   end_time timestamptz not null,
   location text,
-  max_participants int check (max_participants is null or max_participants >= 0)
+  max_participants int,
+  constraint lectures_max_participants_non_negative check (max_participants is null or max_participants >= 0)
 );
 ```
 
@@ -133,9 +137,10 @@ create table lectures (
 
 ```sql
 create table lecture_join_codes (
-  code text primary key check (code ~ '^[0-9]{4}$'),
+  code text primary key,
   lecture_id uuid not null unique references lectures(id) on delete cascade,
-  issued_at timestamptz default now()
+  issued_at timestamptz default now(),
+  constraint lecture_join_codes_code_valid check (code ~ '^[0-9]{4}$')
 );
 ```
 
@@ -146,20 +151,22 @@ create table lecture_join_codes (
 ```sql
 create table lecture_feedback_votes (
   lecture_id uuid references lectures(id) on delete cascade,
-  feedback_type text not null check (feedback_type in ('cold', 'hot', 'quiet', 'dark')),
+  feedback_type text not null,
   voter_key uuid not null,
-  value smallint not null check (value in (1, -1)),
-  primary key (lecture_id, feedback_type, voter_key, value)
+  value smallint not null,
+  primary key (lecture_id, feedback_type, voter_key, value),
+  constraint lecture_feedback_votes_feedback_type_valid check (feedback_type in ('cold', 'hot', 'quiet', 'dark')),
+  constraint lecture_feedback_votes_value_valid check (value in (1, -1))
 );
 ```
 
 #### `posts`
 
-게시글과 답글을 하나로 통합한 자기참조 트리로, `parent_id`가 `null`이면 최상위 게시글, 값이 있으면 답글입니다(무한 depth). 최상위 글을 삭제하면 답글도 `on delete cascade`로 재귀 삭제됩니다. `author_id`는 비회원이면 `null`이고, 회원이 탈퇴해도 `on delete set null`로 글은 남고 작성자 정보만 사라집니다 — 이때 `is_anonymous`는 건드리지 않고 원래 값 그대로 둡니다(자세한 이유는 아래 CHECK 제약 설명과 "정책·트리거·뷰" 절 참고). `guest_token`은 비회원 글 수정/삭제 인증용인 `uuid`이며(`crypto.randomUUID()`로 생성, 자세한 이유는 아래 "비회원 익명 식별자" 절 참고), 강의가 끝나도 무효화하지 않고 영구 보존합니다 — 왜 무효화가 필요 없는지는 아래 CHECK 제약 설명 참고. `status`는 최상위 게시글만 사용(답글은 `null`)하고, `resolved_at`은 해결됨으로 바뀐 시각으로 해결된 게시글 정렬 기준이며 미해결로 되돌아가면 다시 `null` 처리됩니다. `created_mode`는 강의자 모드/수강생 모드 중 어느 화면에서 썼는지를 저장해 화면에서 색을 구분하는 데 씁니다. 여섯 개의 `check` 제약은 각각:
+게시글과 답글을 하나로 통합한 자기참조 트리로, `parent_id`가 `null`이면 최상위 게시글, 값이 있으면 답글입니다(무한 depth). 최상위 글을 삭제하면 답글도 `on delete cascade`로 재귀 삭제됩니다. `author_id`는 비회원이면 `null`이고, 회원이 탈퇴해도 `on delete set null`로 글은 남고 작성자 정보만 사라집니다 — 이때 `is_anonymous`는 건드리지 않고 원래 값 그대로 둡니다(자세한 이유는 아래 CHECK 제약 설명과 "정책·트리거·뷰" 절 참고). `guest_token`은 비회원 글 수정/삭제 인증용인 `uuid`이며(`crypto.randomUUID()`로 생성, 자세한 이유는 아래 "비회원 익명 식별자" 절 참고), 강의가 끝나도 무효화하지 않고 영구 보존합니다 — 왜 무효화가 필요 없는지는 아래 CHECK 제약 설명 참고. `status`는 최상위 게시글만 사용(답글은 `null`)하고, `resolved_at`은 해결됨으로 바뀐 시각으로 해결된 게시글 정렬 기준이며 미해결로 되돌아가면 다시 `null` 처리됩니다. `created_mode`는 강의자 모드/수강생 모드 중 어느 화면에서 썼는지를 저장해 화면에서 색을 구분하는 데 씁니다. `type`/`status`/`created_mode`의 값 목록을 제한하는 단순 열거형 제약(`posts_type_valid`/`posts_status_valid`/`posts_created_mode_valid`) 외에, 여러 컬럼을 함께 보는 여섯 개의 `check` 제약은 각각:
 - `posts_guest_must_be_anonymous`: `guest_token`이 있는 글(=진짜 비회원 글)은 반드시 익명이어야 함. 원래는 "작성자(`author_id`)가 없으면 무조건 익명"이었는데, 이러면 탈퇴한 회원의 실명 글까지 이 제약에 걸려버려서(아래 참고) `guest_token` 기준으로 좁혔습니다.
-- 최상위 게시글은 `status` 필수·답글은 `status` 필수 `null`
-- 강의자 모드로 쓴 글은 답글+`opinion` 타입만 가능
-- `resolved`일 때만 `resolved_at`이 존재하도록 양방향 강제
+- `posts_status_matches_top_level`: 최상위 게시글은 `status` 필수·답글은 `status` 필수 `null`
+- `posts_lecturer_mode_reply_opinion_only`: 강의자 모드로 쓴 글은 답글+`opinion` 타입만 가능
+- `posts_resolved_at_matches_status`: `resolved`일 때만 `resolved_at`이 존재하도록 양방향 강제
 - `posts_author_id_guest_token_not_both_set`: `author_id`와 `guest_token`이 동시에 값을 갖지는 못하게 막음(둘 다 `null`인 상태는 허용). 한때 "정확히 하나만 값을 가짐"(XOR)으로 강화했다가, 회원 탈퇴 시 `author_id`가 `null`이 되면서 `guest_token`(원래도 `null`)과 함께 "둘 다 `null`"인 상태가 정상적으로 발생해야 한다는 게 드러나 다시 완화했습니다(`guest_token` 자체를 지우는 무효화 로직을 다시 쓰는 건 아님 — 왜 무효화가 필요 없는지는 [TODO.md](./TODO.md#해결된-것-참고용-기록) 참고).
 - `posts_lecturer_mode_not_anonymous`: 강의자 모드로 쓴 글(`created_mode = 'lecturer'`)은 반드시 실명(`is_anonymous = false`)이어야 함. `created_mode`는 `author_id`와 별개 컬럼이라 회원 탈퇴로 `author_id`가 `null`이 돼도 그대로 남고, 탈퇴해도 `is_anonymous`를 건드리지 않기로 한 위 결정 덕분에 탈퇴 여부와 무관하게 항상 성립하는 제약이라 안전하게 추가할 수 있었습니다.
 
@@ -171,16 +178,19 @@ create table posts (
   author_id uuid references profiles(id) on delete set null,
   is_anonymous boolean not null default true,
   guest_token uuid,
-  type text not null check (type in ('question', 'opinion')),
-  status text check (status in ('unresolved', 'resolved')),
+  type text not null,
+  status text,
   resolved_at timestamptz,
   content text not null,
   created_at timestamptz default now(),
-  created_mode text not null default 'student' check (created_mode in ('lecturer', 'student')),
+  created_mode text not null default 'student',
+  constraint posts_type_valid check (type in ('question', 'opinion')),
+  constraint posts_status_valid check (status in ('unresolved', 'resolved')),
+  constraint posts_created_mode_valid check (created_mode in ('lecturer', 'student')),
   constraint posts_guest_must_be_anonymous check (guest_token is null or is_anonymous = true),
-  check ((parent_id is null) = (status is not null)),
-  check (created_mode <> 'lecturer' or (parent_id is not null and type = 'opinion')),
-  check ((status = 'resolved') = (resolved_at is not null)),
+  constraint posts_status_matches_top_level check ((parent_id is null) = (status is not null)),
+  constraint posts_lecturer_mode_reply_opinion_only check (created_mode <> 'lecturer' or (parent_id is not null and type = 'opinion')),
+  constraint posts_resolved_at_matches_status check ((status = 'resolved') = (resolved_at is not null)),
   constraint posts_author_id_guest_token_not_both_set check (author_id is null or guest_token is null),
   constraint posts_lecturer_mode_not_anonymous check (created_mode <> 'lecturer' or is_anonymous = false)
 );
@@ -200,10 +210,12 @@ create table post_drafts (
   author_id uuid references profiles(id) on delete set null,
   is_anonymous boolean not null,
   guest_token uuid,
-  type text not null check (type in ('question', 'opinion')),
+  type text not null,
   content text not null,
-  created_mode text not null check (created_mode in ('lecturer', 'student')),
-  created_at timestamptz not null default now()
+  created_mode text not null,
+  created_at timestamptz not null default now(),
+  constraint post_drafts_type_valid check (type in ('question', 'opinion')),
+  constraint post_drafts_created_mode_valid check (created_mode in ('lecturer', 'student'))
 );
 
 alter table post_drafts enable row level security;
@@ -950,3 +962,4 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
   - `20260707211000_restrict_get_similarity_candidates_execute.sql` — 새 함수가 기본으로 `PUBLIC`에 EXECUTE 권한이 열려 있는 Postgres 기본 동작을 발견하고, `anon`/`authenticated`/`public`의 실행 권한을 회수하고 `service_role`에만 부여 — 클라이언트가 이 RPC를 직접 호출해 다른 사람 글 내용을 긁어가지 못하게 함(`submit-post`를 거치지 않은 직접 호출 차단)
   - `20260708130000_posts_deleted_author_placeholder.sql` — 탈퇴한 회원이 실명으로 쓴 글을 익명 처리하지 않고 "탈퇴한 계정입니다"로 표시할 수 있도록 스키마 변경. `anonymize_posts_before_profile_delete()` 트리거/함수를 삭제하고(더 이상 탈퇴 시 글을 강제로 `is_anonymous = true`로 바꾸지 않음), 이로 인해 깨지는 두 체크 제약을 손봄: `posts_check`(작성자 없으면 무조건 익명)를 `posts_guest_must_be_anonymous`(`guest_token`이 있으면, 즉 진짜 비회원 글이면 반드시 익명)로 좁히고, `posts_author_id_xor_guest_token`(정확히 하나만 값을 가짐)을 `posts_author_id_guest_token_not_both_set`(둘 다 값을 갖지는 않음, 둘 다 `null`은 허용)으로 다시 완화. 라이브 DB에서 실명 글을 쓴 회원이 탈퇴하는 시나리오를 직접 실행해 제약 위반 없이 통과하는지 검증 완료
   - `20260708140000_posts_lecturer_mode_not_anonymous.sql` — 강의자 모드로 쓴 글(`created_mode = 'lecturer'`)은 반드시 실명이어야 한다는 `posts_lecturer_mode_not_anonymous` 체크 제약 추가. 바로 위 변경으로 회원 탈퇴가 더 이상 `is_anonymous`를 건드리지 않게 되어, 이 제약이 탈퇴 여부와 무관하게 항상 성립하게 됨. 라이브 DB에서 강의자 모드 실명 답글을 쓴 계정이 탈퇴하는 시나리오까지 함께 검증 완료
+  - `20260708150000_rename_auto_generated_check_constraints.sql` — Postgres가 이름 없는 `check` 제약에 자동으로 붙이는 `<table>[_컬럼]_check[N]` 이름들을 이 프로젝트 스타일(서술적 이름)로 통일. 일부는 과거 컬럼 리네임(`node_type`→`type`, `post_type`→`type`, `last_mode`→`mode`) 이후에도 옛 컬럼명을 그대로 가진 이름이라 이번에 같이 바로잡음(`nodes_node_type_check`→`nodes_type_valid`, `posts_post_type_check`→`posts_type_valid`, `profiles_last_mode_check`→`profiles_mode_valid` 등). `rename constraint`는 이름표만 바꾸는 메타데이터 작업이라 데이터/락 영향 없음. 이 문서의 모든 테이블 SQL도 새 이름을 명시하도록 갱신
