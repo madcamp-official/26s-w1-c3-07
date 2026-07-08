@@ -102,7 +102,7 @@ export default function CourseRoomPage() {
       )}
 
       <header className="border-b border-slate-100 bg-white px-4 py-4 sm:px-6 lg:hidden">
-        <div className="mx-auto flex max-w-6xl items-center justify-between">
+        <div className="mx-auto flex max-w-[1050px] items-center justify-between">
           <BrandLogo compact to={user ? '/courses' : undefined} />
           {user ? (
             <span className="grid size-9 place-items-center rounded-full bg-violet-600 text-sm font-extrabold text-white">{user.avatarText}</span>
@@ -113,7 +113,7 @@ export default function CourseRoomPage() {
       </header>
 
       <div className={cn('px-4 pt-6 sm:px-6', user && 'lg:pl-72')}>
-        <div className="mx-auto max-w-6xl">
+        <div className="mx-auto max-w-[1050px]">
           <RoomHeader
             title={room.title}
             date={room.date}
