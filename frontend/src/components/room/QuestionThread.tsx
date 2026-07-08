@@ -60,9 +60,9 @@ export default function QuestionThread({ question, canResolve = false, highlight
     <article
       id={`post-${question.id}`}
       className={cn(
-        'scroll-mt-6 rounded-3xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-white p-5 shadow-sm transition-shadow sm:p-6',
+        'scroll-mt-6 rounded-3xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-white p-5 shadow-sm transition-all duration-700 ease-out sm:p-6',
         isOpinion ? 'border-l-blue-400' : 'border-l-violet-400',
-        question.id === highlightId && 'ring-4 ring-amber-300',
+        question.id === highlightId && 'bg-slate-50 shadow-lg shadow-slate-300/60 ring-2 ring-slate-300',
       )}
     >
       <div className="flex items-start justify-between gap-3">

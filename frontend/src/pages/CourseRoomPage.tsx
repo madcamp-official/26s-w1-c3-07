@@ -26,6 +26,7 @@ export default function CourseRoomPage() {
   const [isShareOpen, setIsShareOpen] = useState(false)
 
   const highlightId = searchParams.get('highlight')
+  const [activeHighlightId, setActiveHighlightId] = useState<string | null>(null)
   const isInstructor = user?.role === 'instructor'
 
   useEffect(() => {
@@ -39,10 +40,16 @@ export default function CourseRoomPage() {
     const owner = room.questions.find((question) => question.id === highlightId || question.replies.some((reply) => reply.id === highlightId))
     if (owner) setFilter(owner.isResolved ? 'resolved' : 'unresolved')
 
-    const timer = window.setTimeout(() => {
+    setActiveHighlightId(highlightId)
+    const scrollTimer = window.setTimeout(() => {
       document.getElementById(`post-${highlightId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }, 100)
-    return () => window.clearTimeout(timer)
+    // 강조는 도착했다는 걸 잠깐 알려주는 용도라, 계속 남아있지 않고 잠시 후 은은하게 사라짐.
+    const fadeTimer = window.setTimeout(() => setActiveHighlightId(null), 2600)
+    return () => {
+      window.clearTimeout(scrollTimer)
+      window.clearTimeout(fadeTimer)
+    }
   }, [highlightId, room])
 
   if (isLoading) {
@@ -133,7 +140,7 @@ export default function CourseRoomPage() {
                 key={question.id}
                 question={question}
                 canResolve={isInstructor}
-                highlightId={highlightId}
+                highlightId={activeHighlightId}
                 onLike={likeQuestion}
                 onResolve={resolveQuestion}
                 onReply={(questionId, label) => navigate(`/room/${courseId}/write`, { state: { target: { questionId, label } } })}

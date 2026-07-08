@@ -44,9 +44,9 @@ export default function ReplyItem({ reply, isHighlighted = false, onLike, onRepl
     <div
       id={`post-${reply.id}`}
       className={cn(
-        'scroll-mt-6 rounded-2xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-slate-50 p-4',
+        'scroll-mt-6 rounded-2xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-slate-50 p-4 transition-all duration-700 ease-out',
         isLecturer ? 'border-l-rose-400' : isOpinion ? 'border-l-blue-400' : 'border-l-violet-400',
-        isHighlighted && 'ring-4 ring-amber-300',
+        isHighlighted && 'bg-slate-100 shadow-lg shadow-slate-300/60 ring-2 ring-slate-300',
       )}
       style={reply.depth > 0 ? { marginLeft: `${Math.min(reply.depth, 6) * 1.5}rem` } : undefined}
     >
