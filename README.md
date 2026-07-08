@@ -162,7 +162,7 @@
 
 > API 주소, 요청 방식, 요청값, 응답값, 에러 상황을 정리
 
-| Method | Endpoint | 설명 | 요청 | 응답 |
+| Type | Endpoint | 설명 | 요청 | 응답 |
 |---|---|---|---|---|
 | RPC | `delete_own_account` | 회원 탈퇴 (본인 `auth.users` 행 삭제) | 파라미터 없음, 로그인 필요 | 성공 시 없음(`void`), 실패 시 에러 메시지 |
 | RPC | `get_my_favorite_subtrees` | 수강생 모드 "내 강의"에서 즐겨찾기한 노드들의 서브트리를 한 번에 조회 | 파라미터 없음, 로그인 필요 | 즐겨찾기 루트별 서브트리 행 목록(`anchor_node_id`로 그룹핑) |
