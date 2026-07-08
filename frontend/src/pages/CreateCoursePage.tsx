@@ -58,7 +58,8 @@ export default function CreateCoursePage() {
   }, [isEditMode, courseId, isLoading, folders, courses])
 
   const flatFolders = flattenFolders(folders.filter((folder) => folder.ownership === 'owned'))
-  const isValid = Boolean(title.trim() && date && startTime && endTime)
+  const hasTimeOrderError = Boolean(startTime && endTime && endTime <= startTime)
+  const isValid = Boolean(title.trim() && date && startTime && endTime) && !hasTimeOrderError
 
   const handleSubmit = async () => {
     if (!isValid) return
@@ -176,6 +177,7 @@ export default function CreateCoursePage() {
                 </div>
               </div>
             </div>
+            {hasTimeOrderError && <p className="mt-2 text-sm font-medium text-rose-500">종료 시각은 시작 시각보다 늦어야 합니다.</p>}
           </div>
 
           <div className="py-6">
