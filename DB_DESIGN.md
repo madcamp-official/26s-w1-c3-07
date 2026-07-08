@@ -772,7 +772,7 @@ RLS는 "누가 행에 접근 가능한가"만 결정할 뿐, "어떤 테이블/�
 
 강의자는 자기 강의(`lectures.id` 소유)에 속한 게시글이면 남의 글이라도 상태 전환(미해결↔해결) 및 삭제(부적절한 글 제거)가 가능합니다. Postgres는 같은 명령어에 정책이 여러 개면 OR로 합쳐지므로, 이 정책은 `posts_update_own`/`posts_delete_own`과 나란히 적용됩니다.
 
-AI 적절성 검사(GPT-4o-mini + 전용 프롬프트, `moderate-prompt.ts`)/유사 질문 탐지(GPT-4o-mini + `get_similarity_candidates()` RPC, 아래 [RPC 함수](#rpc-함수) 참고)를 포함한 글 제출 흐름은 `submit-post` Edge Function(`service_role`, RLS 우회)으로 구현·배포 완료(정확한 요청/응답 계약은 [SUPABASE_GUIDE.md 10번](./SUPABASE_GUIDE.md#10-글-작성제출-ai-correct-submit-post-edge-function), 실제 구현 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고). **다만 클라이언트가 이 검사를 우회해 `posts`에 직접 쓰지 못하게 막는 부분(아래 `posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 두 INSERT 정책 삭제 + `anon`/`authenticated`의 `posts` INSERT 권한 자체 회수)은 아직 적용 전** — 지금은 프론트가 `submit-post`를 쓰도록 유도하는 단계이고, 이 두 정책이 그대로 살아있어 클라이언트가 직접 insert도 여전히 가능합니다.
+AI 적절성 검사(GPT-4o-mini + 전용 프롬프트, `moderation-prompt.ts`)/유사 질문 탐지(GPT-4o-mini + `get_similarity_candidates()` RPC, 아래 [RPC 함수](#rpc-함수) 참고)를 포함한 글 제출 흐름은 `submit-post` Edge Function(`service_role`, RLS 우회)으로 구현·배포 완료(정확한 요청/응답 계약은 [SUPABASE_GUIDE.md 10번](./SUPABASE_GUIDE.md#10-글-작성제출-ai-correct-submit-post-edge-function), 실제 구현 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고). **다만 클라이언트가 이 검사를 우회해 `posts`에 직접 쓰지 못하게 막는 부분(아래 `posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 두 INSERT 정책 삭제 + `anon`/`authenticated`의 `posts` INSERT 권한 자체 회수)은 아직 적용 전** — 지금은 프론트가 `submit-post`를 쓰도록 유도하는 단계이고, 이 두 정책이 그대로 살아있어 클라이언트가 직접 insert도 여전히 가능합니다.
 
 ```sql
 revoke select on posts from anon, authenticated;
@@ -866,7 +866,7 @@ create policy "post_likes_delete_own" on post_likes for delete
 AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함수/트리거)가 아니라 별도 서버 로직이 필요한 부분은 Supabase Edge Function(Deno 런타임)으로 구현되어 있습니다. `service_role` 키를 써서 RLS를 우회하고 `posts`/`post_drafts`에 직접 접근합니다.
 
 - `ai-correct` — 글 초안을 AI로 다듬어 제안만 함(적절성/유사도 검사 없음, 저장도 안 함)
-- `submit-post` — 실제 글 제출 담당: 적절성 검사(GPT-4o-mini + 전용 프롬프트, `moderate-prompt.ts` — 욕설/인신공격/혐오/성희롱/위협/스팸은 차단, 수업 불만·비판은 통과. OpenAI Moderation API는 특정 대상을 향하지 않는 일반 욕설·비속어를 잘 못 잡아서 chat completion 기반 커스텀 판별로 전환함) → (질문 타입이면) 유사 질문 탐지(위 [`get_similarity_candidates()`](#get_similarity_candidates) RPC 활용) → 저장. 유사 질문 발견 시 [`post_drafts`](#post_drafts)에 스테이징해두고, 같은 함수를 `draft_id`로 재호출하면 강행 제출됨
+- `submit-post` — 실제 글 제출 담당: 적절성 검사(GPT-4o-mini + 전용 프롬프트, `moderation-prompt.ts` — 욕설/인신공격/혐오/성희롱/위협/스팸은 차단, 수업 불만·비판은 통과. OpenAI Moderation API는 특정 대상을 향하지 않는 일반 욕설·비속어를 잘 못 잡아서 chat completion 기반 커스텀 판별로 전환함) → (질문 타입이면) 유사 질문 탐지(위 [`get_similarity_candidates()`](#get_similarity_candidates) RPC 활용) → 저장. 유사 질문 발견 시 [`post_drafts`](#post_drafts)에 스테이징해두고, 같은 함수를 `draft_id`로 재호출하면 강행 제출됨
 
 요청/응답 계약, 호출 코드 예시는 [SUPABASE_GUIDE.md 10번](./SUPABASE_GUIDE.md#10-글-작성제출-ai-correct-submit-post-edge-function) 참고.
 
