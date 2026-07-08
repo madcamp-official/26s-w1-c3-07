@@ -126,16 +126,30 @@ Deno.serve(async (req) => {
       return jsonResponse({ result: "rejected", reason: moderation.reason }, 422);
     }
 
+    let similarityChecked: boolean | null = null;
     if (fields.type === "question") {
-      const similarId = await findMostSimilarPostId(admin, fields.lecture_id, fields.content);
-      if (similarId) {
+      const similarity = await findMostSimilarPostId(admin, fields.lecture_id, fields.content);
+      similarityChecked = similarity.checked;
+      if (similarity.similarId) {
         const draftId = await createDraft(admin, fields, authorId, guestToken);
-        return jsonResponse({ result: "similar_found", draft_id: draftId, similar_id: similarId }, 409);
+        return jsonResponse(
+          {
+            result: "similar_found",
+            draft_id: draftId,
+            similar_id: similarity.similarId,
+            moderation_checked: moderation.checked,
+            similarity_checked: similarityChecked,
+          },
+          409,
+        );
       }
     }
 
     const post = await insertPost(admin, fields, authorId, guestToken);
-    return jsonResponse({ result: "created", post }, 201);
+    return jsonResponse(
+      { result: "created", post, moderation_checked: moderation.checked, similarity_checked: similarityChecked },
+      201,
+    );
   } catch (e) {
     if (e instanceof HttpError) {
       return jsonResponse({ result: "invalid", reason: e.message }, e.status);
