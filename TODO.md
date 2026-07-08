@@ -4,7 +4,7 @@
 
 - [Realtime 관련](#realtime-관련)
   - [5. "내 강의" 목록에서 강의별 접속자 수(`participantCount`) 표시](#5-내-강의-목록에서-강의별-접속자-수participantcount-표시)
-  - [6. 강의실 게시글(질문/답글)이 실시간으로 갱신되지 않음](#6-강의실-게시글질문답글이-실시간으로-갱신되지-않음)
+  - [6. 강의실 게시글/좋아요/피드백 실시간 갱신 — DB 쪽은 완료, 프론트 구독만 남음](#6-강의실-게시글좋아요피드백-실시간-갱신--db-쪽은-완료-프론트-구독만-남음)
 - [join_code 관련](#join_code-관련)
   - [7. `lecture_join_codes` 파기 시점/주체 결정](#7-lecture_join_codes-파기delete-시점주체-결정)
 - [nodes 관련](#nodes-관련)
@@ -17,16 +17,9 @@
 
 `Course.participantCount`는 정적으로 저장된 값이 아니라 Realtime **Presence**로 그때그때 세는 값이라(`DB_DESIGN.md`의 "실시간 접속자 수" 섹션 참고), "내 강의" 목록 화면(트리 조회 시점)에는 애초에 채워지지 않고 강의실 페이지에 들어가야만 알 수 있음. 목록 화면에서 강의별 접속자 수를 보여주려면 별도 설계가 필요 — 예를 들어 목록에 있는 강의 수만큼 채널을 동시에 구독해야 하는지(비용/성능), 아니면 서버 쪽에서 주기적으로 집계해 뷰/테이블로 내려주는 방식으로 갈지 결정 안 됨. 아직 미해결(자세한 내용은 [SUPABASE_GUIDE.md 6번의 "남은 간극"](./SUPABASE_GUIDE.md#6-트리-구조-데이터-조회-내-강의-페이지--강의-페이지) 참고).
 
-### 6. 강의실 게시글(질문/답글)이 실시간으로 갱신되지 않음
+### 6. 강의실 게시글/좋아요/피드백 실시간 갱신 — DB 쪽은 완료, 프론트 구독만 남음
 
-"다른 수강생이 쓴 글이 실시간으로 뜨나?"는 질문으로 확인된 미구현 기능. 현재 `frontend`의 `useCourseRoom.ts`는 낙관적 업데이트만 하고 있음 — 내가 직접 쓴 질문/답글은 `submit-post` 응답을 받은 즉시 로컬 state에 바로 얹지만, 다른 사람이 쓴 글은 페이지를 새로고침해야만 보임. `posts`에 대한 Supabase Realtime(`postgres_changes`) 구독이 전혀 없는 상태.
-
-이걸 실제로 구현하려면 DB 쪽 선행 작업이 필요함:
-- ✅ **완료**: `posts` 테이블을 `supabase_realtime` publication에 추가(`ALTER PUBLICATION supabase_realtime ADD TABLE posts;`) — `postgres_changes` 이벤트 자체가 발생하려면 필요한 설정인데 지금까지 어떤 마이그레이션에도 없었음 → `backend/supabase/migrations/20260708190000_posts_realtime_publication.sql`.
-- ⚠️ **확인됨 — RLS/인가 방식이 실제로 문제였음**: `posts`는 SELECT가 "본인 글 또는 자기 강의의 글"로 좁게 걸려 있고(`posts_select_own`/`posts_select_lecturer`, `DB_DESIGN.md`의 `posts` RLS 섹션 참고), Supabase Realtime의 `postgres_changes`는 RLS를 존중함. 라이브로 직접 검증: `guest_token`으로 작성된 글을 하나 insert하고, 매칭되는 identity 없이(익명 anon 연결) 구독 중이던 리스너가 그 INSERT 이벤트를 받는지 확인 → **못 받음**. `posts_select_own`이 `guest_token` 헤더 값과의 비교를 요구하는데, WebSocket 연결은 REST 요청과 달리 `x-guest-token` 같은 커스텀 헤더를 실을 방법이 없어서 예상대로 막힘. 즉 비회원은 이 방식으로는 애초에 실시간 갱신을 받을 수 없고, 다른 인가 방식(예: 뷰 기반 broadcast, Realtime Authorization 별도 설정)이 필요함. 회원(강의자/수강생)이 `posts_select_lecturer` 등으로 커버되는 경우까지는 아직 검증 안 함.
-- 대안으로, `posts` 원본 대신 `posts_public` 뷰를 Realtime으로 구독하는 것은 불가능함(Realtime은 물리 테이블의 WAL만 봄, 뷰는 구독 대상이 될 수 없음). 뷰가 감추는 `guest_token`/`author_id` 없이 안전하게 브로드캐스트하려면 별도 설계가 필요.
-
-결론적으로 publication 추가는 끝났지만, 비회원까지 포함해 안전하게 구독하려면 여전히 RLS/인가 방식 설계가 남아있음(회원 전용으로 우선 범위를 좁히거나, broadcast 기반으로 재설계하거나). 우선순위 낮으면 폴링(예: 5~10초 간격 재조회)으로 프론트만으로 우회하는 것도 가능.
+DB 트리거로 브로드캐스트하는 것까지는 끝남(아래 "해결된 것" 참고). 남은 건 `frontend`에서 `lecture:<lectureId>` 채널에 `post_change`/`like_change`/`feedback_change`/`lecture_updated`/`lecture_details_updated` 이벤트 리스너를 붙이고, 받은 페이로드로 `useCourseRoom.ts`의 로컬 state를 갱신하는 작업뿐(호출 방법·페이로드 모양은 [SUPABASE_GUIDE.md 12번](./SUPABASE_GUIDE.md#12-강의-페이지-실시간-갱신-broadcast) 참고). `useRoomPresence`가 이미 같은 채널을 열어두니 그 채널을 재사용하면 됨.
 
 ## join_code 관련
 
@@ -86,3 +79,6 @@
 - **`max_participants`(최다 참여 인원) 강제 여부 결정 → "입장 자체는 강제 안 함"으로 결론** — 처음엔 DB/서버 차원에서 정원을 넘는 입장을 막는 걸 검토했으나, Presence는 웹소켓 채널 상태일 뿐이라 "채널에 등록 안 하고 페이지 정보만 요청하는" 접근을 막을 방법이 없고(막을 필요도 없다고 판단) 애초에 입장 자체를 강제하는 게 의미가 없다는 결론에 도달함. 대신 `max_participants`를 "실시간 집계(Presence track)에 반영되는 인원의 최대치"로 재정의 — 채널 구독 시점 인원이 이미 정원이면 그 사람은 `track()`하지 않고 관전만 하고(페이지 이용 자체는 완전히 정상 동작, "N명 참여 중" 카운트에만 안 잡힘), 화면에 표시되는 참여자 수가 항상 정원을 넘지 않도록 함. `frontend`에서 새로 딴 `frontend-realtime-presence` 브랜치에 `hooks/useRoomPresence.ts`로 구현(아직 `frontend`에 병합 전). 실제 dev 서버에서 정상 카운트 표시와, 정원 1명 + 시뮬레이션 참가자로 정원 초과 상황(카운트는 안 늘어나지만 페이지 접속/이용은 그대로 되는 것)까지 라이브로 검증 완료. `DB_DESIGN.md`의 "실시간 접속자 수" 섹션과 `SUPABASE_GUIDE.md` 11번에 반영.
 - **비회원이 `ai-correct`/`submit-post`를 호출하면 항상 실패하던 버그 발견·수정** — 비회원으로 강의실에서 글을 쓰면 AI 기능이 안 되는 것 같다는 제보로 실제 프리뷰 브라우저에서 재현. `_shared/cors.ts`의 `Access-Control-Allow-Headers`에 `x-guest-token`이 빠져 있어서, 비회원이 이 헤더를 실어 보내면 브라우저가 preflight 단계에서 실제 요청 자체를 차단하고 있었음(서버 로그엔 안 남고 브라우저에서만 조용히 `Failed to fetch`) — 로그인한 회원은 `x-guest-token`을 안 보내니까 이 버그를 안 만났던 것. 허용 헤더 목록에 `x-guest-token` 추가해 해결(`backend/supabase/functions/_shared/cors.ts`).
   - 겸사겸사 "AI 연결이 실패해서 검사/교정을 건너뛴 것"과 "AI가 정상적으로 판단했는데 결과가 원문과 같거나 문제없다고 나온 것"을 프론트가 구분할 수 있는 플래그 추가. `ai-correct`는 `{ corrected, used_ai }`(`used_ai: false`면 `corrected`는 AI가 다듬은 게 아니라 원문 그대로), `submit-post`는 `created`/`similar_found` 응답에 `moderation_checked`/`similarity_checked`(`similarity_checked`는 `opinion`/답글처럼 대상이 아니면 `null`) 추가. 강행 제출(`{draft_id}`) 응답에는 재검사를 안 하므로 이 필드들이 없음. 실제 호출로 정상/opinion/question 세 케이스 모두 확인. `SUPABASE_GUIDE.md` 10번에 사용법 반영.
+- **강의 페이지 실시간 갱신(질문/답글, 좋아요, 실시간 피드백, 강의 제목/일정) — Broadcast from Database로 구현** — 처음엔 `posts`를 `supabase_realtime` publication에 추가해 `postgres_changes`로 구독하는 방식을 시도(`backend/supabase/migrations/20260708190000_posts_realtime_publication.sql`). 하지만 라이브 검증 결과 `postgres_changes`는 원본 테이블의 RLS를 그대로 타는데, `posts_select_own` 등은 `x-guest-token` 헤더 비교가 필요하고 WebSocket 연결은 커스텀 헤더를 못 실어서 비회원이 이벤트를 아예 못 받는다는 게 확인됨(guest_token으로 쓴 글을 insert하고 매칭 identity 없는 익명 연결이 그 INSERT 이벤트를 못 받는 것으로 재현).
+  - 그래서 `postgres_changes` 대신 **Broadcast from Database**(`realtime.send()` — 내부적으로 `realtime.messages` 테이블에 INSERT할 뿐이라 원본 테이블 RLS와 무관)로 전환. `posts`/`post_likes`/`lecture_feedback_votes`/`nodes`(강의 제목)/`lectures`(일정/장소/정원) 다섯 테이블에 `SECURITY DEFINER` 트리거를 달아 변경이 생기면 [Presence](#5-내-강의-목록에서-강의별-접속자-수participantcount-표시)와 같은 `lecture:<lecture_id>` 채널로 브로드캐스트 → `backend/supabase/migrations/20260708200000_broadcast_triggers_for_realtime_updates.sql`. `posts` 브로드캐스트는 `posts_public` 뷰를 재사용해 `guest_token`/`author_id` 노출 없이 안전한 필드만 실어 보냄. 계정 이름(`profiles.name`)은 한 사람이 여러 강의를 소유할 수 있어 채널 하나로 안 끝나는 부채살 구조라 이번 범위에서 제외하기로 결정.
+  - 라이브 리스너로 다섯 이벤트(`post_change`/`like_change`/`feedback_change`/`lecture_updated`/`lecture_details_updated`) 전부 실제 발신·수신 확인 완료(테스트 데이터는 전부 원복). `DB_DESIGN.md`의 "트리거 함수" 섹션과 배포 현황, `SUPABASE_GUIDE.md` 12번에 설계·구독 방법 반영. **프론트 구독 코드는 아직 없음** — 아래 열린 항목 #6 참고.
