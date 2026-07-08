@@ -64,11 +64,11 @@
 | `posts` | 게시글 + 답글 통합 트리, 질문/의견 타입, 미해결/해결, 비회원 인증(`guest_token`) |
 | `post_drafts` | `submit-post`(service_role) 전용 스크래치 테이블. 유사 질문 발견 시 최종 제출본을 임시 저장해뒀다가 강행 제출 시 `posts`로 옮김 — `anon`/`authenticated`는 GRANT/RLS 둘 다 없어서 접근 불가 |
 | `post_likes` | 게시글/답글 좋아요 |
+| `lectures_public` (뷰) | `lectures`+`nodes`+`profiles`를 조인해 강의 제목/일시/장소와 강의자 이름(`lecturer_name`)을 한 번에 보여주는 공개 조회용 뷰. `profiles`가 본인만 SELECT 가능해서 막혀 있던 강의자 이름을 이 뷰로 우회 노출 |
+| `lecture_feedback_votes_counts` (뷰) | `lecture_feedback_votes`에서 `voter_key` 없이 강의·피드백 유형별 좋아요/싫어요 개수만 집계한 공개 조회용 뷰 |
 | `posts_public` (뷰) | `posts`에서 `guest_token`/`author_id`를 뺀 공개 조회용 뷰(비익명 글만 작성자 이름 노출). 프론트는 `posts` 대신 이 뷰를 조회 |
 | `posts_counts` (뷰) | `posts`를 `lecture_id`별로 `count(*)`한 게시글 개수 집계 뷰. `posts_public`처럼 숨길 값이 있어서가 아니라, 여러 강의의 개수를 한 번의 요청으로 가져오기 위한 효율성 목적 |
 | `post_likes_counts` (뷰) | `post_likes`에서 `voter_key` 없이 게시글별 좋아요 개수만 집계한 공개 조회용 뷰 |
-| `lecture_feedback_votes_counts` (뷰) | `lecture_feedback_votes`에서 `voter_key` 없이 강의·피드백 유형별 좋아요/싫어요 개수만 집계한 공개 조회용 뷰 |
-| `lectures_public` (뷰) | `lectures`+`nodes`+`profiles`를 조인해 강의 제목/일시/장소와 강의자 이름(`lecturer_name`)을 한 번에 보여주는 공개 조회용 뷰. `profiles`가 본인만 SELECT 가능해서 막혀 있던 강의자 이름을 이 뷰로 우회 노출 |
 
 ## SQL
 

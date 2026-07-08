@@ -143,7 +143,7 @@
 
 > 필요한 테이블, 주요 필드, 데이터 타입, 테이블 간 관계를 정리
 
-| 테이블/뷰 | 대응하는 기능 |
+| 테이블 | 대응하는 기능 |
 |---|---|
 | `profiles` | 회원(Google OAuth) 부가정보 |
 | `nodes` | 강의 폴더 + 강의 통합 트리 |
@@ -153,10 +153,6 @@
 | `lecture_feedback_votes` | 실시간 피드백(추워요/더워요/소리 작아요/잘 안 보여요) 좋아요/싫어요 |
 | `posts` | 게시글 + 답글 통합 트리, 질문/의견 타입, 미해결/해결, 비회원 인증(`guest_token`) |
 | `post_likes` | 게시글/답글 좋아요 |
-| `posts_public` (뷰) | `posts`에서 `guest_token`/`author_id`를 뺀 공개 조회용 뷰(비익명 글만 작성자 이름 노출). 프론트는 `posts` 대신 이 뷰를 조회 |
-| `posts_counts` (뷰) | `posts`를 `lecture_id`별로 `count(*)`한 게시글 개수 집계 뷰. 보안 목적이 아니라, 여러 강의의 개수를 한 번의 요청으로 가져오기 위한 효율성 목적 |
-| `post_likes_counts` (뷰) | `post_likes`에서 `voter_key` 없이 게시글별 좋아요 개수만 집계한 공개 조회용 뷰 |
-| `lecture_feedback_votes_counts` (뷰) | `lecture_feedback_votes`에서 `voter_key` 없이 강의·피드백 유형별 좋아요/싫어요 개수만 집계한 공개 조회용 뷰 |
 
 전체 SQL, 접근 제어(RLS 정책·테이블 권한), 트리거, 테이블 관계 상세 설명은 [`DB_DESIGN.md`](./DB_DESIGN.md) 참고.
 
