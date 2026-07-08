@@ -795,7 +795,7 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
       isLoggedIn,
     ),
     supabase.from('post_likes_counts').select('post_id, like_count'),
-    supabase.from('post_likes').select('post_id').eq('voter_key', voterKey),
+    withGuestHeader(supabase.from('post_likes').select('post_id').eq('voter_key', voterKey), isLoggedIn),
   ])
 
   if (postsError) throw postsError
@@ -857,11 +857,16 @@ const FEEDBACK_LABELS: Record<FeedbackKey, string> = { cold: '추워요', hot: '
 const FEEDBACK_KEYS: FeedbackKey[] = ['cold', 'hot', 'quiet', 'unclear']
 
 async function getFeedbackOptionsFromDb(lectureId: string): Promise<FeedbackOption[]> {
+  const { data: sessionData } = await supabase.auth.getSession()
+  const isLoggedIn = Boolean(sessionData.session?.user.id)
   const voterKey = await getCurrentVoterKey()
 
   const [{ data: counts, error: countsError }, { data: myVotes, error: myVotesError }] = await Promise.all([
     supabase.from('lecture_feedback_votes_counts').select('feedback_type, like_count, dislike_count').eq('lecture_id', lectureId),
-    supabase.from('lecture_feedback_votes').select('feedback_type, value').eq('lecture_id', lectureId).eq('voter_key', voterKey),
+    withGuestHeader(
+      supabase.from('lecture_feedback_votes').select('feedback_type, value').eq('lecture_id', lectureId).eq('voter_key', voterKey),
+      isLoggedIn,
+    ),
   ])
 
   if (countsError) throw countsError
