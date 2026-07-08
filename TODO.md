@@ -22,11 +22,11 @@
 "다른 수강생이 쓴 글이 실시간으로 뜨나?"는 질문으로 확인된 미구현 기능. 현재 `frontend`의 `useCourseRoom.ts`는 낙관적 업데이트만 하고 있음 — 내가 직접 쓴 질문/답글은 `submit-post` 응답을 받은 즉시 로컬 state에 바로 얹지만, 다른 사람이 쓴 글은 페이지를 새로고침해야만 보임. `posts`에 대한 Supabase Realtime(`postgres_changes`) 구독이 전혀 없는 상태.
 
 이걸 실제로 구현하려면 DB 쪽 선행 작업이 필요함:
-- `posts` 테이블을 `supabase_realtime` publication에 추가해야 `postgres_changes` 이벤트 자체가 발생함(`ALTER PUBLICATION supabase_realtime ADD TABLE posts;`). 지금은 어떤 마이그레이션에도 이 설정이 없어서, 프론트에서 채널을 구독해도 이벤트가 전혀 오지 않음.
-- `posts`는 SELECT가 "본인 글 또는 자기 강의의 글"로 좁게 걸려 있고(`posts_select_own`/`posts_select_lecturer`, `DB_DESIGN.md`의 `posts` RLS 섹션 참고), 이 프로젝트는 `FORCE ROW LEVEL SECURITY`를 어떤 테이블에도 걸지 않음. Supabase Realtime의 `postgres_changes`는 RLS를 존중하지만, 이 프로젝트처럼 좁고 복합적인 정책 조건(회원/비회원 분기, `guest_token` 헤더 비교 등)이 Realtime 인가 컨텍스트(WebSocket 연결의 JWT)에서도 동일하게 평가되는지 실제로 검증이 필요함 — 특히 비회원(`guest_token`)의 경우 Realtime 연결에 `x-guest-token` 같은 커스텀 헤더를 실을 수 없어서, 아예 다른 인가 방식(예: 뷰 기반 broadcast, 혹은 Realtime Authorization 별도 설정)이 필요할 수도 있음.
+- ✅ **완료**: `posts` 테이블을 `supabase_realtime` publication에 추가(`ALTER PUBLICATION supabase_realtime ADD TABLE posts;`) — `postgres_changes` 이벤트 자체가 발생하려면 필요한 설정인데 지금까지 어떤 마이그레이션에도 없었음 → `backend/supabase/migrations/20260708190000_posts_realtime_publication.sql`.
+- ⚠️ **확인됨 — RLS/인가 방식이 실제로 문제였음**: `posts`는 SELECT가 "본인 글 또는 자기 강의의 글"로 좁게 걸려 있고(`posts_select_own`/`posts_select_lecturer`, `DB_DESIGN.md`의 `posts` RLS 섹션 참고), Supabase Realtime의 `postgres_changes`는 RLS를 존중함. 라이브로 직접 검증: `guest_token`으로 작성된 글을 하나 insert하고, 매칭되는 identity 없이(익명 anon 연결) 구독 중이던 리스너가 그 INSERT 이벤트를 받는지 확인 → **못 받음**. `posts_select_own`이 `guest_token` 헤더 값과의 비교를 요구하는데, WebSocket 연결은 REST 요청과 달리 `x-guest-token` 같은 커스텀 헤더를 실을 방법이 없어서 예상대로 막힘. 즉 비회원은 이 방식으로는 애초에 실시간 갱신을 받을 수 없고, 다른 인가 방식(예: 뷰 기반 broadcast, Realtime Authorization 별도 설정)이 필요함. 회원(강의자/수강생)이 `posts_select_lecturer` 등으로 커버되는 경우까지는 아직 검증 안 함.
 - 대안으로, `posts` 원본 대신 `posts_public` 뷰를 Realtime으로 구독하는 것은 불가능함(Realtime은 물리 테이블의 WAL만 봄, 뷰는 구독 대상이 될 수 없음). 뷰가 감추는 `guest_token`/`author_id` 없이 안전하게 브로드캐스트하려면 별도 설계가 필요.
 
-결론적으로 "publication 추가 + RLS/인가 방식 검증" 두 가지가 선행돼야 프론트에서 실시간 게시글 구독을 붙일 수 있음. 우선순위 낮으면 폴링(예: 5~10초 간격 재조회)으로 프론트만으로 우회하는 것도 가능.
+결론적으로 publication 추가는 끝났지만, 비회원까지 포함해 안전하게 구독하려면 여전히 RLS/인가 방식 설계가 남아있음(회원 전용으로 우선 범위를 좁히거나, broadcast 기반으로 재설계하거나). 우선순위 낮으면 폴링(예: 5~10초 간격 재조회)으로 프론트만으로 우회하는 것도 가능.
 
 ## join_code 관련
 
