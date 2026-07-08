@@ -160,11 +160,11 @@ export async function getCurrentUser(): Promise<User | null> {
   return loadUserFromSession(authUser)
 }
 
-/** Google OAuth 로그인을 시작합니다. 리다이렉트 후 돌아오면 세션이 생깁니다. */
+/** Google OAuth 로그인을 시작합니다. 로그인을 호출한 페이지로 그대로 돌아옵니다. */
 export async function signInWithGoogle(): Promise<void> {
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
-    options: { redirectTo: window.location.origin },
+    options: { redirectTo: window.location.href },
   })
   if (error) throw error
 }
