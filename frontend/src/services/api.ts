@@ -961,6 +961,13 @@ interface RoomBroadcastHandlers {
   onLectureUpdated: (payload: LectureUpdatedPayload) => void
   onLectureDetailsUpdated: (payload: LectureDetailsUpdatedPayload) => void
   onParticipantCount: (count: number) => void
+  /**
+   * 이 채널 구독 시점에 정원이 이미 다 찼는지(=track() 여부) 딱 한 번 알려줍니다.
+   * 이후 인원 변동으로 count가 capacity에 도달/초과해도 다시 호출되지 않습니다 -
+   * "입장 가능 여부"는 입장 시점에만 판단하고, 이미 들어와 있는 사람을 나중에
+   * 강제로 내쫓지는 않기 위함입니다.
+   */
+  onAdmissionDecided: (admitted: boolean) => void
 }
 
 /**
@@ -1009,6 +1016,7 @@ export function subscribeToRoomChannel(lectureId: string, capacity: number | nul
           hasDecided = true
           const isFull = capacity != null && count >= capacity
           if (!isFull) void channel.track({ joined_at: new Date().toISOString() })
+          handlers.onAdmissionDecided(!isFull)
         }
       })
       .subscribe()

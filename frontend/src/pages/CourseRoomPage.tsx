@@ -18,7 +18,7 @@ export default function CourseRoomPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { room, isLoading, error, actionError, participantCount, reload, likeQuestion, voteFeedback, resetFeedback, resolveQuestion, editQuestion, editReply, deletePost } = useCourseRoom(courseId)
+  const { room, isLoading, error, actionError, participantCount, admissionStatus, reload, likeQuestion, voteFeedback, resetFeedback, resolveQuestion, editQuestion, editReply, deletePost } = useCourseRoom(courseId)
   const [user, setUser] = useState<User | null>(null)
   const [filter, setFilter] = useState<QuestionFilter>('unresolved')
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
@@ -63,6 +63,24 @@ export default function CourseRoomPage() {
           <p className="font-bold text-slate-700">{error ?? '강의실을 찾을 수 없습니다.'}</p>
           <div className="mt-4 flex justify-center gap-2">
             <Button onClick={() => void reload()}><RotateCcw className="size-4" />다시 시도</Button>
+            <Button variant="secondary" onClick={() => navigate(user ? '/courses' : '/')}>홈으로</Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (admissionStatus === 'pending') {
+    return <div className="grid min-h-screen place-items-center"><div className="size-10 animate-spin rounded-full border-4 border-violet-100 border-t-violet-600" aria-label="입장 가능 여부 확인 중" /></div>
+  }
+
+  if (admissionStatus === 'full') {
+    return (
+      <div className="grid min-h-screen place-items-center px-4 text-center">
+        <div>
+          <p className="font-bold text-slate-700">정원이 다 찼습니다.</p>
+          <p className="mt-1 text-sm text-slate-400">최대 참여 인원을 초과해 입장할 수 없습니다.</p>
+          <div className="mt-4 flex justify-center">
             <Button variant="secondary" onClick={() => navigate(user ? '/courses' : '/')}>홈으로</Button>
           </div>
         </div>

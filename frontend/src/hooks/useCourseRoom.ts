@@ -39,11 +39,13 @@ function findOwnerQuestion(questions: Question[], postId: string): Question | un
  * (좋아요를 눌렀다 취소했을 때도 항상 원래 제출 시각 순서로 정확히 복귀).
  * 해결된 게시글은 좋아요와 무관한 기준(해결 시각)으로 정렬되므로 순서를 건드리지 않음.
  */
-function reorderByLikeCount(questions: Question[]): Question[] {
+function reorderQuestions(questions: Question[]): Question[] {
   const unresolved = questions
     .filter((question) => !question.isResolved)
     .sort((a, b) => b.likeCount - a.likeCount || b.createdAtRaw.localeCompare(a.createdAtRaw))
-  const resolved = questions.filter((question) => question.isResolved)
+  const resolved = questions
+    .filter((question) => question.isResolved)
+    .sort((a, b) => (b.resolvedAtRaw ?? '').localeCompare(a.resolvedAtRaw ?? ''))
   return [...unresolved, ...resolved]
 }
 
@@ -70,9 +72,11 @@ function mergePostChange(setState: Dispatch<SetStateAction<CourseRoomState>>, pa
 
     const existingQuestion = questions.find((question) => question.id === payload.id)
     if (existingQuestion) {
-      const nextQuestions = questions.map((question) =>
-        question.id === payload.id ? { ...question, content: payload.content ?? question.content, isResolved } : question,
-      )
+      const nextQuestions = reorderQuestions(questions.map((question) =>
+        question.id === payload.id
+          ? { ...question, content: payload.content ?? question.content, isResolved, resolvedAtRaw: payload.resolved_at ?? null }
+          : question,
+      ))
       return { ...current, room: { ...current.room, questions: nextQuestions } }
     }
 
@@ -103,13 +107,14 @@ function mergePostChange(setState: Dispatch<SetStateAction<CourseRoomState>>, pa
         canDelete,
         createdAt,
         createdAtRaw,
+        resolvedAtRaw: payload.resolved_at ?? null,
         content: payload.content ?? '',
         likeCount: 0,
         isLikedByMe: false,
         isResolved,
         replies: [],
       }
-      return { ...current, room: { ...current.room, questions: reorderByLikeCount([question, ...questions]) } }
+      return { ...current, room: { ...current.room, questions: reorderQuestions([question, ...questions]) } }
     }
 
     const ownerQuestion = findOwnerQuestion(questions, payload.parent_id)
@@ -139,9 +144,12 @@ function mergePostChange(setState: Dispatch<SetStateAction<CourseRoomState>>, pa
   })
 }
 
+export type AdmissionStatus = 'pending' | 'admitted' | 'full'
+
 export function useCourseRoom(courseId: string | undefined) {
   const [state, setState] = useState<CourseRoomState>({ room: null, isLoading: true, error: null, actionError: null })
   const [participantCount, setParticipantCount] = useState(0)
+  const [admissionStatus, setAdmissionStatus] = useState<AdmissionStatus>('pending')
 
   const load = useCallback(async () => {
     if (!courseId) return
@@ -175,13 +183,24 @@ export function useCourseRoom(courseId: string | undefined) {
   useEffect(() => {
     if (!courseId || !roomLoaded) return
 
+    setAdmissionStatus('pending')
+    // Presence 동기화가 안 와서 입장 가능 여부가 영영 안 정해지는 경우(네트워크 문제 등)를
+    // 대비해, 일정 시간 안에 결정 안 나면 안전하게 입장 허용 쪽으로 열어둠(fail-open).
+    const admissionFallbackTimer = window.setTimeout(() => {
+      setAdmissionStatus((current) => (current === 'pending' ? 'admitted' : current))
+    }, 5000)
+
     const unsubscribe = subscribeToRoomChannel(courseId, capacity, {
       onParticipantCount: setParticipantCount,
+      onAdmissionDecided: (admitted) => {
+        window.clearTimeout(admissionFallbackTimer)
+        setAdmissionStatus(admitted ? 'admitted' : 'full')
+      },
       onPostChange: (payload) => mergePostChange(setState, payload),
       onLikeChange: (payload) => {
         setState((current) => {
           if (!current.room) return current
-          const questions = reorderByLikeCount(current.room.questions.map((question) => ({
+          const questions = reorderQuestions(current.room.questions.map((question) => ({
             ...question,
             likeCount: question.id === payload.post_id ? payload.like_count : question.likeCount,
             replies: question.replies.map((reply) =>
@@ -212,7 +231,10 @@ export function useCourseRoom(courseId: string | undefined) {
       },
     })
 
-    return unsubscribe
+    return () => {
+      window.clearTimeout(admissionFallbackTimer)
+      unsubscribe()
+    }
   }, [courseId, load, roomLoaded, capacity])
 
   const addQuestionToState = (question: Question) => {
@@ -292,7 +314,7 @@ export function useCourseRoom(courseId: string | undefined) {
     const { likeCount, isLikedByMe } = await toggleQuestionLike(courseId, postId)
     setState((current) => {
       if (!current.room) return current
-      const questions = reorderByLikeCount(current.room.questions.map((question) => {
+      const questions = reorderQuestions(current.room.questions.map((question) => {
         if (question.id === postId) return { ...question, likeCount, isLikedByMe }
         if (!question.replies.some((reply) => reply.id === postId)) return question
         return {
@@ -322,10 +344,10 @@ export function useCourseRoom(courseId: string | undefined) {
 
   const resolveQuestionById = async (questionId: string): Promise<void> => {
     if (!courseId) return
-    const { isResolved } = await resolveQuestion(courseId, questionId)
+    const { isResolved, resolvedAtRaw } = await resolveQuestion(courseId, questionId)
     setState((current) => {
       if (!current.room) return current
-      const questions = current.room.questions.map((question) => (question.id === questionId ? { ...question, isResolved } : question))
+      const questions = reorderQuestions(current.room.questions.map((question) => (question.id === questionId ? { ...question, isResolved, resolvedAtRaw } : question)))
       return { ...current, room: { ...current.room, questions } }
     })
   }
@@ -333,6 +355,7 @@ export function useCourseRoom(courseId: string | undefined) {
   return {
     ...state,
     participantCount,
+    admissionStatus,
     reload: load,
     submitQuestion,
     submitReply,
