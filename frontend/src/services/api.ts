@@ -816,6 +816,12 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
     if (bucket) bucket.push(row)
     else byParent.set(row.parent_id, [row])
   }
+  // 답글은 최근에 제출한 게 아래로 가도록(자연스러운 대화 순서) 제출 시각 오름차순 정렬.
+  // parent_id === null(최상위 글) 버킷은 아래에서 별도 규칙으로 다시 정렬하므로 여기서
+  // 건드려도 상관없음(어차피 덮어씀).
+  for (const bucket of byParent.values()) {
+    bucket.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0))
+  }
 
   const canDelete = (row: PostPublicRow): boolean => row.is_mine || isPrivilegedEditor()
 
@@ -839,22 +845,32 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
   }
 
   const topLevel = byParent.get(null) ?? []
-  return topLevel
-    .map((row): Question => ({
-      id: row.id,
-      authorName: resolvePostAuthorName(row),
-      authorRole: postAuthorRole(row),
-      postType: row.type,
-      isEditable: row.is_mine,
-      canDelete: canDelete(row),
-      createdAt: formatRelativeTime(row.created_at),
-      content: row.content,
-      likeCount: likeCountByPostId.get(row.id) ?? 0,
-      isLikedByMe: likedPostIds.has(row.id),
-      isResolved: row.status === 'resolved',
-      replies: collectReplies(row.id, 0),
-    }))
-    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+  // 미해결 게시글: 좋아요 개수 내림차순, 동률이면 제출 시각 최신순(최근 제출일수록 위).
+  // 해결된 게시글: 해결된 시각 최신순(최근에 해결될수록 위). 필터 탭이 미해결/해결을
+  // 나눠서 보여주므로 두 그룹 사이의 상대 순서는 의미 없음.
+  const sortedTopLevel = [...topLevel].sort((a, b) => {
+    if (a.status === 'resolved' && b.status === 'resolved') {
+      return (b.resolved_at ?? '').localeCompare(a.resolved_at ?? '')
+    }
+    const likeDiff = (likeCountByPostId.get(b.id) ?? 0) - (likeCountByPostId.get(a.id) ?? 0)
+    if (likeDiff !== 0) return likeDiff
+    return b.created_at.localeCompare(a.created_at)
+  })
+
+  return sortedTopLevel.map((row): Question => ({
+    id: row.id,
+    authorName: resolvePostAuthorName(row),
+    authorRole: postAuthorRole(row),
+    postType: row.type,
+    isEditable: row.is_mine,
+    canDelete: canDelete(row),
+    createdAt: formatRelativeTime(row.created_at),
+    content: row.content,
+    likeCount: likeCountByPostId.get(row.id) ?? 0,
+    isLikedByMe: likedPostIds.has(row.id),
+    isResolved: row.status === 'resolved',
+    replies: collectReplies(row.id, 0),
+  }))
 }
 
 const FEEDBACK_LABELS: Record<FeedbackKey, string> = { cold: '추워요', hot: '더워요', quiet: '소리가 작아요', unclear: '잘 안 보여요' }
