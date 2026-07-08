@@ -29,7 +29,7 @@ export default function CourseJoinForm({ compact = false }: CourseJoinFormProps)
   }
 
   return (
-    <form onSubmit={handleSubmit} className={compact ? 'w-full' : 'w-full max-w-xl'}>
+    <form onSubmit={handleSubmit} className={`relative ${compact ? 'w-full' : 'w-full max-w-xl'}`}>
       <div className="flex gap-2">
         <input
           value={code}
@@ -43,7 +43,10 @@ export default function CourseJoinForm({ compact = false }: CourseJoinFormProps)
           {isSubmitting ? '확인 중' : '확인'}
         </Button>
       </div>
-      <p className="mt-1 min-h-5 text-xs font-medium text-violet-600" aria-live="polite">{message}</p>
+      {/* 절대 위치로 띄워서 메시지 유무가 폼(=헤더) 높이에 영향을 주지 않도록 함 - 안 그러면 이 메시지 줄 때문에 강의자 모드 헤더보다 항상 더 높아짐 */}
+      {message && (
+        <p className="absolute left-0 top-full mt-1 text-xs font-medium text-violet-600" aria-live="polite">{message}</p>
+      )}
     </form>
   )
 }

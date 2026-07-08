@@ -3,36 +3,16 @@
 ## 목차
 
 - [미해결 (중요도순)](#미해결-중요도순)
-  - [5. README 정렬 규칙이 실제 프론트에 구현되어 있지 않음](#5-readme-정렬-규칙이-실제-프론트에-구현되어-있지-않음) `[프론트]`
-  - [6. `nodes` 트리에 사이클이 생기지 않도록 DB 차원에서 막는 제약 추가](#6-nodes-트리에-사이클이-생기지-않도록-db-차원에서-막는-제약-추가) `[nodes]`
-  - [7. "내 강의" 목록에서 강의별 접속자 수(`participantCount`) 표시](#7-내-강의-목록에서-강의별-접속자-수participantcount-표시) `[Realtime]`
-  - [8. `lecture_join_codes` 파기 시점/주체 결정](#8-lecture_join_codes-파기delete-시점주체-결정) `[join_code]`
-  - [9. 오래된 `post_drafts` 정기 삭제 기능 추가](#9-오래된-post_drafts-정기-삭제-기능-추가) `[post_drafts]`
+  - [1. Supabase Auth 리다이렉트 URL 허용 목록에 와일드카드 등록 확인](#1-supabase-auth-리다이렉트-url-허용-목록에-와일드카드-등록-확인) `[Auth]`
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
 
 ## 미해결 (중요도순)
 
 아래는 위에서부터 중요도(체감 영향/리스크) 순서로 정렬되어 있음: README 명세와 실제 동작이 어긋나는 명백한 버그 → 데이터 무결성 리스크 → 설계가 아직 안 끝난 미완성 기능 → 안전망이 있어 급하지 않은 낮은 리스크 → 무해한 하우스키핑 순.
 
-### 5. README 정렬 규칙이 실제 프론트에 구현되어 있지 않음
+### 1. Supabase Auth 리다이렉트 URL 허용 목록에 와일드카드 등록 확인
 
-`[프론트]` `README.md`의 필수 기능 명세(미해결 게시글은 좋아요 개수순, 같으면 제출 시각순 / 해결된 게시글은 해결된 시각순 / 답글은 제출 시각순)가 `frontend/src/services/api.ts`의 `getQuestionsFromDb`에는 반영되어 있지 않음. 지금은 최상위 게시글 전체를 상태 구분·좋아요 개수 없이 `createdAt` 하나로만 정렬하는데, 이 `createdAt`이 `formatRelativeTime()`으로 만든 "3분 전" 같은 상대시간 **문자열**이라 사전식 비교로는 실제 시간 순서도 보장 안 됨(예: "10분 전"과 "2분 전"을 비교하면 순서가 뒤집힐 수 있음). 답글은 정렬 자체가 없고, `posts_public` 조회 쿼리에도 `.order()`가 없어 Postgres가 반환하는 순서에 그대로 의존. 미해결/해결 상태별 정렬 기준 분리, 좋아요 개수 반영, 실제 타임스탬프(`created_at`/`resolved_at`) 기준 비교로 다시 구현 필요.
-
-### 6. `nodes` 트리에 사이클이 생기지 않도록 DB 차원에서 막는 제약 추가
-
-`[nodes]` 지금 `enforce_nodes_parent_rules()` 트리거는 부모 노드의 소유자/모드 일치, 부모가 강의(`type = 'lecture'`)가 아닌지만 검사하고, `parent_id` 체인에 사이클이 생기는 건 막지 않음. INSERT는 새 행이라 자기 자신의 자손이 될 수 없어 문제없지만, UPDATE로 어떤 노드의 `parent_id`를 그 노드 자신의 하위 노드 중 하나로 바꾸면(예: A → B → C인데 A의 부모를 C로 변경) 사이클이 생겨 무한 루프에 빠짐 — "위치 이동" 기능이 이런 이동을 실제로 허용하는지, 프론트에서 막고 있는지 확인 필요. 막는다면 부모 후보가 자기 자신의 자손 트리에 속하는지 재귀적으로 확인해야 해서 `check` 제약으로는 표현 불가(서브쿼리/재귀 금지), `enforce_nodes_parent_rules()` 트리거에 재귀 조회(`with recursive`)를 추가하는 방식이 될 것.
-
-### 7. "내 강의" 목록에서 강의별 접속자 수(`participantCount`) 표시
-
-`[Realtime]` `Course.participantCount`는 정적으로 저장된 값이 아니라 Realtime **Presence**로 그때그때 세는 값이라(`DB_DESIGN.md`의 "실시간 접속자 수" 섹션 참고), "내 강의" 목록 화면(트리 조회 시점)에는 애초에 채워지지 않고 강의실 페이지에 들어가야만 알 수 있음. 목록 화면에서 강의별 접속자 수를 보여주려면 별도 설계가 필요 — 예를 들어 목록에 있는 강의 수만큼 채널을 동시에 구독해야 하는지(비용/성능), 아니면 서버 쪽에서 주기적으로 집계해 뷰/테이블로 내려주는 방식으로 갈지 결정 안 됨. 아직 미해결(자세한 내용은 [SUPABASE_GUIDE.md 6번의 "남은 간극"](./SUPABASE_GUIDE.md#6-트리-구조-데이터-조회-내-강의-페이지--강의-페이지) 참고).
-
-### 8. `lecture_join_codes` 파기(DELETE) 시점/주체 결정
-
-`[join_code]` 강의 종료 시 자동으로 지울지(예: `pg_cron`), 강의자가 수동으로 파기하기 전까진 남겨둘지. 안 지워져도 입장 시 `lectures.end_time` 확인이 안전망이라 급한 이슈는 아님.
-
-### 9. 오래된 `post_drafts` 정기 삭제 기능 추가
-
-`[post_drafts]` 유사 질문 발견 시 스테이징되는 `post_drafts`(`DB_DESIGN.md`의 `post_drafts` 테이블 참고)는 "취소"/"보러 가기"를 선택하면 아무 API 호출 없이 그냥 방치되는 설계라(고아 드래프트 자체는 무해함), 강행 제출되지 않은 드래프트가 테이블에 계속 쌓임. 설계 당시부터 "나중에 오래된 것만 가끔 청소하면 됨"으로 남겨뒀던 부분 — 아직 실제 삭제 로직은 없음. `pg_cron`으로 일정 기간(예: 하루) 지난 행을 주기적으로 지우는 방식이 가장 간단해 보이나, 정확한 보관 기간과 실행 주기는 결정 안 됨.
+`[Auth]` `frontend`(`signInWithGoogle`, `services/api.ts`)가 OAuth `redirectTo`를 로그인을 호출한 현재 페이지 URL(`window.location.href`)로 보내도록 바뀌었는데, Supabase 대시보드(Authentication → URL Configuration → Redirect URLs)에 이 프로젝트의 실제 배포 도메인에 대한 와일드카드 패턴(예: `https://<도메인>/**`)이 등록돼 있는지 미확인 상태. 등록 안 돼 있으면 홈이 아닌 다른 경로(`/room/<id>`, `/room/<id>/write` 등)로의 리다이렉트가 실패함. 코드 변경이 아니라 Supabase 대시보드에서 직접 확인/등록해야 하는 작업.
 
 ## 해결된 것 (참고용 기록)
 
@@ -81,6 +61,15 @@
 - **비회원이 `ai-correct`/`submit-post`를 호출하면 항상 실패하던 버그 발견·수정** — 비회원으로 강의실에서 글을 쓰면 AI 기능이 안 되는 것 같다는 제보로 실제 프리뷰 브라우저에서 재현. `_shared/cors.ts`의 `Access-Control-Allow-Headers`에 `x-guest-token`이 빠져 있어서, 비회원이 이 헤더를 실어 보내면 브라우저가 preflight 단계에서 실제 요청 자체를 차단하고 있었음(서버 로그엔 안 남고 브라우저에서만 조용히 `Failed to fetch`) — 로그인한 회원은 `x-guest-token`을 안 보내니까 이 버그를 안 만났던 것. 허용 헤더 목록에 `x-guest-token` 추가해 해결(`backend/supabase/functions/_shared/cors.ts`).
   - 겸사겸사 "AI 연결이 실패해서 검사/교정을 건너뛴 것"과 "AI가 정상적으로 판단했는데 결과가 원문과 같거나 문제없다고 나온 것"을 프론트가 구분할 수 있는 플래그 추가. `ai-correct`는 `{ corrected, used_ai }`(`used_ai: false`면 `corrected`는 AI가 다듬은 게 아니라 원문 그대로), `submit-post`는 `created`/`similar_found` 응답에 `moderation_checked`/`similarity_checked`(`similarity_checked`는 `opinion`/답글처럼 대상이 아니면 `null`) 추가. 강행 제출(`{draft_id}`) 응답에는 재검사를 안 하므로 이 필드들이 없음. 실제 호출로 정상/opinion/question 세 케이스 모두 확인. `SUPABASE_GUIDE.md` 10번에 사용법 반영.
 - **강의 페이지 실시간 갱신(질문/답글, 좋아요, 실시간 피드백, 강의 제목/일정) — Broadcast from Database로 구현** — 처음엔 `posts`를 `supabase_realtime` publication에 추가해 `postgres_changes`로 구독하는 방식을 시도(`backend/supabase/migrations/20260708190000_posts_realtime_publication.sql`). 하지만 라이브 검증 결과 `postgres_changes`는 원본 테이블의 RLS를 그대로 타는데, `posts_select_own` 등은 `x-guest-token` 헤더 비교가 필요하고 WebSocket 연결은 커스텀 헤더를 못 실어서 비회원이 이벤트를 아예 못 받는다는 게 확인됨(guest_token으로 쓴 글을 insert하고 매칭 identity 없는 익명 연결이 그 INSERT 이벤트를 못 받는 것으로 재현).
-  - 그래서 `postgres_changes` 대신 **Broadcast from Database**(`realtime.send()` — 내부적으로 `realtime.messages` 테이블에 INSERT할 뿐이라 원본 테이블 RLS와 무관)로 전환. `posts`/`post_likes`/`lecture_feedback_votes`/`nodes`(강의 제목)/`lectures`(일정/장소/정원) 다섯 테이블에 `SECURITY DEFINER` 트리거를 달아 변경이 생기면 [Presence](#7-내-강의-목록에서-강의별-접속자-수participantcount-표시)와 같은 `lecture:<lecture_id>` 채널로 브로드캐스트 → `backend/supabase/migrations/20260708200000_broadcast_triggers_for_realtime_updates.sql`. `posts` 브로드캐스트는 `posts_public` 뷰를 재사용해 `guest_token`/`author_id` 노출 없이 안전한 필드만 실어 보냄. 계정 이름(`profiles.name`)은 한 사람이 여러 강의를 소유할 수 있어 채널 하나로 안 끝나는 부채살 구조라 이번 범위에서 제외하기로 결정.
+  - 그래서 `postgres_changes` 대신 **Broadcast from Database**(`realtime.send()` — 내부적으로 `realtime.messages` 테이블에 INSERT할 뿐이라 원본 테이블 RLS와 무관)로 전환. `posts`/`post_likes`/`lecture_feedback_votes`/`nodes`(강의 제목)/`lectures`(일정/장소/정원) 다섯 테이블에 `SECURITY DEFINER` 트리거를 달아 변경이 생기면 [Presence](./DB_DESIGN.md#실시간-접속자-수-강의별)와 같은 `lecture:<lecture_id>` 채널로 브로드캐스트 → `backend/supabase/migrations/20260708200000_broadcast_triggers_for_realtime_updates.sql`. `posts` 브로드캐스트는 `posts_public` 뷰를 재사용해 `guest_token`/`author_id` 노출 없이 안전한 필드만 실어 보냄. 계정 이름(`profiles.name`)은 한 사람이 여러 강의를 소유할 수 있어 채널 하나로 안 끝나는 부채살 구조라 이번 범위에서 제외하기로 결정.
   - 라이브 리스너로 다섯 이벤트(`post_change`/`like_change`/`feedback_change`/`lecture_updated`/`lecture_details_updated`) 전부 실제 발신·수신 확인 완료(테스트 데이터는 전부 원복). `DB_DESIGN.md`의 "트리거 함수" 섹션과 배포 현황, `SUPABASE_GUIDE.md` 12번에 설계·구독 방법 반영. 프론트 구독 코드는 아래 항목에서 완료됨.
 - **강의실 게시글/좋아요/피드백 실시간 갱신 — 프론트 구독 구현 완료** — `frontend`에서 `useCourseRoom.ts`(참여자 수 상태 관리) + `services/api.ts`의 `subscribeToRoomChannel`(브로드캐스트 5종 리스너와 Presence sync/track을 단일 채널로 통합)로 프론트 구독까지 구현 완료. 구현 과정에서 버그도 하나 발견: 원래 Presence용 채널과 브로드캐스트용 채널을 별도 인스턴스로 열었었는데, 같은 topic(`lecture:<id>`)에 두 번째 join이 들어오면 Realtime 서버가 먼저 열린 채널을 강제로 닫아버려서 접속자 수가 항상 0으로 고정되던 버그였음 — Presence와 브로드캐스트 두 기능을 하나의 채널로 합쳐서 해결. `frontend-2` 브랜치에서 작업 후 `frontend`에 병합 완료(`useRoomPresence.ts`는 삭제됨). `SUPABASE_GUIDE.md`(11번, 12번)에도 이 통합 구조가 반영되어 있음.
+- **`nodes` 트리에 사이클이 생기지 않도록 DB 차원에서 막는 제약 추가** — `enforce_nodes_parent_rules()`가 부모가 강의가 아닌지/소유자·모드 일치만 검사하고 `parent_id` 체인의 사이클은 막지 않던 문제 해결. UPDATE로 `parent_id`가 실제로 바뀌는 경우에 한해 (1) 새 부모가 자기 자신인지 즉시 비교로, (2) 새 부모가 자기 자신의 자손 트리에 속하는지 `with recursive`로 확인하도록 함수에 검사 추가(다른 행을 재귀적으로 조회해야 해서 `check` 제약으로는 표현 불가). INSERT와 `parent_id` 변경이 없는 UPDATE는 검사를 건너뛰어 불필요한 재귀 조회를 피함 → `backend/supabase/migrations/20260708240000_nodes_prevent_parent_cycle.sql`. 라이브 DB에서 A→B→C 체인을 만들어 A의 부모를 C로(사이클)/자기 자신으로 바꾸는 시도는 둘 다 거부되고, C를 A 밑으로 옮기는 정상 이동은 그대로 성공하는 것까지 검증 완료.
+- **README 정렬 규칙(미해결 게시글은 좋아요 개수순, 같으면 제출 시각순 / 해결된 게시글은 해결된 시각순 / 답글은 제출 시각순)을 실제 프론트에 구현 완료** — `frontend/src/services/api.ts`의 `getQuestionsFromDb`가 README 명세를 그대로 따르도록 수정됨. 미해결 게시글은 좋아요 개수 내림차순(동률이면 제출 시각 최신순), 해결된 게시글은 해결된 시각 최신순, 답글은 제출 시각 오름차순으로 정렬. 기존 버그는 `formatRelativeTime()`이 만드는 "3분 전" 같은 상대시간 **문자열**로 정렬 비교를 하고 있어서 사전식 비교라 실제 시간 순서가 보장되지 않았던 것(예: "10분 전"과 "2분 전"을 비교하면 순서가 뒤집힘). 답글은 아예 정렬이 없어 Postgres가 반환하는 순서에 그대로 의존하고 있었음. 원본 ISO 타임스탬프(`created_at`/`resolved_at`) 기준 비교로 교체해 두 문제 모두 해결. 실제 DB 데이터로 미해결/해결/답글 세 가지 케이스 모두 예상 순서와 정확히 일치하는지 라이브로 검증 완료 → `frontend-2` 브랜치의 `3065235`(`fix: 게시글/답글 정렬 규칙을 README 명세대로 구현 (TODO 1번)`).
+- **`lecture_join_codes` 파기 시점/주체 결정 → `pg_cron`으로 구현** — `lecture_join_codes`는 손으로 입력하기 편한 4자리 코드를 제공하려고 만든 것이지 강의 종료 후 입장을 막으려는 기능이 아니라서, 파기가 필요한 이유는 순전히 4자리(공간 10000개)라 끝난 강의의 코드를 계속 쥐고 있으면 재사용 가능한 코드 공간이 줄어들기 때문. 강의 `end_time`이 1시간 지난 코드를 15분마다 확인해 자동 파기하도록 `purge_expired_join_codes` 작업 등록 → `backend/supabase/migrations/20260708250000_pg_cron_cleanup_jobs.sql`, 자세한 설계는 `DB_DESIGN.md`의 "예약 작업 (pg_cron)" 섹션 참고. 라이브 DB에서 3시간 지난 강의의 코드는 삭제되고 30분 지난 강의의 코드는 남는 것까지 확인 완료.
+- **오래된 `post_drafts` 정기 삭제 기능 추가 → `pg_cron`으로 구현** — 강행 제출 없이 방치된 드래프트를 매일 한 번(UTC 18시 = KST 새벽 3시) 확인해 하루 지난 행을 지우는 `purge_stale_post_drafts` 작업 등록. 강행 제출은 보통 같은 세션 내 몇 분 안에 일어나 하루면 충분히 넉넉한 보관 기간이라고 판단, 트래픽 적은 새벽 시간대로 스케줄 선정 → `backend/supabase/migrations/20260708250000_pg_cron_cleanup_jobs.sql`. 라이브 DB에서 2일 지난 드래프트는 삭제되고 방금 만든 드래프트는 남는 것까지 확인 완료.
+- **최대 참여 인원 초과 시 브라우저에서 강의실 입장 자체를 막는 기능 → 프론트에서 구현 완료** — 강의실 접속자 수가 강의 정원(`lectures.max_participants`)에 도달/초과한 상태에서 강의 페이지에 들어오면, 게시글 목록 대신 "정원이 다 찼습니다" 안내 문구와 "홈으로" 버튼만 보여주고 강의실 내용은 아예 렌더링하지 않도록 구현함(막는 위치는 서버/RLS가 아니라 프론트).
+  - `frontend/src/services/api.ts`의 `subscribeToRoomChannel`에 `onAdmissionDecided` 콜백 추가: Realtime Presence sync 시점에 "정원 초과라 자기 자신을 track() 안 하기로" 판단한 그 순간을 딱 한 번만 알려줌. 이후 인원 변동으로 count가 capacity에 걸쳐도 이미 입장한 사람을 나중에 강제로 내쫓지는 않음(이미 있던 "정원 초과 시 track()만 안 함" 설계를 그대로 재사용).
+  - `frontend/src/hooks/useCourseRoom.ts`에 `admissionStatus`(`'pending' | 'admitted' | 'full'`) 상태 추가. Presence 동기화가 지연/실패해서 입장 가능 여부 결정이 영영 안 나는 경우(네트워크 문제 등)를 대비해 5초 타임아웃으로 자동 입장 허용(fail-open) 처리.
+  - `frontend/src/pages/CourseRoomPage.tsx`: `admissionStatus`가 `'full'`이면 강의실 콘텐츠 대신 정원 초과 안내 화면을, `'pending'`이면 로딩 스피너를 보여주고, `'admitted'`일 때만 기존 강의실 화면을 렌더링. "홈으로" 버튼은 비회원이면 `/`로, 회원이면 `/courses`로 이동.
+  - 실제 DB에서 강의 정원을 0으로 낮춰 라이브로 차단 화면과 "홈으로" 버튼 동작을 확인 후 원래 값(`null`)으로 복원함. `frontend-2` 브랜치에서 구현 완료.

@@ -6,7 +6,8 @@ export interface FeedbackOption {
   label: string
   likeCount: number
   dislikeCount: number
-  myVote: 'like' | 'dislike' | null
+  myLiked: boolean
+  myDisliked: boolean
 }
 
 export interface QuestionReply {
@@ -31,6 +32,10 @@ export interface Question {
   isEditable: boolean
   canDelete: boolean
   createdAt: string
+  /** 정렬 전용 원본 타임스탬프(ISO). createdAt은 "3분 전" 같은 표시용 상대시간이라 정렬엔 못 씀. */
+  createdAtRaw: string
+  /** 해결된 게시글 정렬 전용 원본 타임스탬프(ISO). 미해결이면 null. */
+  resolvedAtRaw: string | null
   content: string
   likeCount: number
   isLikedByMe: boolean
@@ -45,6 +50,10 @@ export interface CourseRoom {
   lecturerName: string
   participantCount: number
   capacity: number | null
+  /** 현재 로그인한 회원이 이 강의를 "내 강의"(favorites)로 등록했는지. 비회원이면 항상 false. */
+  isFavorited: boolean
+  /** 현재 로그인한 회원이 이 강의를 만든 강의자 본인인지. 비회원이거나 남이 만든 강의면 false. */
+  isOwnedByMe: boolean
   feedbackOptions: FeedbackOption[]
   questions: Question[]
 }

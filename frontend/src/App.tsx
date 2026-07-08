@@ -15,11 +15,11 @@ export default function App() {
       <Route path="/room/:courseId" element={<CourseRoomPage />} />
       <Route path="/room/:courseId/write" element={<PostWritePage />} />
       <Route element={<DashboardLayout />}>
-        <Route path="/student/courses" element={<StudentCoursesPage />} />
-        <Route path="/student/courses/new" element={<CreateCoursePage />} />
-        <Route path="/student/courses/:courseId/edit" element={<CreateCoursePage />} />
-        <Route path="/student/questions" element={<UnansweredQuestionsPage />} />
-        <Route path="/student/settings" element={<SettingsPage />} />
+        <Route path="/courses" element={<StudentCoursesPage />} />
+        <Route path="/courses/new" element={<CreateCoursePage />} />
+        <Route path="/courses/:courseId/edit" element={<CreateCoursePage />} />
+        <Route path="/questions" element={<UnansweredQuestionsPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
