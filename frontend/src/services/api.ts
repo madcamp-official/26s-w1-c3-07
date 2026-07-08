@@ -588,7 +588,7 @@ export async function updateCourse(input: UpdateCourseInput): Promise<Course> {
   }
 }
 
-function isPrivilegedEditor(): boolean {
+export function isPrivilegedEditor(): boolean {
   return mockCurrentUser.role === 'instructor'
 }
 
@@ -746,7 +746,7 @@ interface PostPublicRow {
   is_mine: boolean
 }
 
-function formatRelativeTime(isoDate: string): string {
+export function formatRelativeTime(isoDate: string): string {
   const diffMs = Date.now() - new Date(isoDate).getTime()
   const diffMinutes = Math.floor(diffMs / 60000)
   if (diffMinutes < 1) return '방금 전'
@@ -757,7 +757,7 @@ function formatRelativeTime(isoDate: string): string {
 }
 
 /** posts_public.created_mode를 그대로 사용해 강의자/수강생/익명을 정확히 판별합니다. */
-function postAuthorRole(row: Pick<PostPublicRow, 'is_anonymous' | 'created_mode'>): 'lecturer' | 'anonymous' | 'student' {
+export function postAuthorRole(row: Pick<PostPublicRow, 'is_anonymous' | 'created_mode'>): 'lecturer' | 'anonymous' | 'student' {
   if (row.is_anonymous) return 'anonymous'
   return row.created_mode === 'lecturer' ? 'lecturer' : 'student'
 }
@@ -766,7 +766,7 @@ function postAuthorRole(row: Pick<PostPublicRow, 'is_anonymous' | 'created_mode'
  * 익명 글은 항상 "익명"으로 표시합니다. 실명 글인데 author_display_name이 null이면
  * 작성자가 탈퇴한 회원이라는 뜻이라 "탈퇴한 계정입니다"로 표시합니다.
  */
-function resolvePostAuthorName(row: Pick<PostPublicRow, 'is_anonymous' | 'author_display_name'>): string {
+export function resolvePostAuthorName(row: Pick<PostPublicRow, 'is_anonymous' | 'author_display_name'>): string {
   if (row.is_anonymous) return '익명'
   return row.author_display_name ?? '탈퇴한 계정입니다'
 }
@@ -881,6 +881,76 @@ async function getFeedbackOptionsFromDb(lectureId: string): Promise<FeedbackOpti
 
 function isAnsweredByLecturer(question: Question): boolean {
   return question.replies.some((reply) => reply.authorRole === 'lecturer')
+}
+
+/** posts 트리거가 브로드캐스트하는 post_change 페이로드(DB_DESIGN.md의 broadcast_post_change 참고). */
+export interface PostChangePayload {
+  op: 'INSERT' | 'UPDATE' | 'DELETE'
+  id: string
+  lecture_id: string
+  parent_id: string | null
+  author_display_name?: string | null
+  is_anonymous?: boolean
+  type?: PostType
+  status?: 'unresolved' | 'resolved' | null
+  resolved_at?: string | null
+  content?: string
+  created_at?: string
+  created_mode?: DbMode
+}
+
+export interface LikeChangePayload {
+  post_id: string
+  like_count: number
+}
+
+export interface FeedbackChangePayload {
+  feedback_type: FeedbackKey
+  like_count: number
+  dislike_count: number
+}
+
+export interface LectureUpdatedPayload {
+  id: string
+  name: string
+}
+
+export interface LectureDetailsUpdatedPayload {
+  id: string
+  start_time: string
+  end_time: string
+  location: string | null
+  max_participants: number | null
+}
+
+interface RoomBroadcastHandlers {
+  onPostChange: (payload: PostChangePayload) => void
+  onLikeChange: (payload: LikeChangePayload) => void
+  onFeedbackChange: (payload: FeedbackChangePayload) => void
+  onLectureUpdated: (payload: LectureUpdatedPayload) => void
+  onLectureDetailsUpdated: (payload: LectureDetailsUpdatedPayload) => void
+}
+
+/**
+ * 강의실 실시간 갱신(질문/답글, 좋아요, 실시간 피드백, 강의 제목/일정) 구독.
+ * useRoomPresence가 이미 열어둔 것과 같은 `lecture:<lectureId>` 채널 토픽을 재사용하되,
+ * Presence와는 별개의 채널 인스턴스로 구독만 함(이 채널에는 track()하지 않음 - 참여자로
+ * 집계될 필요가 없어서). 반환값을 호출해 구독을 해제합니다.
+ */
+export function subscribeToRoomBroadcasts(lectureId: string, handlers: RoomBroadcastHandlers): () => void {
+  const channel = supabase.channel(`lecture:${lectureId}`)
+
+  channel
+    .on('broadcast', { event: 'post_change' }, ({ payload }) => handlers.onPostChange(payload as PostChangePayload))
+    .on('broadcast', { event: 'like_change' }, ({ payload }) => handlers.onLikeChange(payload as LikeChangePayload))
+    .on('broadcast', { event: 'feedback_change' }, ({ payload }) => handlers.onFeedbackChange(payload as FeedbackChangePayload))
+    .on('broadcast', { event: 'lecture_updated' }, ({ payload }) => handlers.onLectureUpdated(payload as LectureUpdatedPayload))
+    .on('broadcast', { event: 'lecture_details_updated' }, ({ payload }) => handlers.onLectureDetailsUpdated(payload as LectureDetailsUpdatedPayload))
+    .subscribe()
+
+  return () => {
+    void supabase.removeChannel(channel)
+  }
 }
 
 function collectAllCourses(folders: CourseFolder[], rootCourses: Course[]): Course[] {
