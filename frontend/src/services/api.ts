@@ -299,7 +299,11 @@ function buildFavoriteRoots(rows: FavoriteSubtreeRow[]): Map<string, CourseFolde
   for (const [anchorNodeId, anchorRows] of byAnchor) {
     const { folders, rootCourses } = buildFolderTree(anchorRows, 'registered')
     const root = folders[0] ?? rootCourses[0]
-    if (root) roots.set(anchorNodeId, root)
+    if (root) {
+      // 이 노드만 favorites 행을 가진 "덩어리 루트" - 통째로 이동 가능. 서브트리 내부 노드는 아님.
+      root.isFavoriteRoot = true
+      roots.set(anchorNodeId, root)
+    }
   }
   return roots
 }
@@ -664,10 +668,16 @@ export async function moveCourseItem(input: MoveItemInput): Promise<void> {
     return
   }
 
-  if (input.itemType === 'folder') throw new Error('강의자가 공유한 폴더는 이동할 수 없습니다.')
-
-  const { error } = await supabase.from('favorites').update({ anchor_id: input.targetFolderId }).eq('user_id', userId).eq('node_id', input.itemId)
+  // 등록(즐겨찾기)한 항목: 강의든 폴더든 favorites 행을 가진 "덩어리 루트"만 anchor_id를 바꿔
+  // 통째로 이동. 서브트리 내부 노드는 favorites 행이 없어 0행 업데이트되므로 명시적으로 거부.
+  const { data, error } = await supabase
+    .from('favorites')
+    .update({ anchor_id: input.targetFolderId })
+    .eq('user_id', userId)
+    .eq('node_id', input.itemId)
+    .select('node_id')
   if (error) throw error
+  if (!data || data.length === 0) throw new Error('이동할 수 없는 항목입니다.')
 }
 
 /** 폴더/강의 이름을 변경합니다. 내가 만든(owned) 항목만 가능합니다(RLS: nodes_update_own). */

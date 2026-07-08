@@ -8,6 +8,8 @@ export interface Course {
   updatedAt?: string
   color: ItemColor
   ownership: FolderOwnership
+  /** 등록(즐겨찾기)한 서브트리의 최상위(덩어리 루트)인지. 이 노드만 통째로 이동 가능하고, 서브트리 내부 노드는 개별 이동 불가. owned 항목엔 무의미. */
+  isFavoriteRoot?: boolean
   date?: string
   startTime?: string
   endTime?: string
@@ -20,6 +22,8 @@ export interface CourseFolder {
   id: string
   name: string
   ownership: FolderOwnership
+  /** 등록(즐겨찾기)한 서브트리의 최상위(덩어리 루트)인지. 이 폴더만 통째로 이동 가능하고, 내부 하위 폴더는 개별 이동 불가. owned 항목엔 무의미. */
+  isFavoriteRoot?: boolean
   expandedByDefault?: boolean
   children: CourseFolder[]
   courses: Course[]
