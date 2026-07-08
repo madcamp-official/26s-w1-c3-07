@@ -60,9 +60,10 @@ export function useStudentCourses() {
     void load()
   }, [load])
 
-  const addFolder = async (name: string): Promise<void> => {
-    await createRootFolder({ name })
+  const addFolder = async (name: string, parentId?: string | null): Promise<CourseFolder> => {
+    const folder = await createRootFolder({ name, parentId })
     await refresh()
+    return folder
   }
 
   const addCourse = async (input: CreateCourseInput): Promise<Course> => {
@@ -97,13 +98,22 @@ export function useStudentCourses() {
     await refresh()
   }
 
-  const sortedCourses = [...state.courses].sort((a, b) =>
-    sortOrder === 'alphabetical' ? a.title.localeCompare(b.title, 'ko') : 0,
-  )
+  const sortCourses = (courses: Course[]): Course[] =>
+    sortOrder === 'alphabetical' ? [...courses].sort((a, b) => a.title.localeCompare(b.title, 'ko')) : courses
+
+  const sortFolders = (folders: CourseFolder[]): CourseFolder[] => {
+    const ordered = sortOrder === 'alphabetical' ? [...folders].sort((a, b) => a.name.localeCompare(b.name, 'ko')) : folders
+    return ordered.map((folder) => ({
+      ...folder,
+      children: sortFolders(folder.children),
+      courses: sortCourses(folder.courses),
+    }))
+  }
 
   return {
     ...state,
-    courses: sortedCourses,
+    folders: sortFolders(state.folders),
+    courses: sortCourses(state.courses),
     sortOrder,
     setSortOrder,
     addFolder,

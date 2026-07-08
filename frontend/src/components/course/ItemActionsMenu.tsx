@@ -3,7 +3,7 @@ import { CircleX, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 interface ItemActionsMenuProps {
   onEdit?: () => void
   onRename?: () => void
-  onMove: () => void
+  onMove?: () => void
   onDelete: () => void
   onClose: () => void
   deleteLabel?: string
@@ -26,9 +26,11 @@ export default function ItemActionsMenu({ onEdit, onRename, onMove, onDelete, on
             <Pencil className="size-4" />이름 변경
           </button>
         )}
-        <button type="button" onClick={() => { onMove(); onClose() }} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-bold text-slate-600 hover:bg-slate-50">
-          <MoreHorizontal className="size-4 rotate-90" />이동하기
-        </button>
+        {onMove && (
+          <button type="button" onClick={() => { onMove(); onClose() }} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-bold text-slate-600 hover:bg-slate-50">
+            <MoreHorizontal className="size-4 rotate-90" />이동하기
+          </button>
+        )}
         <button type="button" onClick={() => { onDelete(); onClose() }} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-bold text-rose-500 hover:bg-rose-50">
           {isUnregister ? <CircleX className="size-4" /> : <Trash2 className="size-4" />}{deleteLabel}
         </button>

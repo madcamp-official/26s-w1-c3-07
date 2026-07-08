@@ -14,7 +14,7 @@ interface CourseRowProps {
   isInBlockedFolder?: boolean
   onEdit?: (courseId: string) => void
   onMove: (itemId: string, itemType: TreeItemType, label: string) => void
-  onDelete: (itemId: string, itemType: TreeItemType, label: string) => void
+  onDelete: (itemId: string, itemType: TreeItemType, label: string, isOwned: boolean) => void
 }
 
 export default function CourseRow({ course, isInstructor = false, isInBlockedFolder = false, onEdit, onMove, onDelete }: CourseRowProps) {
@@ -52,7 +52,7 @@ export default function CourseRow({ course, isInstructor = false, isInBlockedFol
             <ItemActionsMenu
               onEdit={isOwned && onEdit ? () => onEdit(course.id) : undefined}
               onMove={() => onMove(course.id, 'course', course.title)}
-              onDelete={() => onDelete(course.id, 'course', course.title)}
+              onDelete={() => onDelete(course.id, 'course', course.title, isOwned)}
               onClose={() => setIsMenuOpen(false)}
               deleteLabel={isOwned ? '삭제' : '등록취소'}
             />
