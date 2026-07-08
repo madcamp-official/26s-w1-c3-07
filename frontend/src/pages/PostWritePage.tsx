@@ -6,7 +6,7 @@ import PostComposer from '../components/room/PostComposer'
 import RoomHeader from '../components/room/RoomHeader'
 import Button from '../components/ui/Button'
 import { useCourseRoom } from '../hooks/useCourseRoom'
-import { getCurrentUser } from '../services/api'
+import { getCurrentUser, signInWithGoogle } from '../services/api'
 import type { ComposerTarget } from '../types/room'
 import type { User } from '../types/user'
 
@@ -42,7 +42,7 @@ export default function PostWritePage() {
           {user ? (
             <span className="grid size-9 place-items-center rounded-full bg-violet-600 text-sm font-extrabold text-white">{user.avatarText}</span>
           ) : (
-            <Button variant="secondary" onClick={() => navigate('/')}>Google 로그인</Button>
+            <Button variant="secondary" onClick={() => void signInWithGoogle()}>Google 로그인</Button>
           )}
         </div>
       </header>
