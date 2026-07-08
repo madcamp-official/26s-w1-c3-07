@@ -143,44 +143,57 @@ export default function StudentCoursesPage() {
           </div>
         </div>
 
-        <section
-          className={cn('mt-7 rounded-2xl transition', isRootDragOver && 'bg-violet-50 ring-2 ring-violet-300')}
-          aria-label="강의 폴더"
+        {/*
+          루트 드롭 영역: 폴더 트리와 루트 강의 카드 그리드를 하나로 묶어서, 그 사이/아래
+          어디에 드롭하든(각 폴더/카드 자체가 아닌 이상) 전부 루트 이동으로 처리되도록 함.
+          예전엔 폴더 트리 section에만 핸들러가 있어서 그 아래 카드 그리드 쪽엔 드롭해도
+          반응이 없었음. FolderTree 내부의 폴더별 드롭존은 자체적으로 stopPropagation하므로
+          여기 핸들러와 충돌하지 않음.
+        */}
+        <div
+          className={cn('mt-7 min-h-[16rem] rounded-3xl border-2 border-dashed p-2 transition', isRootDragOver ? 'border-violet-300 bg-violet-50' : 'border-transparent')}
           onDragOver={(event) => { if (event.dataTransfer.types.includes(DRAG_MIME)) { event.preventDefault(); setIsRootDragOver(true) } }}
-          onDragLeave={() => setIsRootDragOver(false)}
+          onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setIsRootDragOver(false) }}
           onDrop={(event) => void handleRootDrop(event)}
         >
-          <FolderTree
-            folders={folders}
-            isInstructor={isInstructor}
-            onAddSubfolder={(parentId) => { setCreateFolderParentId(parentId); setIsCreateFolderOpen(true) }}
-            onEditCourse={(courseId) => navigate(`/courses/${courseId}/edit`)}
-            onRename={startRename}
-            onMove={(itemId, itemType, label) => setMoveTarget({ itemId, itemType, label })}
-            onDelete={(itemId, itemType, label, isOwned) => setDeleteTarget({ itemId, itemType, label, isOwned })}
-            onDrop={(payload, targetFolderId) => void moveItem({ itemId: payload.itemId, itemType: payload.itemType, targetFolderId })}
-            renamingId={renameTarget?.itemId ?? null}
-            renameValue={renameValue}
-            onRenameValueChange={setRenameValue}
-            onRenameSubmit={() => void submitRename()}
-            onRenameCancel={() => setRenameTarget(null)}
-          />
-        </section>
+          <section aria-label="강의 폴더">
+            <FolderTree
+              folders={folders}
+              isInstructor={isInstructor}
+              onAddSubfolder={(parentId) => { setCreateFolderParentId(parentId); setIsCreateFolderOpen(true) }}
+              onEditCourse={(courseId) => navigate(`/courses/${courseId}/edit`)}
+              onRename={startRename}
+              onMove={(itemId, itemType, label) => setMoveTarget({ itemId, itemType, label })}
+              onDelete={(itemId, itemType, label, isOwned) => setDeleteTarget({ itemId, itemType, label, isOwned })}
+              onDrop={(payload, targetFolderId) => void moveItem({ itemId: payload.itemId, itemType: payload.itemType, targetFolderId })}
+              renamingId={renameTarget?.itemId ?? null}
+              renameValue={renameValue}
+              onRenameValueChange={setRenameValue}
+              onRenameSubmit={() => void submitRename()}
+              onRenameCancel={() => setRenameTarget(null)}
+            />
+          </section>
 
-        <section className="mt-10 border-t border-slate-100 pt-8" aria-label="루트 강의">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {courses.map((course) => (
-              <CourseCard
-                key={course.id}
-                course={course}
-                isInstructor={isInstructor}
-                onEdit={(courseId) => navigate(`/courses/${courseId}/edit`)}
-                onMove={(itemId, itemType, label) => setMoveTarget({ itemId, itemType, label })}
-                onDelete={(itemId, itemType, label, isOwned) => setDeleteTarget({ itemId, itemType, label, isOwned })}
-              />
-            ))}
-          </div>
-        </section>
+          <section className={cn('pt-8', folders.length > 0 && 'mt-2 border-t border-slate-100')} aria-label="루트 강의">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {courses.map((course) => (
+                <CourseCard
+                  key={course.id}
+                  course={course}
+                  isInstructor={isInstructor}
+                  onEdit={(courseId) => navigate(`/courses/${courseId}/edit`)}
+                  onMove={(itemId, itemType, label) => setMoveTarget({ itemId, itemType, label })}
+                  onDelete={(itemId, itemType, label, isOwned) => setDeleteTarget({ itemId, itemType, label, isOwned })}
+                />
+              ))}
+            </div>
+            {isRootDragOver && (
+              <p className="mt-4 rounded-2xl border border-dashed border-violet-200 bg-white/60 py-6 text-center text-sm font-bold text-violet-500">
+                여기에 놓으면 루트로 이동합니다
+              </p>
+            )}
+          </section>
+        </div>
       </div>
 
       <CreateItemModal
