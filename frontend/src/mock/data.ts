@@ -29,7 +29,6 @@ export const mockInstructorFolders: CourseFolder[] = [
       {
         id: 'course-tree',
         title: '트리와 그래프',
-        participantCount: 34,
         questionCount: 8,
         updatedAt: '1일 전',
         color: 'purple',
@@ -48,7 +47,6 @@ export const mockInstructorCourses: Course[] = [
   {
     id: 'course-database',
     title: '데이터베이스 설계 입문',
-    participantCount: 41,
     questionCount: 5,
     color: 'purple',
     ownership: 'owned',
@@ -80,7 +78,6 @@ export const mockStudentFolders: CourseFolder[] = [
           {
             id: 'course-array',
             title: '배열과 연결 리스트',
-            participantCount: 34,
             questionCount: 12,
             updatedAt: '2시간 전',
             color: 'blue',
@@ -122,7 +119,6 @@ export const mockStudentCourses: Course[] = [
   {
     id: 'course-ai-seminar',
     title: 'AI 세미나: 파운데이션 모델',
-    participantCount: 88,
     questionCount: 31,
     color: 'blue',
     ownership: 'registered',
@@ -135,7 +131,6 @@ export const mockStudentCourses: Course[] = [
   {
     id: 'course-career-talk',
     title: '커리어 토크: 대기업 취업 전략',
-    participantCount: 56,
     questionCount: 7,
     color: 'blue',
     ownership: 'registered',
@@ -148,7 +143,6 @@ export const mockStudentCourses: Course[] = [
   {
     id: 'course-python',
     title: '파이썬 워크샵: 고급 패턴',
-    participantCount: 44,
     questionCount: 18,
     color: 'blue',
     ownership: 'registered',
@@ -168,11 +162,13 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
     lecturerName: mockCurrentUser.name,
     participantCount: 34,
     capacity: null,
+    isFavorited: false,
+    isOwnedByMe: true,
     feedbackOptions: [
-      { key: 'cold', label: '추워요', likeCount: 8, dislikeCount: 2, myVote: null },
-      { key: 'hot', label: '더워요', likeCount: 1, dislikeCount: 4, myVote: null },
-      { key: 'quiet', label: '소리가 작아요', likeCount: 5, dislikeCount: 1, myVote: null },
-      { key: 'unclear', label: '잘 안 보여요', likeCount: 3, dislikeCount: 0, myVote: null },
+      { key: 'cold', label: '추워요', likeCount: 8, dislikeCount: 2, myLiked: false, myDisliked: false },
+      { key: 'hot', label: '더워요', likeCount: 1, dislikeCount: 4, myLiked: false, myDisliked: false },
+      { key: 'quiet', label: '소리가 작아요', likeCount: 5, dislikeCount: 1, myLiked: false, myDisliked: false },
+      { key: 'unclear', label: '잘 안 보여요', likeCount: 3, dislikeCount: 0, myLiked: false, myDisliked: false },
     ],
     questions: [
       {
@@ -181,6 +177,8 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
         authorRole: 'anonymous',
         postType: 'question',
         createdAt: '10분 전',
+        createdAtRaw: '2026-07-03T09:50:00.000Z',
+        resolvedAtRaw: null,
         content: 'DFS와 BFS의 메모리 사용량 차이와 실제 적용 사례가 궁금합니다.',
         likeCount: 14,
         isLikedByMe: false,
@@ -235,6 +233,8 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
         authorRole: 'student',
         postType: 'question',
         createdAt: '25분 전',
+        createdAtRaw: '2026-07-03T09:35:00.000Z',
+        resolvedAtRaw: null,
         content: '무방향 그래프에서 DFS로 사이클을 감지하는 방법이 방향 그래프와 어떻게 다른가요?',
         likeCount: 7,
         isLikedByMe: false,
@@ -249,6 +249,8 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
         authorRole: 'anonymous',
         postType: 'question',
         createdAt: '40분 전',
+        createdAtRaw: '2026-07-03T09:20:00.000Z',
+        resolvedAtRaw: '2026-07-03T09:55:00.000Z',
         content: '트리의 정의에서 사이클이 없다는 조건이 왜 필요한가요?',
         likeCount: 5,
         isLikedByMe: false,
@@ -277,6 +279,8 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
         authorRole: 'student',
         postType: 'question',
         createdAt: '1시간 전',
+        createdAtRaw: '2026-07-03T09:00:00.000Z',
+        resolvedAtRaw: '2026-07-03T10:10:00.000Z',
         content: '최소 신장 트리에서 크루스칼과 프림 알고리즘의 시간 복잡도 차이를 다시 설명해 주실 수 있나요?',
         likeCount: 4,
         isLikedByMe: false,
@@ -294,11 +298,13 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
     lecturerName: mockCurrentUser.name,
     participantCount: 41,
     capacity: null,
+    isFavorited: false,
+    isOwnedByMe: true,
     feedbackOptions: [
-      { key: 'cold', label: '추워요', likeCount: 2, dislikeCount: 0, myVote: null },
-      { key: 'hot', label: '더워요', likeCount: 0, dislikeCount: 0, myVote: null },
-      { key: 'quiet', label: '소리가 작아요', likeCount: 1, dislikeCount: 0, myVote: null },
-      { key: 'unclear', label: '잘 안 보여요', likeCount: 0, dislikeCount: 0, myVote: null },
+      { key: 'cold', label: '추워요', likeCount: 2, dislikeCount: 0, myLiked: false, myDisliked: false },
+      { key: 'hot', label: '더워요', likeCount: 0, dislikeCount: 0, myLiked: false, myDisliked: false },
+      { key: 'quiet', label: '소리가 작아요', likeCount: 1, dislikeCount: 0, myLiked: false, myDisliked: false },
+      { key: 'unclear', label: '잘 안 보여요', likeCount: 0, dislikeCount: 0, myLiked: false, myDisliked: false },
     ],
     questions: [
       {
@@ -307,6 +313,8 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
         authorRole: 'anonymous',
         postType: 'question',
         createdAt: '30분 전',
+        createdAtRaw: '2026-07-06T08:30:00.000Z',
+        resolvedAtRaw: null,
         content: '정규화 3단계(3NF)까지만 해도 충분한 경우와 그렇지 않은 경우의 기준이 궁금합니다.',
         likeCount: 5,
         isLikedByMe: false,

@@ -1,4 +1,4 @@
-import { Check, Copy, Link as LinkIcon, RotateCcw, Users, X } from 'lucide-react'
+import { Check, Copy, Link as LinkIcon, RotateCcw, X } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { useEffect, useState } from 'react'
 import { getOrCreateJoinCode, reissueJoinCode } from '../../services/api'
@@ -119,14 +119,6 @@ export default function ShareCourseModal({ isOpen, course, onClose }: ShareCours
           </div>
           <CopyField value={joinCode ?? '발급 중...'} />
           {error && <p className="text-xs font-medium text-rose-500">{error}</p>}
-        </div>
-
-        <div className="mt-6 flex items-center gap-3 rounded-2xl bg-violet-50 px-4 py-3">
-          <Users className="size-5 shrink-0 text-violet-600" />
-          <div>
-            <p className="font-bold text-violet-700">현재 {course.participantCount}명 접속 중</p>
-            <p className="text-xs text-violet-500">링크 생성 후 방문 기록이 여기에 표시됩니다</p>
-          </div>
         </div>
       </section>
     </div>

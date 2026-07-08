@@ -9,7 +9,7 @@ import {
 import { getGuestToken } from './guestToken'
 import { supabase } from './supabaseClient'
 import type { Course, CourseFolder, CreateCourseInput, CreateFolderInput, DeleteItemInput, FolderOwnership, MoveItemInput, RenameItemInput, UpdateCourseInput } from '../types/course'
-import type { ComposerSubmission, CourseRoom, FeedbackKey, FeedbackOption, Question, QuestionReply, SubmitPostResult, UnansweredFolderNode, UnansweredQuestion } from '../types/room'
+import type { ComposerSubmission, CourseRoom, FeedbackKey, FeedbackOption, PostType, Question, QuestionReply, SubmitPostResult, UnansweredFolderNode, UnansweredQuestion } from '../types/room'
 import type { User, UserRole } from '../types/user'
 
 type DbMode = 'lecturer' | 'student'
@@ -78,7 +78,7 @@ const clone = <T,>(value: T): T => structuredClone(value)
  * 오가므로, 계정 id만으로는 두 역할을 구분할 수 없습니다. 따라서
  * `id:role`을 투표자 키로 사용해 역할별로 다른 사람처럼 취급합니다.
  */
-const feedbackVotesByUser = new Map<string, Map<FeedbackKey, 'like' | 'dislike'>>()
+const feedbackVotesByUser = new Map<string, Map<FeedbackKey, Set<'like' | 'dislike'>>>()
 const questionLikesByUser = new Map<string, Set<string>>()
 
 /**
@@ -97,7 +97,7 @@ function getViewerKey(): string {
   return `${mockCurrentUser.id}:${mockCurrentUser.role}`
 }
 
-function getFeedbackVotes(voterKey: string): Map<FeedbackKey, 'like' | 'dislike'> {
+function getFeedbackVotes(voterKey: string): Map<FeedbackKey, Set<'like' | 'dislike'>> {
   let votes = feedbackVotesByUser.get(voterKey)
   if (!votes) {
     votes = new Map()
@@ -140,7 +140,11 @@ function applyViewerVotes(room: CourseRoom, voterKey: string): CourseRoom {
 
   return {
     ...room,
-    feedbackOptions: room.feedbackOptions.map((option) => ({ ...option, myVote: votes.get(option.key) ?? null })),
+    feedbackOptions: room.feedbackOptions.map((option) => ({
+      ...option,
+      myLiked: votes.get(option.key)?.has('like') ?? false,
+      myDisliked: votes.get(option.key)?.has('dislike') ?? false,
+    })),
     questions: room.questions.map(applyToQuestion),
   }
 }
@@ -156,11 +160,11 @@ export async function getCurrentUser(): Promise<User | null> {
   return loadUserFromSession(authUser)
 }
 
-/** Google OAuth 로그인을 시작합니다. 리다이렉트 후 돌아오면 세션이 생깁니다. */
+/** Google OAuth 로그인을 시작합니다. 로그인을 호출한 페이지로 그대로 돌아옵니다. */
 export async function signInWithGoogle(): Promise<void> {
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
-    options: { redirectTo: window.location.origin },
+    options: { redirectTo: window.location.href },
   })
   if (error) throw error
 }
@@ -238,13 +242,12 @@ function nodeToItem(node: NodeRow, ownership: FolderOwnership): CourseFolder | C
     const course: Course = {
       id: node.id,
       title: node.name,
-      participantCount: 0,
       questionCount: 0,
       color: ownership === 'owned' ? 'purple' : 'blue',
       ownership,
-      date: node.lectures?.start_time,
-      startTime: node.lectures?.start_time,
-      endTime: node.lectures?.end_time,
+      date: node.lectures ? toDateInputValue(node.lectures.start_time) : undefined,
+      startTime: node.lectures ? toTimeInputValue(node.lectures.start_time) : undefined,
+      endTime: node.lectures ? toTimeInputValue(node.lectures.end_time) : undefined,
       location: node.lectures?.location ?? undefined,
       capacity: node.lectures?.max_participants ?? null,
     }
@@ -296,7 +299,11 @@ function buildFavoriteRoots(rows: FavoriteSubtreeRow[]): Map<string, CourseFolde
   for (const [anchorNodeId, anchorRows] of byAnchor) {
     const { folders, rootCourses } = buildFolderTree(anchorRows, 'registered')
     const root = folders[0] ?? rootCourses[0]
-    if (root) roots.set(anchorNodeId, root)
+    if (root) {
+      // 이 노드만 favorites 행을 가진 "덩어리 루트" - 통째로 이동 가능. 서브트리 내부 노드는 아님.
+      root.isFavoriteRoot = true
+      roots.set(anchorNodeId, root)
+    }
   }
   return roots
 }
@@ -308,9 +315,10 @@ async function getInstructorDataset(userId: string): Promise<{ folders: CourseFo
     .eq('created_by', userId)
     .eq('created_mode', 'lecturer')
     .order('created_at')
+    .returns<NodeRow[]>()
 
   if (error) throw error
-  return buildFolderTree((data ?? []) as NodeRow[], 'owned')
+  return buildFolderTree(data ?? [], 'owned')
 }
 
 async function getStudentDataset(userId: string): Promise<{ folders: CourseFolder[]; rootCourses: Course[] }> {
@@ -439,14 +447,13 @@ async function findCourseByJoinCode(code: string): Promise<Course> {
   return {
     id: node.id,
     title: node.name,
-    participantCount: 0,
     questionCount: countRow?.post_count ?? 0,
     updatedAt: '방금 전',
     color: 'blue',
     ownership: 'registered',
-    date: node.lectures?.start_time,
-    startTime: node.lectures?.start_time,
-    endTime: node.lectures?.end_time,
+    date: node.lectures ? toDateInputValue(node.lectures.start_time) : undefined,
+    startTime: node.lectures ? toTimeInputValue(node.lectures.start_time) : undefined,
+    endTime: node.lectures ? toTimeInputValue(node.lectures.end_time) : undefined,
     location: node.lectures?.location ?? undefined,
     capacity: node.lectures?.max_participants ?? null,
   }
@@ -482,6 +489,32 @@ export async function registerCourseByCode(id: string): Promise<void> {
 
   const { error } = await supabase.from('favorites').insert({ user_id: userId, node_id: node.id, anchor_id: null })
   if (error) throw error
+}
+
+async function isCourseFavorited(courseId: string, userId: string): Promise<boolean> {
+  const { data, error } = await supabase.from('favorites').select('node_id').eq('user_id', userId).eq('node_id', courseId).maybeSingle()
+  if (error) throw error
+  return !!data
+}
+
+/**
+ * 강의실 헤더의 "내 강의로 등록" 토글. 이미 등록돼 있으면 취소, 아니면 최상위에 등록.
+ * deleteCourseItem과 달리 owned 여부를 따지지 않고 항상 favorites만 다룸(이 버튼은
+ * 강의 자체를 삭제하는 용도가 아니라 즐겨찾기 등록/취소 전용이라서).
+ */
+export async function toggleCourseRegistration(courseId: string): Promise<{ isFavorited: boolean }> {
+  const userId = await requireAuthUserId()
+  const alreadyFavorited = await isCourseFavorited(courseId, userId)
+
+  if (alreadyFavorited) {
+    const { error } = await supabase.from('favorites').delete().eq('user_id', userId).eq('node_id', courseId)
+    if (error) throw error
+    return { isFavorited: false }
+  }
+
+  const { error } = await supabase.from('favorites').insert({ user_id: userId, node_id: courseId, anchor_id: null })
+  if (error) throw error
+  return { isFavorited: true }
 }
 
 export async function createRootFolder(input: CreateFolderInput): Promise<CourseFolder> {
@@ -525,7 +558,6 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
   return {
     id: node.id,
     title: node.name,
-    participantCount: 0,
     questionCount: 0,
     color: 'purple',
     ownership: 'owned',
@@ -576,7 +608,6 @@ export async function updateCourse(input: UpdateCourseInput): Promise<Course> {
   return {
     id: node.id,
     title: node.name,
-    participantCount: 0,
     questionCount: 0,
     color: 'purple',
     ownership: 'owned',
@@ -588,7 +619,7 @@ export async function updateCourse(input: UpdateCourseInput): Promise<Course> {
   }
 }
 
-function isPrivilegedEditor(): boolean {
+export function isPrivilegedEditor(): boolean {
   return mockCurrentUser.role === 'instructor'
 }
 
@@ -637,10 +668,16 @@ export async function moveCourseItem(input: MoveItemInput): Promise<void> {
     return
   }
 
-  if (input.itemType === 'folder') throw new Error('강의자가 공유한 폴더는 이동할 수 없습니다.')
-
-  const { error } = await supabase.from('favorites').update({ anchor_id: input.targetFolderId }).eq('user_id', userId).eq('node_id', input.itemId)
+  // 등록(즐겨찾기)한 항목: 강의든 폴더든 favorites 행을 가진 "덩어리 루트"만 anchor_id를 바꿔
+  // 통째로 이동. 서브트리 내부 노드는 favorites 행이 없어 0행 업데이트되므로 명시적으로 거부.
+  const { data, error } = await supabase
+    .from('favorites')
+    .update({ anchor_id: input.targetFolderId })
+    .eq('user_id', userId)
+    .eq('node_id', input.itemId)
+    .select('node_id')
   if (error) throw error
+  if (!data || data.length === 0) throw new Error('이동할 수 없는 항목입니다.')
 }
 
 /** 폴더/강의 이름을 변경합니다. 내가 만든(owned) 항목만 가능합니다(RLS: nodes_update_own). */
@@ -672,12 +709,30 @@ interface LecturePublicRow {
   location: string | null
   max_participants: number | null
   lecturer_name: string | null
+  created_by: string | null
 }
 
 function formatLectureDate(startTime: string): string {
   const date = new Date(startTime)
   const weekday = ['일', '월', '화', '수', '목', '금', '토'][date.getDay()]
   return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 (${weekday})`
+}
+
+/** <input type="date">가 요구하는 YYYY-MM-DD 형식으로, 로컬 타임존 기준 날짜를 뽑습니다. */
+function toDateInputValue(isoDateTime: string): string {
+  const date = new Date(isoDateTime)
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+/** <input type="time">가 요구하는 HH:mm 형식으로, 로컬 타임존 기준 시각을 뽑습니다. */
+function toTimeInputValue(isoDateTime: string): string {
+  const date = new Date(isoDateTime)
+  const hh = String(date.getHours()).padStart(2, '0')
+  const mi = String(date.getMinutes()).padStart(2, '0')
+  return `${hh}:${mi}`
 }
 
 interface CourseRoomMeta {
@@ -687,17 +742,23 @@ interface CourseRoomMeta {
   lecturerName: string
   participantCount: number
   capacity: number | null
+  isFavorited: boolean
+  isOwnedByMe: boolean
 }
 
 /** 실제 DB(lectures_public)에서 강의 메타데이터만 조회합니다. */
 async function getCourseRoomFromDb(courseId: string): Promise<CourseRoomMeta> {
   const { data: lecture, error } = await supabase
     .from('lectures_public')
-    .select('id, title, start_time, end_time, location, max_participants, lecturer_name')
+    .select('id, title, start_time, end_time, location, max_participants, lecturer_name, created_by')
     .eq('id', courseId)
     .single<LecturePublicRow>()
 
   if (error || !lecture) throw new Error('강의실을 찾을 수 없습니다.')
+
+  const { data: sessionData } = await supabase.auth.getSession()
+  const userId = sessionData.session?.user.id
+  const isFavorited = userId ? await isCourseFavorited(courseId, userId) : false
 
   return {
     id: lecture.id,
@@ -707,6 +768,8 @@ async function getCourseRoomFromDb(courseId: string): Promise<CourseRoomMeta> {
     lecturerName: lecture.lecturer_name ?? '탈퇴한 계정입니다',
     participantCount: 0,
     capacity: lecture.max_participants,
+    isFavorited,
+    isOwnedByMe: userId != null && lecture.created_by === userId,
   }
 }
 
@@ -746,7 +809,7 @@ interface PostPublicRow {
   is_mine: boolean
 }
 
-function formatRelativeTime(isoDate: string): string {
+export function formatRelativeTime(isoDate: string): string {
   const diffMs = Date.now() - new Date(isoDate).getTime()
   const diffMinutes = Math.floor(diffMs / 60000)
   if (diffMinutes < 1) return '방금 전'
@@ -757,7 +820,7 @@ function formatRelativeTime(isoDate: string): string {
 }
 
 /** posts_public.created_mode를 그대로 사용해 강의자/수강생/익명을 정확히 판별합니다. */
-function postAuthorRole(row: Pick<PostPublicRow, 'is_anonymous' | 'created_mode'>): 'lecturer' | 'anonymous' | 'student' {
+export function postAuthorRole(row: Pick<PostPublicRow, 'is_anonymous' | 'created_mode'>): 'lecturer' | 'anonymous' | 'student' {
   if (row.is_anonymous) return 'anonymous'
   return row.created_mode === 'lecturer' ? 'lecturer' : 'student'
 }
@@ -766,7 +829,7 @@ function postAuthorRole(row: Pick<PostPublicRow, 'is_anonymous' | 'created_mode'
  * 익명 글은 항상 "익명"으로 표시합니다. 실명 글인데 author_display_name이 null이면
  * 작성자가 탈퇴한 회원이라는 뜻이라 "탈퇴한 계정입니다"로 표시합니다.
  */
-function resolvePostAuthorName(row: Pick<PostPublicRow, 'is_anonymous' | 'author_display_name'>): string {
+export function resolvePostAuthorName(row: Pick<PostPublicRow, 'is_anonymous' | 'author_display_name'>): string {
   if (row.is_anonymous) return '익명'
   return row.author_display_name ?? '탈퇴한 계정입니다'
 }
@@ -795,7 +858,7 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
       isLoggedIn,
     ),
     supabase.from('post_likes_counts').select('post_id, like_count'),
-    supabase.from('post_likes').select('post_id').eq('voter_key', voterKey),
+    withGuestHeader(supabase.from('post_likes').select('post_id').eq('voter_key', voterKey), isLoggedIn),
   ])
 
   if (postsError) throw postsError
@@ -811,6 +874,12 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
     const bucket = byParent.get(row.parent_id)
     if (bucket) bucket.push(row)
     else byParent.set(row.parent_id, [row])
+  }
+  // 답글은 최근에 제출한 게 아래로 가도록(자연스러운 대화 순서) 제출 시각 오름차순 정렬.
+  // parent_id === null(최상위 글) 버킷은 아래에서 별도 규칙으로 다시 정렬하므로 여기서
+  // 건드려도 상관없음(어차피 덮어씀).
+  for (const bucket of byParent.values()) {
+    bucket.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0))
   }
 
   const canDelete = (row: PostPublicRow): boolean => row.is_mine || isPrivilegedEditor()
@@ -835,52 +904,190 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
   }
 
   const topLevel = byParent.get(null) ?? []
-  return topLevel
-    .map((row): Question => ({
-      id: row.id,
-      authorName: resolvePostAuthorName(row),
-      authorRole: postAuthorRole(row),
-      postType: row.type,
-      isEditable: row.is_mine,
-      canDelete: canDelete(row),
-      createdAt: formatRelativeTime(row.created_at),
-      content: row.content,
-      likeCount: likeCountByPostId.get(row.id) ?? 0,
-      isLikedByMe: likedPostIds.has(row.id),
-      isResolved: row.status === 'resolved',
-      replies: collectReplies(row.id, 0),
-    }))
-    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+  // 미해결/해결 게시글은 정렬 기준이 완전히 달라서(좋아요·제출시각 vs 해결시각) 한 배열에
+  // 섞은 채로 비교 함수 하나로 처리하면 비교 함수가 추이성을 잃어 Array.sort 결과가
+  // 불안정해짐 - 두 그룹으로 나눠 각자 정렬한 뒤 합침(필터 탭이 어차피 나눠서 보여주므로
+  // 두 그룹 사이의 상대 순서는 의미 없음).
+  const unresolved = topLevel.filter((row) => row.status !== 'resolved')
+  const resolved = topLevel.filter((row) => row.status === 'resolved')
+
+  // 미해결: 좋아요 개수 내림차순, 동률이면 제출 시각 최신순(최근 제출일수록 위).
+  unresolved.sort((a, b) => {
+    const likeDiff = (likeCountByPostId.get(b.id) ?? 0) - (likeCountByPostId.get(a.id) ?? 0)
+    if (likeDiff !== 0) return likeDiff
+    return b.created_at.localeCompare(a.created_at)
+  })
+  // 해결됨: 해결된 시각 내림차순(최근에 해결될수록 위).
+  resolved.sort((a, b) => (b.resolved_at ?? '').localeCompare(a.resolved_at ?? ''))
+
+  const sortedTopLevel = [...unresolved, ...resolved]
+
+  return sortedTopLevel.map((row): Question => ({
+    id: row.id,
+    authorName: resolvePostAuthorName(row),
+    authorRole: postAuthorRole(row),
+    postType: row.type,
+    isEditable: row.is_mine,
+    canDelete: canDelete(row),
+    createdAt: formatRelativeTime(row.created_at),
+    createdAtRaw: row.created_at,
+    resolvedAtRaw: row.resolved_at,
+    content: row.content,
+    likeCount: likeCountByPostId.get(row.id) ?? 0,
+    isLikedByMe: likedPostIds.has(row.id),
+    isResolved: row.status === 'resolved',
+    replies: collectReplies(row.id, 0),
+  }))
 }
 
 const FEEDBACK_LABELS: Record<FeedbackKey, string> = { cold: '추워요', hot: '더워요', quiet: '소리가 작아요', unclear: '잘 안 보여요' }
 const FEEDBACK_KEYS: FeedbackKey[] = ['cold', 'hot', 'quiet', 'unclear']
 
 async function getFeedbackOptionsFromDb(lectureId: string): Promise<FeedbackOption[]> {
+  const { data: sessionData } = await supabase.auth.getSession()
+  const isLoggedIn = Boolean(sessionData.session?.user.id)
   const voterKey = await getCurrentVoterKey()
 
   const [{ data: counts, error: countsError }, { data: myVotes, error: myVotesError }] = await Promise.all([
     supabase.from('lecture_feedback_votes_counts').select('feedback_type, like_count, dislike_count').eq('lecture_id', lectureId),
-    supabase.from('lecture_feedback_votes').select('feedback_type, value').eq('lecture_id', lectureId).eq('voter_key', voterKey),
+    withGuestHeader(
+      supabase.from('lecture_feedback_votes').select('feedback_type, value').eq('lecture_id', lectureId).eq('voter_key', voterKey),
+      isLoggedIn,
+    ),
   ])
 
   if (countsError) throw countsError
   if (myVotesError) throw myVotesError
 
   const countByType = new Map((counts ?? []).map((row) => [row.feedback_type as FeedbackKey, { likeCount: row.like_count as number, dislikeCount: row.dislike_count as number }]))
-  const myVoteByType = new Map((myVotes ?? []).map((row) => [row.feedback_type as FeedbackKey, row.value === 1 ? 'like' as const : 'dislike' as const]))
+  const myLikedTypes = new Set((myVotes ?? []).filter((row) => row.value === 1).map((row) => row.feedback_type as FeedbackKey))
+  const myDislikedTypes = new Set((myVotes ?? []).filter((row) => row.value === -1).map((row) => row.feedback_type as FeedbackKey))
 
   return FEEDBACK_KEYS.map((key) => ({
     key,
     label: FEEDBACK_LABELS[key],
     likeCount: countByType.get(key)?.likeCount ?? 0,
     dislikeCount: countByType.get(key)?.dislikeCount ?? 0,
-    myVote: myVoteByType.get(key) ?? null,
+    myLiked: myLikedTypes.has(key),
+    myDisliked: myDislikedTypes.has(key),
   }))
 }
 
-function isAnsweredByLecturer(question: Question): boolean {
-  return question.replies.some((reply) => reply.authorRole === 'lecturer')
+/** posts 트리거가 브로드캐스트하는 post_change 페이로드(DB_DESIGN.md의 broadcast_post_change 참고). */
+export interface PostChangePayload {
+  op: 'INSERT' | 'UPDATE' | 'DELETE'
+  id: string
+  lecture_id: string
+  parent_id: string | null
+  author_display_name?: string | null
+  is_anonymous?: boolean
+  type?: PostType
+  status?: 'unresolved' | 'resolved' | null
+  resolved_at?: string | null
+  content?: string
+  created_at?: string
+  created_mode?: DbMode
+}
+
+export interface LikeChangePayload {
+  post_id: string
+  like_count: number
+}
+
+export interface FeedbackChangePayload {
+  feedback_type: FeedbackKey
+  like_count: number
+  dislike_count: number
+}
+
+export interface LectureUpdatedPayload {
+  id: string
+  name: string
+}
+
+export interface LectureDetailsUpdatedPayload {
+  id: string
+  start_time: string
+  end_time: string
+  location: string | null
+  max_participants: number | null
+}
+
+interface RoomBroadcastHandlers {
+  onPostChange: (payload: PostChangePayload) => void
+  onLikeChange: (payload: LikeChangePayload) => void
+  onFeedbackChange: (payload: FeedbackChangePayload) => void
+  onLectureUpdated: (payload: LectureUpdatedPayload) => void
+  onLectureDetailsUpdated: (payload: LectureDetailsUpdatedPayload) => void
+  onParticipantCount: (count: number) => void
+  /**
+   * 이 채널 구독 시점에 정원이 이미 다 찼는지(=track() 여부) 딱 한 번 알려줍니다.
+   * 이후 인원 변동으로 count가 capacity에 도달/초과해도 다시 호출되지 않습니다 -
+   * "입장 가능 여부"는 입장 시점에만 판단하고, 이미 들어와 있는 사람을 나중에
+   * 강제로 내쫓지는 않기 위함입니다.
+   */
+  onAdmissionDecided: (admitted: boolean) => void
+}
+
+/**
+ * 강의실 실시간 채널(`lecture:<lectureId>`) 구독 - 브로드캐스트(질문/답글, 좋아요, 실시간
+ * 피드백, 강의 제목/일정)와 Presence(접속자 수)를 하나의 채널로 처리합니다.
+ *
+ * 반드시 한 채널이어야 함: 같은 웹소켓에서 같은 토픽으로 두 번째 join이 들어오면 Realtime
+ * 서버가 먼저 붙어 있던 채널을 닫아버리므로, Presence용/브로드캐스트용 채널을 따로 만들면
+ * 먼저 열린 쪽이 조용히 죽습니다(접속자 수가 0으로 고정되던 버그의 원인).
+ *
+ * `capacity`(`lectures.max_participants`)는 강의실 입장 자체를 막는 값이 아닙니다 -
+ * Presence는 웹소켓 채널 상태일 뿐이라 "이 채널에 등록 안 하고 그냥 페이지 정보만
+ * 요청하는" 접근을 DB/서버 차원에서 막을 방법이 없고(막을 필요도 없음), 그러니 입장
+ * 자체를 강제하는 건 애초에 의미가 없습니다. 대신 "실시간 집계에 반영되는(=track되는)
+ * 인원의 최대치"로 정의합니다 - 구독 시점 인원이 이미 정원이면 이 사람은 그냥
+ * track()하지 않고 관전만 합니다(페이지 이용 자체는 평소와 동일, 접속자 수 카운트에만
+ * 안 잡힘). 그래서 표시되는 참여자 수는 항상 `capacity`를 넘지 않습니다.
+ *
+ * 반환값을 호출해 구독을 해제합니다.
+ */
+export function subscribeToRoomChannel(lectureId: string, capacity: number | null, handlers: RoomBroadcastHandlers): () => void {
+  let cancelled = false
+  let hasDecided = false
+  let channel: ReturnType<typeof supabase.channel> | null = null
+
+  void (async () => {
+    const presenceKey = await getCurrentVoterKey()
+    if (cancelled) return
+
+    channel = supabase.channel(`lecture:${lectureId}`, {
+      config: { presence: { key: presenceKey } },
+    })
+
+    channel
+      .on('broadcast', { event: 'post_change' }, ({ payload }) => handlers.onPostChange(payload as PostChangePayload))
+      .on('broadcast', { event: 'like_change' }, ({ payload }) => handlers.onLikeChange(payload as LikeChangePayload))
+      .on('broadcast', { event: 'feedback_change' }, ({ payload }) => handlers.onFeedbackChange(payload as FeedbackChangePayload))
+      .on('broadcast', { event: 'lecture_updated' }, ({ payload }) => handlers.onLectureUpdated(payload as LectureUpdatedPayload))
+      .on('broadcast', { event: 'lecture_details_updated' }, ({ payload }) => handlers.onLectureDetailsUpdated(payload as LectureDetailsUpdatedPayload))
+      .on('presence', { event: 'sync' }, () => {
+        if (cancelled || !channel) return
+        const count = Object.keys(channel.presenceState()).length
+        handlers.onParticipantCount(count)
+
+        if (!hasDecided) {
+          hasDecided = true
+          const isFull = capacity != null && count >= capacity
+          if (!isFull) void channel.track({ joined_at: new Date().toISOString() })
+          handlers.onAdmissionDecided(!isFull)
+        }
+      })
+      .subscribe()
+  })()
+
+  return () => {
+    cancelled = true
+    if (channel) {
+      void channel.untrack()
+      void supabase.removeChannel(channel)
+    }
+  }
 }
 
 function collectAllCourses(folders: CourseFolder[], rootCourses: Course[]): Course[] {
@@ -903,7 +1110,7 @@ function findUnansweredInCourses(
     const roomQuestions = mockCourseRooms[course.id]?.questions ?? questionsByCourseId.get(course.id) ?? []
 
     const questions = roomQuestions
-      .filter((question) => question.postType === 'question' && !isAnsweredByLecturer(question))
+      .filter((question) => question.postType === 'question' && !question.isResolved)
       .map((question) => ({ ...question, courseId: course.id, courseTitle: course.title }))
 
     if (questions.length > 0) groups.push({ id: course.id, title: course.title, questions })
@@ -926,7 +1133,7 @@ function buildUnansweredTree(folders: CourseFolder[], questionsByCourseId: Map<s
   return nodes
 }
 
-/** 강의자의 모든 강의에서 강의자 본인이 아직 답변하지 않은 '질문' 유형 게시글만 폴더 구조로 모아 반환합니다. */
+/** 강의자의 모든 강의에서 미해결 상태인 '질문' 유형 게시글만 폴더 구조로 모아 반환합니다(강의자 답글 여부와 무관). */
 export async function getUnansweredQuestions(): Promise<{ folders: UnansweredFolderNode[]; standaloneCourses: Array<{ id: string; title: string; questions: UnansweredQuestion[] }>; totalCount: number }> {
   const userId = await requireAuthUserId()
   const { folders: activeFolders, rootCourses } = await getInstructorDataset(userId)
@@ -1056,6 +1263,8 @@ function buildOwnQuestion(id: string, createdAt: string, status: 'unresolved' | 
     isEditable: true,
     canDelete: true,
     createdAt: formatRelativeTime(createdAt),
+    createdAtRaw: createdAt,
+    resolvedAtRaw: status === 'resolved' ? new Date().toISOString() : null,
     content: submission.content,
     likeCount: 0,
     isLikedByMe: false,
@@ -1181,9 +1390,9 @@ export async function updateQuestion(courseId: string, questionId: string, conte
 
   const { data: updated, error: fetchError } = await supabase
     .from('posts_public')
-    .select('id, is_anonymous, type, status, created_at, created_mode')
+    .select('id, is_anonymous, type, status, resolved_at, created_at, created_mode')
     .eq('id', questionId)
-    .single<Pick<PostPublicRow, 'id' | 'is_anonymous' | 'type' | 'status' | 'created_at' | 'created_mode'>>()
+    .single<Pick<PostPublicRow, 'id' | 'is_anonymous' | 'type' | 'status' | 'resolved_at' | 'created_at' | 'created_mode'>>()
   if (fetchError) throw fetchError
 
   return {
@@ -1194,6 +1403,8 @@ export async function updateQuestion(courseId: string, questionId: string, conte
     isEditable: true,
     canDelete: true,
     createdAt: formatRelativeTime(updated.created_at),
+    createdAtRaw: updated.created_at,
+    resolvedAtRaw: updated.resolved_at,
     content,
     likeCount: 0,
     isLikedByMe: false,
@@ -1273,7 +1484,7 @@ async function togglePostLike(postId: string): Promise<{ likeCount: number; isLi
 }
 
 /** 강의자가 질문의 해결 여부를 전환합니다(RLS: posts_lecturer_update_status). */
-export async function resolveQuestion(courseId: string, questionId: string): Promise<{ isResolved: boolean }> {
+export async function resolveQuestion(courseId: string, questionId: string): Promise<{ isResolved: boolean; resolvedAtRaw: string | null }> {
   if (!isPrivilegedEditor()) throw new Error('강의자만 질문을 해결 처리할 수 있습니다.')
 
   const room = mockCourseRooms[courseId]
@@ -1282,17 +1493,17 @@ export async function resolveQuestion(courseId: string, questionId: string): Pro
     const question = room.questions.find((item) => item.id === questionId)
     if (!question) throw new Error('질문을 찾을 수 없습니다.')
     question.isResolved = !question.isResolved
-    return { isResolved: question.isResolved }
+    return { isResolved: question.isResolved, resolvedAtRaw: question.isResolved ? new Date().toISOString() : null }
   }
 
   const { data: current, error: currentError } = await supabase.from('posts_public').select('status').eq('id', questionId).single<{ status: 'unresolved' | 'resolved' | null }>()
   if (currentError) throw currentError
 
   const nextStatus = current.status === 'resolved' ? 'unresolved' : 'resolved'
-  const { error } = await supabase.from('posts').update({ status: nextStatus }).eq('id', questionId)
+  const { data: updated, error } = await supabase.from('posts').update({ status: nextStatus }).eq('id', questionId).select('resolved_at').single<{ resolved_at: string | null }>()
   if (error) throw error
 
-  return { isResolved: nextStatus === 'resolved' }
+  return { isResolved: nextStatus === 'resolved', resolvedAtRaw: updated.resolved_at }
 }
 
 export async function toggleFeedback(courseId: string, key: FeedbackKey, vote: 'like' | 'dislike'): Promise<CourseRoom> {
@@ -1305,18 +1516,17 @@ export async function toggleFeedback(courseId: string, key: FeedbackKey, vote: '
     if (!option) throw new Error('피드백 항목을 찾을 수 없습니다.')
 
     const votes = getFeedbackVotes(getViewerKey())
-    const myVote = votes.get(key) ?? null
+    const hadVote = votes.get(key)?.has(vote) ?? false
 
-    if (myVote === vote) {
+    if (hadVote) {
       if (vote === 'like') option.likeCount -= 1
       else option.dislikeCount -= 1
-      votes.delete(key)
+      votes.get(key)?.delete(vote)
     } else {
-      if (myVote === 'like') option.likeCount -= 1
-      if (myVote === 'dislike') option.dislikeCount -= 1
       if (vote === 'like') option.likeCount += 1
       else option.dislikeCount += 1
-      votes.set(key, vote)
+      if (!votes.has(key)) votes.set(key, new Set())
+      votes.get(key)?.add(vote)
     }
 
     return clone(applyViewerVotes(room, getViewerKey()))

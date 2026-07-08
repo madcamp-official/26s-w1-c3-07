@@ -1,18 +1,24 @@
-import { ThumbsUp, Trash2 } from 'lucide-react'
+import { MessageSquare, Pencil, ThumbsUp, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { QuestionReply } from '../../types/room'
 import { cn } from '../../utils/cn'
 
 interface ReplyItemProps {
   reply: QuestionReply
+  isHighlighted?: boolean
+  onLike?: () => void
   onReply?: () => void
   onEdit?: (content: string) => Promise<void>
   onDelete?: () => void
 }
 
-export default function ReplyItem({ reply, onReply, onEdit, onDelete }: ReplyItemProps) {
+export default function ReplyItem({ reply, isHighlighted = false, onLike, onReply, onEdit, onDelete }: ReplyItemProps) {
   const isLecturer = reply.authorRole === 'lecturer'
   const isOpinion = reply.postType === 'opinion'
+  // 좋아요/답글/수정 펜의 색(hover·활성·채움)을 셀 왼쪽 테두리 색(강의자=노랑, 의견=파랑, 질문답글=보라)과 맞춤.
+  const accentText = isLecturer ? 'text-amber-600' : isOpinion ? 'text-blue-600' : 'text-violet-600'
+  const accentFill = isLecturer ? 'fill-amber-600' : isOpinion ? 'fill-blue-600' : 'fill-violet-600'
+  const accentHover = isLecturer ? 'hover:text-amber-600' : isOpinion ? 'hover:text-blue-600' : 'hover:text-violet-600'
   const [isEditing, setIsEditing] = useState(false)
   const [draft, setDraft] = useState(reply.content)
   const [isSaving, setIsSaving] = useState(false)
@@ -40,22 +46,29 @@ export default function ReplyItem({ reply, onReply, onEdit, onDelete }: ReplyIte
 
   return (
     <div
-      className={cn('rounded-2xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-slate-50 p-4', isLecturer ? 'border-l-blue-500' : isOpinion ? 'border-l-rose-500' : 'border-l-violet-500')}
+      id={`post-${reply.id}`}
+      className={cn(
+        'scroll-mt-6 rounded-2xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-slate-50 p-4 transition-all duration-700 ease-out',
+        isLecturer ? 'border-l-amber-400' : isOpinion ? 'border-l-blue-400' : 'border-l-violet-400',
+        isHighlighted && 'bg-slate-100 shadow-lg shadow-slate-300/60 ring-2 ring-slate-300',
+      )}
       style={reply.depth > 0 ? { marginLeft: `${Math.min(reply.depth, 6) * 1.5}rem` } : undefined}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className={cn('font-extrabold', isLecturer ? 'text-blue-700' : 'text-slate-800')}>{reply.authorName}</span>
-          {isLecturer && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">Lecturer</span>}
+          <span className="font-extrabold text-slate-800">{reply.authorName}</span>
+          {isLecturer && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">Lecturer</span>}
           <span className="shrink-0 text-xs text-slate-400">{reply.createdAt}</span>
         </div>
         <div className="flex items-center gap-2">
           {reply.isEditable && !isEditing && (
-            <button type="button" onClick={startEditing} className="text-xs font-medium text-slate-400 hover:text-violet-600">수정하기</button>
+            <button type="button" onClick={startEditing} className={cn('rounded-lg p-1.5 text-slate-300 hover:bg-slate-50', accentHover)} aria-label="수정">
+              <Pencil className="size-4" />
+            </button>
           )}
           {reply.canDelete && onDelete && (
-            <button type="button" onClick={onDelete} className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-rose-600">
-              <Trash2 className="size-3" />삭제
+            <button type="button" onClick={onDelete} className="rounded-lg p-1.5 text-slate-300 hover:bg-rose-50 hover:text-rose-500" aria-label="삭제">
+              <Trash2 className="size-4" />
             </button>
           )}
         </div>
@@ -87,11 +100,19 @@ export default function ReplyItem({ reply, onReply, onEdit, onDelete }: ReplyIte
         <p className="mt-2 text-sm leading-relaxed text-slate-700">{reply.content}</p>
       )}
 
-      <button type="button" onClick={onReply} className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-violet-600">
-        <ThumbsUp className="size-3.5" />{reply.likeCount}
-        <span className="text-slate-300">·</span>
-        답글
-      </button>
+      <div className="mt-2 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onLike}
+          className={cn('inline-flex items-center gap-1.5 text-xs font-bold transition', reply.isLikedByMe ? accentText : cn('text-slate-400', accentHover))}
+          aria-pressed={reply.isLikedByMe}
+        >
+          <ThumbsUp className={cn('size-3.5', reply.isLikedByMe && accentFill)} />{reply.likeCount}
+        </button>
+        <button type="button" onClick={onReply} className={cn('inline-flex items-center gap-1.5 text-xs font-bold text-slate-400', accentHover)}>
+          <MessageSquare className="size-3.5" />답글
+        </button>
+      </div>
     </div>
   )
 }

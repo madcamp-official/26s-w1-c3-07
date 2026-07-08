@@ -15,7 +15,7 @@ export default function LandingPage() {
   useEffect(() => {
     void getCurrentUser()
       .then((user) => {
-        if (user) navigate('/student/courses', { replace: true })
+        if (user) navigate('/courses', { replace: true })
       })
       .catch((error) => {
         setMessage(error instanceof Error ? error.message : '로그인 정보를 불러오지 못했습니다.')

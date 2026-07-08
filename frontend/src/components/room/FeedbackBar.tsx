@@ -11,12 +11,14 @@ interface FeedbackBarProps {
 
 export default function FeedbackBar({ options, canVote = true, onVote, onAcknowledge }: FeedbackBarProps) {
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-3xl border border-amber-100 bg-amber-50 p-4">
-      <span className="inline-flex items-center gap-1.5 font-extrabold text-amber-600"><Zap className="size-4 fill-amber-400 text-amber-400" />실시간 피드백</span>
+    <div className="flex items-center gap-3 overflow-x-auto rounded-3xl border border-amber-100 bg-amber-50 p-4">
+      <span className="inline-flex shrink-0 items-center gap-1.5 font-extrabold text-amber-600"><Zap className="size-4 fill-amber-400 text-amber-400" />실시간 피드백</span>
+      {/* justify-evenly: 항목 사이 간격과 묶음 양 끝 여백을 모두 동일하게 배분(라벨/오른쪽 벽과 살짝 떨어지되 사이 간격과 같은 폭) */}
+      <div className="flex flex-1 items-center justify-evenly gap-3">
       {options.map((option) => {
         const isEmpty = option.likeCount === 0 && option.dislikeCount === 0
         return (
-          <div key={option.key} className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white px-3 py-1.5 text-sm font-bold text-slate-700">
+          <div key={option.key} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-amber-200 bg-white px-3 py-1.5 text-sm font-bold text-slate-700">
             <span>{option.label}</span>
             <button
               type="button"
@@ -24,10 +26,10 @@ export default function FeedbackBar({ options, canVote = true, onVote, onAcknowl
               disabled={!canVote}
               className={cn(
                 'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 transition disabled:cursor-not-allowed',
-                option.myVote === 'like' ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400',
-                canVote && option.myVote !== 'like' && 'hover:text-emerald-600',
+                option.myLiked ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400',
+                canVote && !option.myLiked && 'hover:text-emerald-600',
               )}
-              aria-pressed={option.myVote === 'like'}
+              aria-pressed={option.myLiked}
               aria-label={`${option.label} 좋아요`}
             >
               <ThumbsUp className="size-3.5" />{option.likeCount}
@@ -38,10 +40,10 @@ export default function FeedbackBar({ options, canVote = true, onVote, onAcknowl
               disabled={!canVote}
               className={cn(
                 'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 transition disabled:cursor-not-allowed',
-                option.myVote === 'dislike' ? 'bg-rose-100 text-rose-700' : 'text-slate-400',
-                canVote && option.myVote !== 'dislike' && 'hover:text-rose-600',
+                option.myDisliked ? 'bg-rose-100 text-rose-700' : 'text-slate-400',
+                canVote && !option.myDisliked && 'hover:text-rose-600',
               )}
-              aria-pressed={option.myVote === 'dislike'}
+              aria-pressed={option.myDisliked}
               aria-label={`${option.label} 싫어요`}
             >
               <ThumbsDown className="size-3.5" />{option.dislikeCount}
@@ -61,6 +63,7 @@ export default function FeedbackBar({ options, canVote = true, onVote, onAcknowl
           </div>
         )
       })}
+      </div>
     </div>
   )
 }
