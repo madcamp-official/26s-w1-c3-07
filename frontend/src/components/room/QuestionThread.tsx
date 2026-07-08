@@ -96,9 +96,11 @@ export default function QuestionThread({ question, canResolve = false, highlight
               <Trash2 className="size-4" />
             </button>
           )}
-          <button type="button" onClick={() => setIsExpanded((current) => !current)} className="rounded-lg p-1 text-slate-300 hover:bg-slate-50 hover:text-slate-500" aria-label={isExpanded ? '접기' : '펼치기'}>
-            <ChevronDown className={cn('size-5 transition', !isExpanded && '-rotate-90')} />
-          </button>
+          {question.replies.length > 0 && (
+            <button type="button" onClick={() => setIsExpanded((current) => !current)} className="rounded-lg p-1 text-slate-300 hover:bg-slate-50 hover:text-slate-500" aria-label={isExpanded ? '접기' : '펼치기'}>
+              <ChevronDown className={cn('size-5 transition', !isExpanded && '-rotate-90')} />
+            </button>
+          )}
         </div>
       </div>
 
