@@ -14,7 +14,8 @@
 - [8. 비회원 인증: `guest_token` + `x-guest-token` 헤더](#8-비회원-인증-guest_token--x-guest-token-헤더)
 - [9. 강의자/수강생 모드 색 구분: `posts_public.created_mode`](#9-강의자수강생-모드-색-구분-posts_publiccreated_mode)
 - [10. 글 작성/제출: `ai-correct`, `submit-post` Edge Function](#10-글-작성제출-ai-correct-submit-post-edge-function)
-- [11. 테스트용 더미 데이터](#11-테스트용-더미-데이터)
+- [11. 실시간 접속자 수: Realtime Presence](#11-실시간-접속자-수-realtime-presence)
+- [12. 테스트용 더미 데이터](#12-테스트용-더미-데이터)
 
 ## 1. Supabase URL / API 키란 무엇인가
 
@@ -456,7 +457,36 @@ const { data } = await supabase.functions.invoke('submit-post', {
 - 다른 사람의 `draft_id`로 강행 제출을 시도하면 identity(회원 `auth.uid()` 또는 `x-guest-token`)가 draft 소유자와 다르므로 `403`으로 거부됩니다.
 - 유사 질문 탐지는 `type === 'question'`일 때만 동작합니다(`opinion`/답글은 항상 바로 저장 시도).
 
-## 11. 테스트용 더미 데이터
+## 11. 실시간 접속자 수: Realtime Presence
+
+강의실 페이지의 "N명 참여 중" 표시는 테이블 없이 Supabase Realtime **Presence**로 집계해요. Presence는 "지금 이 웹소켓 채널에 누가 붙어있는지"를 서버 메모리에서 관리해주는 기능이라, DB에 영속시킬 필요가 없습니다(접속자 수는 순간의 상태일 뿐 이력이 아니라서요). 강의(lecture)마다 채널 하나(`lecture:<courseId>`)를 만들고, 각 클라이언트가 자신의 **presence key**로 `track()`하면 `presenceState()`가 반환하는 고유 key 개수가 곧 접속자 수예요.
+
+**presence key 규칙**(다른 기능들과 동일):
+- 회원: `user_id` — 같은 계정으로 탭/기기를 여러 개 열어도 한 명으로 집계됨.
+- 비회원: [8번](#8-비회원-인증-guest_token--x-guest-token-헤더)의 `guest_token`을 그대로 재사용 — 같은 브라우저면 한 명, 다른 브라우저/기기면 별도 접속자.
+
+**✅ `frontend-realtime-presence` 브랜치에 구현 완료**(`frontend`에서 새로 딴 브랜치, 아직 `frontend`에 병합 전) — `hooks/useRoomPresence.ts`가 이 훅을 담당합니다.
+
+```js
+const participantCount = useRoomPresence(courseId, room?.capacity ?? null)
+```
+
+내부적으로는:
+```js
+const channel = supabase.channel(`lecture:${courseId}`, {
+  config: { presence: { key: presenceKey } },
+})
+channel.on('presence', { event: 'sync' }, () => {
+  setParticipantCount(Object.keys(channel.presenceState()).length)
+})
+channel.subscribe()
+```
+
+**`lectures.max_participants`(정원)는 강의실 "입장" 자체를 막는 값이 아닙니다.** Presence는 웹소켓 채널 상태일 뿐이라, "이 채널에 등록 안 하고 그냥 강의실 페이지 정보만 요청하는" 접근을 서버 차원에서 막을 방법이 없고(막을 필요도 없다고 판단함) — 그래서 정원을 "입장 인원 상한"으로 강제하는 대신 **"실시간 집계에 반영되는(=track되는) 인원의 최대치"** 로 정의합니다. 구독 시점 인원이 이미 정원이면 그 사람은 `track()`하지 않고 관전만 해요 — 강의실 페이지 이용(글 읽기/쓰기 등) 자체는 완전히 평소와 동일하게 되고, 딱 "N명 참여 중" 카운트에만 안 잡힙니다. 그래서 화면에 표시되는 참여자 수는 항상 정원을 넘지 않아요.
+
+이 판단은 채널 구독 직후 첫 `sync` 이벤트 시점에 딱 한 번만 하고, 이후 다른 사람이 나가서 자리가 나도 재판단하지 않습니다(이미 페이지를 열어본 사람이 새로고침해야 재시도되는 정도로 충분하다고 판단).
+
+## 12. 테스트용 더미 데이터
 
 `backend/supabase/seed.sql`에 실제 스키마에 맞춘 더미 데이터가 원격 DB에 반영되어 있어요(강의 폴더/강의, 질문/답글, 좋아요, 실시간 피드백 등). [`DUMMY_DATA.md`](./DUMMY_DATA.md)에서 확인할 수 있는데, 계정별·모드별로 "내 강의" 페이지에 어떤 강의/폴더 트리가 보이는지(강의 입장 코드, 즐겨찾기 관계 포함)뿐 아니라, 일부 강의(트리와 그래프, 데이터베이스 설계 입문)에 실제로 등록되어 있는 질문/답글 트리 구조도 정리되어 있으니 강의 페이지 테스트할 때도 참고하세요.
 

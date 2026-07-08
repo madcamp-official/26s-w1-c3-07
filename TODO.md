@@ -3,7 +3,6 @@
 ## 목차
 
 - [Realtime 관련](#realtime-관련)
-  - [4. `max_participants`(최다 참여 인원) 강제 여부 결정](#4-max_participants최다-참여-인원-강제-여부-결정)
   - [5. "내 강의" 목록에서 강의별 접속자 수(`participantCount`) 표시](#5-내-강의-목록에서-강의별-접속자-수participantcount-표시)
 - [join_code 관련](#join_code-관련)
   - [6. `lecture_join_codes` 파기 시점/주체 결정](#6-lecture_join_codes-파기delete-시점주체-결정)
@@ -12,10 +11,6 @@
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
 
 ## Realtime 관련
-
-### 4. `max_participants`(최다 참여 인원) 강제 여부 결정
-
-컬럼만 있고 실제 입장 제한 로직/참여자 카운트 테이블이 없음. 정보 표시용인지 실제 강제해야 하는지 확인 필요 (강제한다면 Realtime **Presence** 또는 별도 카운트 확인 로직 추가 필요, `DB_DESIGN.md`의 "실시간 접속자 수" 섹션 참고).
 
 ### 5. "내 강의" 목록에서 강의별 접속자 수(`participantCount`) 표시
 
@@ -76,3 +71,4 @@
   - (2)는 XOR을 원래 형태인 "둘 다 값을 갖지는 않음"(`posts_author_id_guest_token_not_both_set`)으로 다시 완화. `guest_token` 자체를 지우는 무효화 로직을 재도입하는 건 아니고, 순수하게 회원 탈퇴로 인해 "둘 다 `null`"인 상태가 정상적으로 발생할 수 있게 된 것뿐 → `backend/supabase/migrations/20260708130000_posts_deleted_author_placeholder.sql`. 라이브 DB에서 실명 글을 쓴 회원이 탈퇴하는 시나리오를 직접 실행해 제약 위반 없이 통과하는지 검증 완료.
   - 이 재설계 덕분에 애초에 검토를 시작했던 "강의자 모드로 쓴 글은 익명이 될 수 없다" 제약도 이제 안전하게 추가 가능해짐 — `created_mode`가 `author_id`와 별개 컬럼이라 탈퇴해도 그대로 남고, 탈퇴가 더 이상 `is_anonymous`를 건드리지 않아 탈퇴 여부와 무관하게 항상 성립하는 제약이 됨. `posts_lecturer_mode_not_anonymous`(`created_mode <> 'lecturer' or is_anonymous = false`) 추가 → `backend/supabase/migrations/20260708140000_posts_lecturer_mode_not_anonymous.sql`. 강의자 모드 실명 답글을 쓴 계정이 탈퇴하는 시나리오까지 라이브 DB에서 검증 완료.
 - **이름 없는 `check` 제약 전부 서술적 이름으로 통일** — Postgres가 자동으로 붙인 `<table>[_컬럼]_check[N]` 이름들을 이 프로젝트 스타일로 리네임(`nodes_check`→`nodes_lecture_requires_lecturer_mode`, `posts_check1`→`posts_status_matches_top_level` 등 13개). 일부는 과거 컬럼 리네임(`node_type`→`type`, `post_type`→`type`, `last_mode`→`mode`) 이후에도 옛 컬럼명을 그대로 가진 이름이라 이번에 같이 바로잡음 → `backend/supabase/migrations/20260708150000_rename_auto_generated_check_constraints.sql`. `DB_DESIGN.md`의 모든 테이블 SQL도 새 이름을 명시하도록 갱신.
+- **`max_participants`(최다 참여 인원) 강제 여부 결정 → "입장 자체는 강제 안 함"으로 결론** — 처음엔 DB/서버 차원에서 정원을 넘는 입장을 막는 걸 검토했으나, Presence는 웹소켓 채널 상태일 뿐이라 "채널에 등록 안 하고 페이지 정보만 요청하는" 접근을 막을 방법이 없고(막을 필요도 없다고 판단) 애초에 입장 자체를 강제하는 게 의미가 없다는 결론에 도달함. 대신 `max_participants`를 "실시간 집계(Presence track)에 반영되는 인원의 최대치"로 재정의 — 채널 구독 시점 인원이 이미 정원이면 그 사람은 `track()`하지 않고 관전만 하고(페이지 이용 자체는 완전히 정상 동작, "N명 참여 중" 카운트에만 안 잡힘), 화면에 표시되는 참여자 수가 항상 정원을 넘지 않도록 함. `frontend`에서 새로 딴 `frontend-realtime-presence` 브랜치에 `hooks/useRoomPresence.ts`로 구현(아직 `frontend`에 병합 전). 실제 dev 서버에서 정상 카운트 표시와, 정원 1명 + 시뮬레이션 참가자로 정원 초과 상황(카운트는 안 늘어나지만 페이지 접속/이용은 그대로 되는 것)까지 라이브로 검증 완료. `DB_DESIGN.md`의 "실시간 접속자 수" 섹션과 `SUPABASE_GUIDE.md` 11번에 반영.
