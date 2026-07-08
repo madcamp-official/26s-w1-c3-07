@@ -709,6 +709,7 @@ interface LecturePublicRow {
   location: string | null
   max_participants: number | null
   lecturer_name: string | null
+  created_by: string | null
 }
 
 function formatLectureDate(startTime: string): string {
@@ -742,13 +743,14 @@ interface CourseRoomMeta {
   participantCount: number
   capacity: number | null
   isFavorited: boolean
+  isOwnedByMe: boolean
 }
 
 /** 실제 DB(lectures_public)에서 강의 메타데이터만 조회합니다. */
 async function getCourseRoomFromDb(courseId: string): Promise<CourseRoomMeta> {
   const { data: lecture, error } = await supabase
     .from('lectures_public')
-    .select('id, title, start_time, end_time, location, max_participants, lecturer_name')
+    .select('id, title, start_time, end_time, location, max_participants, lecturer_name, created_by')
     .eq('id', courseId)
     .single<LecturePublicRow>()
 
@@ -767,6 +769,7 @@ async function getCourseRoomFromDb(courseId: string): Promise<CourseRoomMeta> {
     participantCount: 0,
     capacity: lecture.max_participants,
     isFavorited,
+    isOwnedByMe: userId != null && lecture.created_by === userId,
   }
 }
 

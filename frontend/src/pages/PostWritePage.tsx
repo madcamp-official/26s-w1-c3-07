@@ -1,12 +1,13 @@
-import { RotateCcw } from 'lucide-react'
+import { LogOut, RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import BrandLogo from '../components/BrandLogo'
 import PostComposer from '../components/room/PostComposer'
 import RoomHeader from '../components/room/RoomHeader'
 import Button from '../components/ui/Button'
+import LogoutConfirmModal from '../components/ui/LogoutConfirmModal'
 import { useCourseRoom } from '../hooks/useCourseRoom'
-import { getCurrentUser, signInWithGoogle } from '../services/api'
+import { getCurrentUser, signInWithGoogle, signOut } from '../services/api'
 import type { ComposerTarget } from '../types/room'
 import type { User } from '../types/user'
 
@@ -20,6 +21,9 @@ export default function PostWritePage() {
   const location = useLocation()
   const { room, isLoading, error, reload, submitQuestion, submitReply, submitDraftPost } = useCourseRoom(courseId)
   const [user, setUser] = useState<User | null>(null)
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
 
   const target = (location.state as WriteLocationState | null)?.target ?? null
   const isInstructor = user?.role === 'instructor'
@@ -27,6 +31,22 @@ export default function PostWritePage() {
   useEffect(() => {
     void getCurrentUser().then(setUser)
   }, [])
+
+  // 로그아웃해도 이 글쓰기 페이지에 그대로 머무름(user만 비회원 상태로 갱신). 로그인도
+  // OAuth redirectTo가 현재 URL이라 로그인 직후 그대로 이 페이지로 복귀함.
+  const handleLogout = async () => {
+    setIsLoggingOut(true)
+    setLogoutError(null)
+    try {
+      await signOut()
+      setUser(null)
+      setIsLogoutConfirmOpen(false)
+    } catch (err) {
+      setLogoutError(err instanceof Error ? err.message : '로그아웃하지 못했습니다.')
+    } finally {
+      setIsLoggingOut(false)
+    }
+  }
 
   useEffect(() => {
     if (isInstructor && !target && courseId) navigate(`/room/${courseId}`, { replace: true })
@@ -38,9 +58,9 @@ export default function PostWritePage() {
     <div className="min-h-screen bg-slate-50 pb-16">
       <header className="border-b border-slate-100 bg-white px-4 py-4 sm:px-6">
         <div className="mx-auto flex max-w-4xl items-center justify-between">
-          <BrandLogo compact to={user ? '/courses' : undefined} />
+          <BrandLogo compact to={user ? '/courses' : '/'} />
           {user ? (
-            <span className="grid size-9 place-items-center rounded-full bg-violet-600 text-sm font-extrabold text-white">{user.avatarText}</span>
+            <Button variant="secondary" onClick={() => setIsLogoutConfirmOpen(true)}><LogOut className="size-4" />로그아웃</Button>
           ) : (
             <Button variant="secondary" onClick={() => void signInWithGoogle()}>Google 로그인</Button>
           )}
@@ -95,6 +115,14 @@ export default function PostWritePage() {
           </>
         )}
       </div>
+
+      <LogoutConfirmModal
+        isOpen={isLogoutConfirmOpen}
+        isProcessing={isLoggingOut}
+        error={logoutError}
+        onConfirm={() => void handleLogout()}
+        onClose={() => setIsLogoutConfirmOpen(false)}
+      />
     </div>
   )
 }

@@ -1,15 +1,17 @@
-import { Plus, RotateCcw } from 'lucide-react'
+import { LogOut, Menu, Plus, RotateCcw, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import FeedbackBar from '../components/room/FeedbackBar'
 import QuestionThread from '../components/room/QuestionThread'
 import RoomHeader from '../components/room/RoomHeader'
 import BrandLogo from '../components/BrandLogo'
+import CourseJoinForm from '../components/course/CourseJoinForm'
 import Sidebar from '../components/navigation/Sidebar'
 import Button from '../components/ui/Button'
+import LogoutConfirmModal from '../components/ui/LogoutConfirmModal'
 import ShareCourseModal from '../components/course/ShareCourseModal'
 import { useCourseRoom } from '../hooks/useCourseRoom'
-import { getCurrentUser, signInWithGoogle } from '../services/api'
+import { getCurrentUser, signInWithGoogle, signOut, switchUserRole } from '../services/api'
 import type { QuestionFilter } from '../types/room'
 import type { User } from '../types/user'
 import { cn } from '../utils/cn'
@@ -25,6 +27,26 @@ export default function CourseRoomPage() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [isShareOpen, setIsShareOpen] = useState(false)
   const [isTogglingFavorite, setIsTogglingFavorite] = useState(false)
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
+
+  // 로그아웃해도 홈으로 튕기지 않고 이 강의 페이지에 그대로 머무름(강의실은 비회원도 열람 가능).
+  // user만 null로 바꾸면 헤더가 비회원 상태로 갱신됨. (로그인도 OAuth redirectTo가 현재 URL이라 그대로 복귀)
+  const handleLogout = async () => {
+    setIsLoggingOut(true)
+    setLogoutError(null)
+    try {
+      await signOut()
+      setUser(null)
+      setIsLogoutConfirmOpen(false)
+    } catch (err) {
+      setLogoutError(err instanceof Error ? err.message : '로그아웃하지 못했습니다.')
+    } finally {
+      setIsLoggingOut(false)
+    }
+  }
 
   const highlightId = searchParams.get('highlight')
   const [activeHighlightId, setActiveHighlightId] = useState<string | null>(null)
@@ -33,6 +55,15 @@ export default function CourseRoomPage() {
   useEffect(() => {
     void getCurrentUser().then(setUser)
   }, [])
+
+  // 강의자 모드인데 본인이 만들지 않은 강의실에 들어온 경우 자동으로 수강생 모드로 전환.
+  // room.isOwnedByMe가 확정된 뒤에만 판단하고, 전환 후엔 user.role이 'student'가 되어
+  // 이 조건이 다시 참이 되지 않으므로 반복 호출되지 않음.
+  useEffect(() => {
+    if (!user || user.role !== 'instructor' || !room) return
+    if (room.isOwnedByMe) return
+    void switchUserRole('student').then(setUser)
+  }, [user, room])
 
   useEffect(() => {
     if (!highlightId || !room) return
@@ -93,6 +124,9 @@ export default function CourseRoomPage() {
   const resolvedCount = room.questions.length - unresolvedCount
   const visibleQuestions = room.questions.filter((question) => (filter === 'unresolved' ? !question.isResolved : question.isResolved))
   const sortedFeedbackOptions = [...room.feedbackOptions].sort((a, b) => (b.likeCount - b.dislikeCount) - (a.likeCount - a.dislikeCount))
+  // 강의자 모드는 피드백 바에 체크 버튼이 하나 더 붙어 한 줄에 맞추려면 넓어야 해서 1050px 유지.
+  // 수강생 모드는 그 버튼이 없어 원래(더 좁은) 폭으로 줄일 수 있음.
+  const contentMaxWidth = isInstructor ? 'max-w-[1050px]' : 'max-w-4xl'
 
   return (
     <div className="min-h-screen bg-slate-50 pb-16">
@@ -102,19 +136,72 @@ export default function CourseRoomPage() {
         </aside>
       )}
 
-      <header className="border-b border-slate-100 bg-white px-4 py-4 sm:px-6 lg:hidden">
-        <div className="mx-auto flex max-w-[1050px] items-center justify-between">
-          <BrandLogo compact to={user ? '/courses' : undefined} />
-          {user ? (
-            <span className="grid size-9 place-items-center rounded-full bg-violet-600 text-sm font-extrabold text-white">{user.avatarText}</span>
-          ) : (
-            <Button variant="secondary" onClick={() => void signInWithGoogle()}>Google 로그인</Button>
+      {/* 좁은 화면(모바일)에서 햄버거로 여는 사이드바 드로어 - 내 강의/설정 등으로 이동. DashboardLayout과 동일 패턴 */}
+      {user && isMenuOpen && (
+        <div className="fixed inset-0 z-40 bg-slate-950/30 lg:hidden" onMouseDown={() => setIsMenuOpen(false)}>
+          <aside className="h-full w-72 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="absolute left-60 top-4 z-10">
+              <button type="button" onClick={() => setIsMenuOpen(false)} className="rounded-full bg-white p-2 text-slate-500 shadow" aria-label="메뉴 닫기"><X className="size-5" /></button>
+            </div>
+            <Sidebar user={user} onNavigate={() => setIsMenuOpen(false)} showRoleSwitch={false} />
+          </aside>
+        </div>
+      )}
+
+      {/*
+        강의 페이지 상단 헤더 - 글 작성하기 페이지처럼 아래 콘텐츠 영역과 분리된 별도의 흰색 바.
+        - 왼쪽: 비회원은 홈('/') 링크 로고. 회원은 데스크톱엔 사이드바가 있어 로고 생략, 모바일에서만 로고(내 강의로).
+        - 가운데: 수강생 모드 회원만 강의 코드 입력창(다른 강의 바로 입장). 강의자 모드는 비움.
+        - 오른쪽: 비회원=로그인, 회원 데스크톱=로그아웃, 회원 모바일=햄버거(사이드바 드로어).
+      */}
+      <header className={cn('border-b border-slate-100 bg-white px-4 py-4 sm:px-6', user && 'lg:pl-72')}>
+        <div
+          className={cn(
+            'mx-auto flex flex-wrap items-center gap-x-3 gap-y-2',
+            contentMaxWidth,
+            // 코드 입력창이 있을 때만 3열 그리드(왼쪽 1fr / 가운데 최대 29.87rem / 오른쪽 1fr)로
+            // 배치해 가운데를 정중앙에 두면서도 max-w까지 실제로 늘어나게 함. flex-1 3분할로는
+            // 양옆과 똑같이 나눠 가지느라 가운데가 max-w까지 못 늘어나서 그리드로 바꿈.
+            !isInstructor && 'sm:grid sm:grid-cols-[1fr_minmax(0,29.87rem)_1fr] sm:flex-nowrap',
           )}
+        >
+          {/* 왼쪽: 비회원은 홈 로고, 회원은 모바일에서만 로고(데스크톱은 사이드바에 있음) */}
+          <div className="order-1 flex items-center sm:order-none">
+            {user ? (
+              <div className="shrink-0 lg:hidden"><BrandLogo compact to="/courses" /></div>
+            ) : (
+              <div className="shrink-0"><BrandLogo compact to="/" /></div>
+            )}
+          </div>
+
+          {/* 가운데: 강의 코드 입력창. 강의자 모드는 자기 강의 관리 화면이라 다른 강의로 바로 입장하는 기능이 필요 없어 숨김. 좁은 화면에선 아래 줄로 넘어가 전체 폭 사용 */}
+          {!isInstructor && (
+            <div className="order-3 w-full sm:order-none sm:justify-self-center"><CourseJoinForm compact /></div>
+          )}
+
+          <div
+            className={cn(
+              'order-2 ml-auto flex shrink-0 items-center gap-2 sm:order-none',
+              // 그리드(수강생 모드)일 때만 justify-self-end로 위치를 잡고, 그때만 기본 ml-auto를
+              // 꺼야 함(안 그러면 justify-self가 무시되는 강의자 모드의 일반 flex 레이아웃에서
+              // sm:ml-0가 ml-auto를 덮어써 로그아웃 버튼이 오른쪽 끝까지 안 밀리는 버그가 있었음).
+              !isInstructor && 'sm:ml-0 sm:justify-self-end',
+            )}
+          >
+            {user ? (
+              <>
+                <div className="hidden lg:block"><Button variant="secondary" onClick={() => setIsLogoutConfirmOpen(true)}><LogOut className="size-4" />로그아웃</Button></div>
+                <button type="button" onClick={() => setIsMenuOpen(true)} className="rounded-xl p-2 text-slate-600 transition hover:bg-slate-100 lg:hidden" aria-label="메뉴 열기"><Menu /></button>
+              </>
+            ) : (
+              <Button variant="secondary" onClick={() => void signInWithGoogle()}>Google 로그인</Button>
+            )}
+          </div>
         </div>
       </header>
 
       <div className={cn('px-4 pt-6 sm:px-6', user && 'lg:pl-72')}>
-        <div className="mx-auto max-w-[1050px]">
+        <div className={cn('mx-auto', contentMaxWidth)}>
           <RoomHeader
             title={room.title}
             date={room.date}
@@ -223,6 +310,14 @@ export default function CourseRoomPage() {
           ownership: 'owned',
         }}
         onClose={() => setIsShareOpen(false)}
+      />
+
+      <LogoutConfirmModal
+        isOpen={isLogoutConfirmOpen}
+        isProcessing={isLoggingOut}
+        error={logoutError}
+        onConfirm={() => void handleLogout()}
+        onClose={() => setIsLogoutConfirmOpen(false)}
       />
     </div>
   )

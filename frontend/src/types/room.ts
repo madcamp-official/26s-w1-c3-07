@@ -52,6 +52,8 @@ export interface CourseRoom {
   capacity: number | null
   /** 현재 로그인한 회원이 이 강의를 "내 강의"(favorites)로 등록했는지. 비회원이면 항상 false. */
   isFavorited: boolean
+  /** 현재 로그인한 회원이 이 강의를 만든 강의자 본인인지. 비회원이거나 남이 만든 강의면 false. */
+  isOwnedByMe: boolean
   feedbackOptions: FeedbackOption[]
   questions: Question[]
 }
