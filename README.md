@@ -143,6 +143,8 @@
 
 > 필요한 테이블, 주요 필드, 데이터 타입, 테이블 간 관계를 정리
 
+![image](./images/ERD_diagram.png)
+
 | 테이블 | 대응하는 기능 |
 |---|---|
 | `profiles` | 회원(Google OAuth) 부가정보 |
