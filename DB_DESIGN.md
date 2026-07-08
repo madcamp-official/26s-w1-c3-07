@@ -15,11 +15,11 @@
     - [`post_drafts`](#post_drafts)
     - [`post_likes`](#post_likes)
   - [뷰](#뷰)
+    - [`lectures_public`](#lectures_public)
+    - [`lecture_feedback_votes_counts`](#lecture_feedback_votes_counts)
     - [`posts_public`](#posts_public)
     - [`posts_counts`](#posts_counts)
     - [`post_likes_counts`](#post_likes_counts)
-    - [`lecture_feedback_votes_counts`](#lecture_feedback_votes_counts)
-    - [`lectures_public`](#lectures_public)
   - [트리거 함수](#트리거-함수)
     - [`block_status_change_by_non_lecturer()`](#block_status_change_by_non_lecturer)
     - [`set_resolved_at_on_status_change()`](#set_resolved_at_on_status_change)
@@ -240,6 +240,41 @@ create table post_likes (
 
 ### 뷰
 
+#### `lectures_public`
+
+강의실 페이지에서 강의 제목/일시/장소와 강의자 이름을 한 번에 보여주기 위한 뷰입니다. `profiles`는 본인만 SELECT 가능(RLS)이라, 강의를 만든 본인이 아닌 사람(다른 강의자/수강생/비회원)이 강의실에 들어왔을 때는 `profiles.name`을 직접 조회할 수 없어 강의자 이름을 알 수 없는 문제가 있었습니다. `posts_public`이 `author_display_name`을 노출하는 것과 같은 원리로, 뷰는 조회자가 아니라 **뷰 소유자 권한**으로 실행되기 때문에 이 뷰 안에서는 `profiles`를 조인해도 RLS에 걸리지 않습니다. `lectures`/`nodes`가 이미 전체 공개라 이 뷰도 별도 RLS나 REVOKE 없이 기본 공개 SELECT 권한으로 충분합니다. `created_by`가 탈퇴 등으로 `null`이 되거나 `profiles.name`이 없는 경우 `lecturer_name`은 `null`이 되므로, 프론트에서 기본값 문자열로 폴백 처리해야 합니다.
+
+```sql
+create view lectures_public as
+select
+  l.id,
+  l.start_time,
+  l.end_time,
+  l.location,
+  l.max_participants,
+  n.name as title,
+  n.created_by,
+  p.name as lecturer_name
+from lectures l
+join nodes n on n.id = l.id
+left join profiles p on p.id = n.created_by;
+```
+
+#### `lecture_feedback_votes_counts`
+
+`lecture_feedback_votes`도 마찬가지로 테이블 자체 SELECT는 본인 투표 행만 가능하도록 좁혀서(아래 [RLS 정책 → `lecture_feedback_votes`](#lecture_feedback_votes-1) 참고), `voter_key` 없이 강의·피드백 유형별 좋아요/싫어요 개수만 집계해 공개합니다.
+
+```sql
+create view lecture_feedback_votes_counts as
+select
+  lecture_id,
+  feedback_type,
+  count(*) filter (where value = 1) as like_count,
+  count(*) filter (where value = -1) as dislike_count
+from lecture_feedback_votes
+group by lecture_id, feedback_type;
+```
+
 #### `posts_public`
 
 `posts`는 테이블 자체 SELECT 권한이 없어(아래 [RLS 정책 → `posts`](#posts-1) 참고) 이 뷰로만 조회할 수 있습니다. `guest_token`은 완전히 제외하고, `author_id`(uid)도 통째로 숨긴 뒤 `is_anonymous`가 `false`인 글만 `profiles.name`을 조인해서 보여줍니다. `is_mine`은 원본 식별자(`author_id`/`guest_token`)를 노출하지 않으면서 "이 글이 내가 쓴 글인지"만 boolean으로 계산해서 얹은 컬럼으로, 프론트가 수정/삭제 버튼을 조건부로 노출할 때 씁니다. `author_id = auth.uid()`(회원)이거나 `guest_token = x-guest-token 헤더`(비회원, `guest_token`이 `uuid` 타입이라 헤더 값을 `::uuid`로 캐스팅해서 비교)이면 `true`이고, 실제 쓰기 권한(`posts_update_own`/`posts_delete_own`)과 정확히 같은 조건이라 "버튼은 보이는데 실제로는 막히는" 불일치가 없습니다. `coalesce(..., false)`로 감싼 이유는, 예를 들어 게스트가 회원 글을 볼 때 `author_id = auth.uid()`가 `uuid = null` 비교라 `false`가 아니라 `null`이 되는 등 SQL 3진 논리상 결과가 `null`이 될 수 있어서, 이를 명시적으로 `false`로 정리하지 않으면 `is_mine`이 `null`/`true`/`false` 세 상태를 갖게 되기 때문입니다. `created_mode`는 강의자 모드로 쓴 글(답글, 청색 표시)과 수강생 모드로 쓴 글을 프론트가 구분해서 표시하는 데 필요한데, 이 뷰가 `posts.created_mode` 컬럼이 생기기 전에 먼저 만들어진 뒤로 이후의 재생성들에서 계속 빠져 있다가 뒤늦게 추가되었습니다.
@@ -287,41 +322,6 @@ create view post_likes_counts as
 select post_id, count(*) as like_count
 from post_likes
 group by post_id;
-```
-
-#### `lecture_feedback_votes_counts`
-
-`lecture_feedback_votes`도 마찬가지로 테이블 자체 SELECT는 본인 투표 행만 가능하도록 좁혀서(아래 [RLS 정책 → `lecture_feedback_votes`](#lecture_feedback_votes-1) 참고), `voter_key` 없이 강의·피드백 유형별 좋아요/싫어요 개수만 집계해 공개합니다.
-
-```sql
-create view lecture_feedback_votes_counts as
-select
-  lecture_id,
-  feedback_type,
-  count(*) filter (where value = 1) as like_count,
-  count(*) filter (where value = -1) as dislike_count
-from lecture_feedback_votes
-group by lecture_id, feedback_type;
-```
-
-#### `lectures_public`
-
-강의실 페이지에서 강의 제목/일시/장소와 강의자 이름을 한 번에 보여주기 위한 뷰입니다. `profiles`는 본인만 SELECT 가능(RLS)이라, 강의를 만든 본인이 아닌 사람(다른 강의자/수강생/비회원)이 강의실에 들어왔을 때는 `profiles.name`을 직접 조회할 수 없어 강의자 이름을 알 수 없는 문제가 있었습니다. `posts_public`이 `author_display_name`을 노출하는 것과 같은 원리로, 뷰는 조회자가 아니라 **뷰 소유자 권한**으로 실행되기 때문에 이 뷰 안에서는 `profiles`를 조인해도 RLS에 걸리지 않습니다. `lectures`/`nodes`가 이미 전체 공개라 이 뷰도 별도 RLS나 REVOKE 없이 기본 공개 SELECT 권한으로 충분합니다. `created_by`가 탈퇴 등으로 `null`이 되거나 `profiles.name`이 없는 경우 `lecturer_name`은 `null`이 되므로, 프론트에서 기본값 문자열로 폴백 처리해야 합니다.
-
-```sql
-create view lectures_public as
-select
-  l.id,
-  l.start_time,
-  l.end_time,
-  l.location,
-  l.max_participants,
-  n.name as title,
-  n.created_by,
-  p.name as lecturer_name
-from lectures l
-join nodes n on n.id = l.id
-left join profiles p on p.id = n.created_by;
 ```
 
 ### 트리거 함수
@@ -1164,7 +1164,7 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
   - `20260708150000_rename_auto_generated_check_constraints.sql` — Postgres가 이름 없는 `check` 제약에 자동으로 붙이는 `<table>[_컬럼]_check[N]` 이름들을 이 프로젝트 스타일(서술적 이름)로 통일. 일부는 과거 컬럼 리네임(`node_type`→`type`, `post_type`→`type`, `last_mode`→`mode`) 이후에도 옛 컬럼명을 그대로 가진 이름이라 이번에 같이 바로잡음(`nodes_node_type_check`→`nodes_type_valid`, `posts_post_type_check`→`posts_type_valid`, `profiles_last_mode_check`→`profiles_mode_valid` 등). `rename constraint`는 이름표만 바꾸는 메타데이터 작업이라 데이터/락 영향 없음. 이 문서의 모든 테이블 SQL도 새 이름을 명시하도록 갱신
   - `20260708160000_rename_enforce_nodes_parent_ownership_to_rules.sql` — `enforce_nodes_parent_ownership()`/`trg_enforce_nodes_parent_ownership`이 `20260708120000`부터 소유권 검사뿐 아니라 "부모가 강의면 안 됨" 구조 검사까지 하게 됐는데 이름은 여전히 "ownership"만 검사하는 것처럼 보여서, `enforce_nodes_parent_rules()`/`trg_enforce_nodes_parent_rules`로 개명(`alter function ... rename to`/`alter trigger ... rename to`라 함수 본문·트리거 동작은 그대로, 이름표만 바뀜). 개명 후에도 강의를 부모로 지정하면 여전히 차단되는지 재검증 완료
   - `20260708170000_lectures_public_view.sql` — 강의실 페이지에서 강의자 이름이 안 보이던 문제(`profiles`가 본인만 SELECT 가능해서, 강의를 만든 본인이 아니면 이름을 조회할 수 없었음) 해결용 `lectures_public` 뷰 추가. `posts_public`과 같은 원리(뷰 소유자 권한으로 `profiles` 우회 조인)로 강의 제목/일시/장소와 함께 강의자 이름(`lecturer_name`)을 공개 노출. `profiles` RLS 자체를 완화하지 않은 이유는 그러면 강의자뿐 아니라 가입한 모든 사용자 이름을 익명 스크래핑당할 수 있기 때문(자세한 내용은 "정책·트리거·뷰 보완 설명" 참고)
-  - `20260708180000_feedback_type_dark_to_unclear.sql` — 피드백 유형 `dark`를 `unclear`로 변경(조명이 어둡다는 뜻으로 오해되기 쉬워서, 원래 의도인 "글씨가 작아서/흐려서 안 보임"에 맞게). 이전에 한 번 이 값을 바꾼 적이 있었지만 그땐 이미 적용된 `init_schema.sql`의 텍스트만 고치고 실제 `ALTER`를 안 해서 라이브 DB와 프론트가 계속 `dark`를 쓰고 있었고, 이번엔 기존 데이터를 `unclear`로 `UPDATE`한 뒤 `lecture_feedback_votes_feedback_type_valid` 제약을 실제로 `ALTER`해서 라이브 DB에 반영. 프론트(`frontend` 브랜치의 `FeedbackKey`/`FEEDBACK_KEYS`/`FEEDBACK_LABELS`)는 아직 `dark`를 쓰고 있어 별도로 갱신이 필요함([SUPABASE_GUIDE.md 참고](./SUPABASE_GUIDE.md#테이블-조회))
+  - `20260708180000_feedback_type_dark_to_unclear.sql` — 피드백 유형 `dark`를 `unclear`로 변경(조명이 어둡다는 뜻으로 오해되기 쉬워서, 원래 의도인 "글씨가 작아서/흐려서 안 보임"에 맞게). 이전에 한 번 이 값을 바꾼 적이 있었지만 그땐 이미 적용된 `init_schema.sql`의 텍스트만 고치고 실제 `ALTER`를 안 해서 라이브 DB와 프론트가 계속 `dark`를 쓰고 있었고, 이번엔 기존 데이터를 `unclear`로 `UPDATE`한 뒤 `lecture_feedback_votes_feedback_type_valid` 제약을 실제로 `ALTER`해서 라이브 DB에 반영. 프론트(`FeedbackKey`/`FEEDBACK_KEYS`/`FEEDBACK_LABELS`)도 `unclear` 기준으로 갱신됨
   - `20260708190000_posts_realtime_publication.sql` — 강의실 게시글 실시간 갱신(TODO.md #6) 구현의 선행 작업으로 `posts`를 `supabase_realtime` publication에 추가(`postgres_changes` 이벤트 자체가 발생하려면 필요). 라이브 검증 결과, 이것만으로는 비회원까지 안전하게 실시간 구독을 붙일 수 없다는 게 확인됨 — `posts_select_own`의 `guest_token` 헤더 비교 조건이 WebSocket 연결에선 평가될 방법이 없어(커스텀 헤더를 못 실음), guest_token으로 쓴 글의 INSERT 이벤트가 매칭 identity 없는 연결엔 전달 안 됨. 자세한 내용과 남은 과제는 TODO.md #6 참고
   - `20260708200000_broadcast_triggers_for_realtime_updates.sql` — `postgres_changes` 대신 Broadcast from Database(`realtime.send()`)로 방향을 바꿔 강의 페이지 실시간 갱신을 실제로 구현. `posts`/`post_likes`/`lecture_feedback_votes`/`nodes`(강의 제목)/`lectures`(일정/장소/정원) 다섯 테이블에 `SECURITY DEFINER` 트리거를 달아 변경이 생기면 `lecture:<lecture_id>` 채널로 브로드캐스트. `realtime.send()`는 원본 테이블 RLS와 무관한 별도 경로(`realtime.messages`에 INSERT할 뿐)라 회원/비회원 구분 없이 받을 수 있음. 계정 이름(`profiles.name`)은 한 사람이 여러 강의를 소유할 수 있어 채널 하나로 안 끝나는 부채살 구조라 이번 범위에서 제외. 자세한 설계는 [SQL → 트리거 함수 → 실시간 갱신용 Broadcast 트리거 5종](#실시간-갱신용-broadcast-트리거-5종), 프론트 구독 방법은 [SUPABASE_GUIDE.md](./SUPABASE_GUIDE.md) 참고. 라이브 리스너로 다섯 이벤트 전부 실제 발신·수신 확인 완료
   - `20260708210000_lectures_end_after_start.sql` — `lectures.end_time`이 `start_time`보다 늦어야 한다는 `lectures_end_after_start` 체크 제약 추가. 라이브 DB에 이미 위반하는 테스트성 데이터 2건(`DUMMY_DATA.md` 시드 아님, 수동 테스트 중 생성된 것으로 보임)이 있어서 `end_time`을 `start_time` + 1시간으로 먼저 고친 뒤 제약 추가. 실제 UPDATE로 차단되는 것까지 검증 완료
