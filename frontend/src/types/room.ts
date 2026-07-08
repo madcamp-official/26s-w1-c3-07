@@ -34,6 +34,8 @@ export interface Question {
   createdAt: string
   /** 정렬 전용 원본 타임스탬프(ISO). createdAt은 "3분 전" 같은 표시용 상대시간이라 정렬엔 못 씀. */
   createdAtRaw: string
+  /** 해결된 게시글 정렬 전용 원본 타임스탬프(ISO). 미해결이면 null. */
+  resolvedAtRaw: string | null
   content: string
   likeCount: number
   isLikedByMe: boolean

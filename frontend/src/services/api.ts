@@ -9,7 +9,7 @@ import {
 import { getGuestToken } from './guestToken'
 import { supabase } from './supabaseClient'
 import type { Course, CourseFolder, CreateCourseInput, CreateFolderInput, DeleteItemInput, FolderOwnership, MoveItemInput, RenameItemInput, UpdateCourseInput } from '../types/course'
-import type { ComposerSubmission, CourseRoom, FeedbackKey, FeedbackOption, Question, QuestionReply, SubmitPostResult, UnansweredFolderNode, UnansweredQuestion } from '../types/room'
+import type { ComposerSubmission, CourseRoom, FeedbackKey, FeedbackOption, PostType, Question, QuestionReply, SubmitPostResult, UnansweredFolderNode, UnansweredQuestion } from '../types/room'
 import type { User, UserRole } from '../types/user'
 
 type DbMode = 'lecturer' | 'student'
@@ -868,6 +868,7 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
     canDelete: canDelete(row),
     createdAt: formatRelativeTime(row.created_at),
     createdAtRaw: row.created_at,
+    resolvedAtRaw: row.resolved_at,
     content: row.content,
     likeCount: likeCountByPostId.get(row.id) ?? 0,
     isLikedByMe: likedPostIds.has(row.id),
@@ -1196,6 +1197,7 @@ function buildOwnQuestion(id: string, createdAt: string, status: 'unresolved' | 
     canDelete: true,
     createdAt: formatRelativeTime(createdAt),
     createdAtRaw: createdAt,
+    resolvedAtRaw: status === 'resolved' ? new Date().toISOString() : null,
     content: submission.content,
     likeCount: 0,
     isLikedByMe: false,
@@ -1321,9 +1323,9 @@ export async function updateQuestion(courseId: string, questionId: string, conte
 
   const { data: updated, error: fetchError } = await supabase
     .from('posts_public')
-    .select('id, is_anonymous, type, status, created_at, created_mode')
+    .select('id, is_anonymous, type, status, resolved_at, created_at, created_mode')
     .eq('id', questionId)
-    .single<Pick<PostPublicRow, 'id' | 'is_anonymous' | 'type' | 'status' | 'created_at' | 'created_mode'>>()
+    .single<Pick<PostPublicRow, 'id' | 'is_anonymous' | 'type' | 'status' | 'resolved_at' | 'created_at' | 'created_mode'>>()
   if (fetchError) throw fetchError
 
   return {
@@ -1335,6 +1337,7 @@ export async function updateQuestion(courseId: string, questionId: string, conte
     canDelete: true,
     createdAt: formatRelativeTime(updated.created_at),
     createdAtRaw: updated.created_at,
+    resolvedAtRaw: updated.resolved_at,
     content,
     likeCount: 0,
     isLikedByMe: false,
@@ -1414,7 +1417,7 @@ async function togglePostLike(postId: string): Promise<{ likeCount: number; isLi
 }
 
 /** 강의자가 질문의 해결 여부를 전환합니다(RLS: posts_lecturer_update_status). */
-export async function resolveQuestion(courseId: string, questionId: string): Promise<{ isResolved: boolean }> {
+export async function resolveQuestion(courseId: string, questionId: string): Promise<{ isResolved: boolean; resolvedAtRaw: string | null }> {
   if (!isPrivilegedEditor()) throw new Error('강의자만 질문을 해결 처리할 수 있습니다.')
 
   const room = mockCourseRooms[courseId]
@@ -1423,17 +1426,17 @@ export async function resolveQuestion(courseId: string, questionId: string): Pro
     const question = room.questions.find((item) => item.id === questionId)
     if (!question) throw new Error('질문을 찾을 수 없습니다.')
     question.isResolved = !question.isResolved
-    return { isResolved: question.isResolved }
+    return { isResolved: question.isResolved, resolvedAtRaw: question.isResolved ? new Date().toISOString() : null }
   }
 
   const { data: current, error: currentError } = await supabase.from('posts_public').select('status').eq('id', questionId).single<{ status: 'unresolved' | 'resolved' | null }>()
   if (currentError) throw currentError
 
   const nextStatus = current.status === 'resolved' ? 'unresolved' : 'resolved'
-  const { error } = await supabase.from('posts').update({ status: nextStatus }).eq('id', questionId)
+  const { data: updated, error } = await supabase.from('posts').update({ status: nextStatus }).eq('id', questionId).select('resolved_at').single<{ resolved_at: string | null }>()
   if (error) throw error
 
-  return { isResolved: nextStatus === 'resolved' }
+  return { isResolved: nextStatus === 'resolved', resolvedAtRaw: updated.resolved_at }
 }
 
 export async function toggleFeedback(courseId: string, key: FeedbackKey, vote: 'like' | 'dislike'): Promise<CourseRoom> {
