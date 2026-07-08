@@ -174,10 +174,7 @@ const { data } = await supabase
   .single()
 ```
 
-**⚠️ 지금 `frontend` 브랜치는 이 뷰가 생기기 전에 작성된 우회 코드를 쓰고 있어서 정리가 필요합니다** — `services/api.ts`의 `getCourseRoomFromDb()`가 `nodes`를 직접 조회한 뒤, `supabase.auth.getSession()`으로 "내가 이 강의 소유자인지"를 확인해서 본인일 때만 `profiles.name`을 추가로 조회하고, 그 외에는 `'강의자'`라는 하드코딩된 기본값으로 폴백하고 있습니다(그래서 지금은 강의를 만든 본인이 자기 강의실에 들어갔을 때만 진짜 이름이 보이고, 다른 강의자/수강생/비회원에게는 전부 "강의자"라고만 표시됨). `lectures_public`으로 바꾸면:
-- `nodes` 직접 조회 → `lectures_public` 조회 하나로 교체
-- 세션 확인(`supabase.auth.getSession()`) + 소유자 여부 분기 + 조건부 `profiles` 조회 로직을 통째로 제거
-- **`lecturer_name`이 `null`이면 강의자가 탈퇴한 계정이라는 뜻입니다** — `posts_public`의 "탈퇴한 회원의 글 표시"(위 참고)와 같은 원리로, `nodes.created_by`가 `on delete set null`이라 강의를 만든 계정이 탈퇴하면 `created_by`가 `null`이 되고 `profiles` 조인 대상이 사라져 `lecturer_name`도 `null`이 됩니다. `'강의자'` 같은 중립적인 기본값보다는 "탈퇴한 계정입니다" 같은 문구로 명시적으로 표시하는 걸 추천합니다 — 강의 자체(제목/일시/게시글)는 그대로 남아있고 강의자 계정만 없어진 상태이기 때문입니다.
+**✅ `frontend`에 구현 완료** — `services/api.ts`의 `getCourseRoomFromDb()`가 `lectures_public` 조회 하나로 단순화되어 있고, `lecturer_name`이 `null`이면(강의자가 탈퇴한 계정) `'강의자'` 같은 중립적 기본값이 아니라 "탈퇴한 계정입니다"로 명시적으로 표시합니다.
 
 ### (2)·(3) "내 강의" — `getCourseFolders()`/`getStandaloneCourses()`가 반환해야 할 모양
 
