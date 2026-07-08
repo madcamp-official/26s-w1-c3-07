@@ -12,7 +12,7 @@ interface CourseCardProps {
   isInstructor?: boolean
   onEdit?: (courseId: string) => void
   onMove: (itemId: string, itemType: TreeItemType, label: string) => void
-  onDelete: (itemId: string, itemType: TreeItemType, label: string) => void
+  onDelete: (itemId: string, itemType: TreeItemType, label: string, isOwned: boolean) => void
 }
 
 export default function CourseCard({ course, isInstructor = false, onEdit, onMove, onDelete }: CourseCardProps) {
@@ -44,7 +44,7 @@ export default function CourseCard({ course, isInstructor = false, onEdit, onMov
           <ItemActionsMenu
             onEdit={isOwned && onEdit ? () => onEdit(course.id) : undefined}
             onMove={() => onMove(course.id, 'course', course.title)}
-            onDelete={() => onDelete(course.id, 'course', course.title)}
+            onDelete={() => onDelete(course.id, 'course', course.title, isOwned)}
             onClose={() => setIsMenuOpen(false)}
             deleteLabel={isOwned ? '삭제' : '등록취소'}
           />

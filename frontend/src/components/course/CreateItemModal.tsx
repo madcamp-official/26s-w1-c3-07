@@ -4,11 +4,12 @@ import Modal from '../ui/Modal'
 
 interface CreateItemModalProps {
   isOpen: boolean
+  parentId?: string | null
   onClose: () => void
-  onCreateFolder: (name: string) => Promise<void>
+  onCreateFolder: (name: string, parentId?: string | null) => Promise<void>
 }
 
-export default function CreateItemModal({ isOpen, onClose, onCreateFolder }: CreateItemModalProps) {
+export default function CreateItemModal({ isOpen, parentId = null, onClose, onCreateFolder }: CreateItemModalProps) {
   const [name, setName] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -21,7 +22,7 @@ export default function CreateItemModal({ isOpen, onClose, onCreateFolder }: Cre
     if (!name.trim()) return
     setIsSubmitting(true)
     try {
-      await onCreateFolder(name.trim())
+      await onCreateFolder(name.trim(), parentId)
       setName('')
       onClose()
     } finally {
@@ -30,7 +31,7 @@ export default function CreateItemModal({ isOpen, onClose, onCreateFolder }: Cre
   }
 
   return (
-    <Modal isOpen={isOpen} title="폴더 만들기" onClose={onClose}>
+    <Modal isOpen={isOpen} title={parentId ? '하위 폴더 만들기' : '폴더 만들기'} onClose={onClose}>
       <form onSubmit={submit} className="mt-6 space-y-5">
         <label className="block">
           <span className="mb-2 block text-sm font-bold text-slate-700">폴더 이름</span>

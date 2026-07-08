@@ -15,7 +15,8 @@
 - [9. 강의자/수강생 모드 색 구분: `posts_public.created_mode`](#9-강의자수강생-모드-색-구분-posts_publiccreated_mode)
 - [10. 글 작성/제출: `ai-correct`, `submit-post` Edge Function](#10-글-작성제출-ai-correct-submit-post-edge-function)
 - [11. 실시간 접속자 수: Realtime Presence](#11-실시간-접속자-수-realtime-presence)
-- [12. 테스트용 더미 데이터](#12-테스트용-더미-데이터)
+- [12. 강의 페이지 실시간 갱신: Broadcast](#12-강의-페이지-실시간-갱신-broadcast)
+- [13. 테스트용 더미 데이터](#13-테스트용-더미-데이터)
 
 ## 1. Supabase URL / API 키란 무엇인가
 
@@ -503,7 +504,44 @@ channel.subscribe()
 
 이 판단은 채널 구독 직후 첫 `sync` 이벤트 시점에 딱 한 번만 하고, 이후 다른 사람이 나가서 자리가 나도 재판단하지 않습니다(이미 페이지를 열어본 사람이 새로고침해야 재시도되는 정도로 충분하다고 판단).
 
-## 12. 테스트용 더미 데이터
+## 12. 강의 페이지 실시간 갱신: Broadcast
+
+"다른 사람이 쓴 글이 새로고침 없이 바로 뜨나요?" — 여기부터가 그 답이에요. 강의실 페이지에서 질문/답글, 좋아요, 실시간 피드백, 강의 제목/일정이 바뀌면 서버(DB 트리거)가 [Presence](#11-실시간-접속자-수-realtime-presence)와 **같은 채널**(`lecture:<lectureId>`)로 Broadcast 메시지를 쏴줘요. `postgres_changes`(테이블을 직접 구독하는 방식)가 아니라 Broadcast를 쓰는 이유는 [DB_DESIGN.md의 트리거 설명](./DB_DESIGN.md#실시간-갱신용-broadcast-트리거-5종) 참고 — 요약하면 `postgres_changes`는 RLS를 그대로 타는데 이 프로젝트 RLS는 `x-guest-token` 헤더 비교가 섞여 있어서 비회원이 이벤트를 못 받는 문제가 있었고, Broadcast는 그 문제가 없어요(회원/비회원 구분 없이 다 받음).
+
+**✅ 백엔드(DB 트리거) 구현·배포 완료. 프론트 구독 코드는 아직 없음** — 아래는 어떻게 구독하면 되는지에 대한 안내입니다.
+
+같은 `lecture:<lectureId>` 채널을 [Presence](#11-실시간-접속자-수-realtime-presence)와 공유하니, 이미 그 채널을 열어뒀다면(`useRoomPresence` 등) 거기에 아래 리스너만 추가하면 됩니다. 채널을 새로 만들 필요는 없어요.
+
+```js
+channel.on('broadcast', { event: 'post_change' }, ({ payload }) => {
+  // payload: { op: 'INSERT'|'UPDATE'|'DELETE', id, lecture_id, parent_id, ...(INSERT/UPDATE만) author_display_name, is_anonymous, type, status, resolved_at, content, created_at, created_mode }
+  // op === 'DELETE'면 목록에서 그 id를 제거, 아니면 upsert(같은 id면 갱신, 없으면 추가)
+})
+
+channel.on('broadcast', { event: 'like_change' }, ({ payload }) => {
+  // payload: { post_id, like_count } — 해당 글의 좋아요 개수를 그대로 덮어쓰면 됨
+})
+
+channel.on('broadcast', { event: 'feedback_change' }, ({ payload }) => {
+  // payload: { feedback_type, like_count, dislike_count } — 실시간 피드백 바 갱신
+})
+
+channel.on('broadcast', { event: 'lecture_updated' }, ({ payload }) => {
+  // payload: { id, name } — 강의 제목 변경
+})
+
+channel.on('broadcast', { event: 'lecture_details_updated' }, ({ payload }) => {
+  // payload: { id, start_time, end_time, location, max_participants }
+})
+```
+
+**주의할 점**:
+- `post_change`의 `is_mine`(내가 쓴 글인지)은 페이로드에 없습니다 — 보는 사람마다 다른 값이라 브로드캐스트 하나로는 표현이 안 돼서, 받는 쪽에서 자기 identity(`author_id`/`guest_token`)와 비교해서 직접 판단해야 해요.
+- 내가 방금 `submit-post`로 직접 쓴 글도 이 브로드캐스트를 통해 다시 들어옵니다(자기 자신에게도 전달됨). 이미 응답으로 받아서 로컬 state에 올려둔 글이라면, `id` 기준으로 중복 추가되지 않게 처리해야 해요(upsert 방식 권장).
+- `lecture_feedback_votes`의 강의자 "초기화"(여러 명 투표를 한 번에 지움)는 행 하나마다 `feedback_change`가 따로따로 날아옵니다 — 최종적으로는 0으로 수렴하니 마지막 값만 반영해도 결과는 맞지만, 중간에 개수가 여러 번 바뀌는 게 화면에 잠깐 보일 수 있어요.
+- 계정 이름(`profiles.name`) 변경은 브로드캐스트되지 않습니다 — 강의자 이름이 실시간으로 안 바뀌는 건 의도된 동작이에요(자세한 이유는 DB_DESIGN.md 참고).
+
+## 13. 테스트용 더미 데이터
 
 `backend/supabase/seed.sql`에 실제 스키마에 맞춘 더미 데이터가 원격 DB에 반영되어 있어요(강의 폴더/강의, 질문/답글, 좋아요, 실시간 피드백 등). [`DUMMY_DATA.md`](./DUMMY_DATA.md)에서 확인할 수 있는데, 계정별·모드별로 "내 강의" 페이지에 어떤 강의/폴더 트리가 보이는지(강의 입장 코드, 즐겨찾기 관계 포함)뿐 아니라, 일부 강의(트리와 그래프, 데이터베이스 설계 입문)에 실제로 등록되어 있는 질문/답글 트리 구조도 정리되어 있으니 강의 페이지 테스트할 때도 참고하세요.
 

@@ -307,6 +307,7 @@ async function getInstructorDataset(userId: string): Promise<{ folders: CourseFo
     .select('id, parent_id, type, name, created_by, created_mode, created_at, lectures(start_time, end_time, location, max_participants)')
     .eq('created_by', userId)
     .eq('created_mode', 'lecturer')
+    .order('created_at')
 
   if (error) throw error
   return buildFolderTree((data ?? []) as NodeRow[], 'owned')
@@ -318,9 +319,10 @@ async function getStudentDataset(userId: string): Promise<{ folders: CourseFolde
       .from('nodes')
       .select('id, parent_id, type, name, created_by, created_mode, created_at')
       .eq('created_by', userId)
-      .eq('created_mode', 'student'),
+      .eq('created_mode', 'student')
+      .order('created_at'),
     supabase.from('favorites').select('node_id, anchor_id').eq('user_id', userId),
-    supabase.rpc('get_my_favorite_subtrees'),
+    supabase.rpc('get_my_favorite_subtrees').order('created_at'),
   ])
 
   if (createdError) throw createdError
@@ -488,7 +490,7 @@ export async function createRootFolder(input: CreateFolderInput): Promise<Course
 
   const { data, error } = await supabase
     .from('nodes')
-    .insert({ name: input.name, type: 'folder', created_by: userId, created_mode: createdMode })
+    .insert({ name: input.name, type: 'folder', created_by: userId, created_mode: createdMode, parent_id: input.parentId ?? null })
     .select('id, name')
     .single<{ id: string; name: string }>()
 
@@ -600,8 +602,22 @@ function getActiveDataset(): { folders: CourseFolder[]; rootCourses: Course[] } 
     : { folders: mockStudentFolders, rootCourses: mockStudentCourses }
 }
 
+/**
+ * 지금 보고 있는 화면(강의자/수강생 모드)에서 "내가 만든" 노드인지 판별합니다.
+ * created_by만 보면 안 되는 이유: 같은 계정이 강의자 모드로 만든 폴더/강의를
+ * 수강생 모드에서 즐겨찾기(등록)할 수 있는데, 이때 created_by는 여전히 본인이지만
+ * 지금 보이는 화면(수강생 모드) 기준으로는 "등록만 한" 항목이라 owned가 아닙니다.
+ * created_mode까지 함께 확인해야 "지금 이 화면에서 실제로 만든 것"만 owned로 판별됩니다.
+ */
 async function isOwnNode(nodeId: string, userId: string): Promise<boolean> {
-  const { data, error } = await supabase.from('nodes').select('id').eq('id', nodeId).eq('created_by', userId).maybeSingle<{ id: string }>()
+  const createdMode = roleToMode(mockCurrentUser.role)
+  const { data, error } = await supabase
+    .from('nodes')
+    .select('id')
+    .eq('id', nodeId)
+    .eq('created_by', userId)
+    .eq('created_mode', createdMode)
+    .maybeSingle<{ id: string }>()
   if (error) throw error
   return Boolean(data)
 }

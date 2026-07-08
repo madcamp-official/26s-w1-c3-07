@@ -1,15 +1,20 @@
 import { Menu, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Navigate, Outlet } from 'react-router-dom'
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import BrandLogo from '../components/BrandLogo'
 import Sidebar from '../components/navigation/Sidebar'
 import { getCurrentUser, switchUserRole } from '../services/api'
 import type { User, UserRole } from '../types/user'
 
+// 강의자 모드에서만 의미가 있는 라우트. 수강생으로 전환하면 이 경로에 계속 머물 수 없어 "내 강의"로 보냅니다.
+const INSTRUCTOR_ONLY_PATHS = ['/student/questions']
+
 export default function DashboardLayout() {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const location = useLocation()
+  const navigate = useNavigate()
 
   useEffect(() => {
     void getCurrentUser().then((current) => {
@@ -19,7 +24,12 @@ export default function DashboardLayout() {
   }, [])
 
   const handleSwitchRole = (role: UserRole) => {
-    void switchUserRole(role).then(setUser)
+    void switchUserRole(role).then((updated) => {
+      setUser(updated)
+      if (updated.role !== 'instructor' && INSTRUCTOR_ONLY_PATHS.includes(location.pathname)) {
+        navigate('/student/courses', { replace: true })
+      }
+    })
   }
 
   if (isLoading) {

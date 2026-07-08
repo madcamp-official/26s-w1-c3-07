@@ -26,6 +26,7 @@
     - [`unresolve_post_on_question_reply()`](#unresolve_post_on_question_reply)
     - [`enforce_nodes_parent_rules()`](#enforce_nodes_parent_rules)
     - [`handle_new_user()`](#handle_new_user)
+    - [실시간 갱신용 Broadcast 트리거 5종](#실시간-갱신용-broadcast-트리거-5종)
   - [RPC 함수](#rpc-함수)
     - [`delete_own_account()`](#delete_own_account)
     - [`get_my_favorite_subtrees()`](#get_my_favorite_subtrees)
@@ -472,6 +473,162 @@ $$ language plpgsql;
 create trigger trg_handle_new_user
 after insert on auth.users
 for each row execute function handle_new_user();
+```
+
+#### 실시간 갱신용 Broadcast 트리거 5종
+
+강의 페이지(질문/답글, 좋아요, 실시간 피드백, 강의 제목/일정)를 실시간으로 갱신하기 위한 **Broadcast from Database** 트리거 5종입니다. `postgres_changes`(테이블 WAL을 직접 구독) 대신 `realtime.send()`(내부적으로 `realtime.messages` 테이블에 INSERT할 뿐인 함수)를 쓰는 이유는, `postgres_changes`는 원본 테이블의 RLS를 그대로 적용받는데 `posts`/`post_likes`/`lecture_feedback_votes`의 RLS는 `x-guest-token` 헤더 비교가 섞여 있고 WebSocket 연결은 커스텀 헤더를 못 실어서 비회원이 이벤트를 아예 못 받기 때문입니다(실제로 라이브 테스트로 확인함). `realtime.send()`는 원본 테이블 RLS와 무관한 별도 경로라 회원/비회원 구분 없이 받을 수 있고, 트리거가 원래 쓰기와 같은 트랜잭션 안에서 실행되므로 그 트랜잭션이 롤백되면 브로드캐스트도 같이 취소되는 장점도 있습니다.
+
+채널은 [Presence](#실시간-접속자-수-강의별)와 동일하게 `lecture:<lecture_id>`를 재사용합니다. 다섯 함수 모두 `SECURITY DEFINER`로 선언했는데, `posts`/`nodes`/`lectures`의 base 테이블 SELECT가 RLS로 좁게 막혀 있어서(예: 남이 쓴 글은 `posts_select_own`/`posts_select_lecturer`로 안 보임) 호출자(글을 쓰거나 좋아요를 누른 사람)의 권한이 아니라 정의자 권한으로 자유롭게 조회해야 하기 때문입니다(`unresolve_post_on_question_reply()`와 동일한 이유). `search_path`는 스키마 하이재킹 방지를 위해 빈 문자열로 고정합니다.
+
+- **`broadcast_post_change()`**(`posts` AFTER INSERT/UPDATE/DELETE) — `post_change` 이벤트. INSERT/UPDATE는 `posts_public` 뷰에서 안전한 필드만 골라 페이로드로 보냄(뷰가 이미 `guest_token`/`author_id`를 감추고 `is_anonymous`에 따라 작성자 이름을 조건부로 채워주므로 재사용). `is_mine`은 보는 사람마다 다른 값이라 브로드캐스트에는 안 실음(클라이언트가 자기 identity로 직접 판단). DELETE는 삭제된 행이 뷰에서도 이미 사라진 뒤라 `old`의 `id`/`lecture_id`/`parent_id`만 보냄(목록에서 지우는 데 그거면 충분).
+- **`broadcast_post_like_change()`**(`post_likes` AFTER INSERT/DELETE) — `like_change` 이벤트. `voter_key`는 안 보내고 `post_likes_counts`에서 그 글의 좋아요 개수만 다시 계산해서 `{post_id, like_count}`로 보냄.
+- **`broadcast_feedback_vote_change()`**(`lecture_feedback_votes` AFTER INSERT/DELETE) — `feedback_change` 이벤트. `lecture_feedback_votes_counts`에서 해당 `feedback_type`의 좋아요/싫어요 개수를 다시 계산해서 전송. 강의자의 "초기화"(여러 행 한꺼번에 DELETE)도 각 행마다 트리거가 돌아 결과적으로 최종 개수(0)로 수렴함.
+- **`broadcast_lecture_name_change()`**(`nodes` AFTER UPDATE) — `lecture_updated` 이벤트. `type = 'lecture'`이고 이름이 실제로 바뀐 경우에만 `{id, name}` 전송.
+- **`broadcast_lecture_details_change()`**(`lectures` AFTER UPDATE) — `lecture_details_updated` 이벤트. `{id, start_time, end_time, location, max_participants}` 전송.
+
+**계정 이름(`profiles.name`) 변경은 이 범위에서 제외**했습니다 — 한 사람이 강의를 여러 개 소유할 수 있어서 이름 하나가 바뀌면 그 사람 소유의 강의 채널 여러 곳에 각각 쏴야 하는 부채살 구조라, `nodes`/`lectures`(강의 하나 = 채널 하나)보다 한 단계 더 복잡하고 실익도 낮다고 판단해 보류함.
+
+```sql
+create or replace function broadcast_post_change()
+returns trigger
+security definer
+set search_path = ''
+as $$
+declare
+  payload jsonb;
+  target_lecture_id uuid;
+begin
+  if tg_op = 'DELETE' then
+    target_lecture_id := old.lecture_id;
+    payload := jsonb_build_object(
+      'op', 'DELETE', 'id', old.id, 'lecture_id', old.lecture_id, 'parent_id', old.parent_id
+    );
+  else
+    target_lecture_id := new.lecture_id;
+    select jsonb_build_object(
+      'id', p.id, 'lecture_id', p.lecture_id, 'parent_id', p.parent_id,
+      'author_display_name', p.author_display_name, 'is_anonymous', p.is_anonymous,
+      'type', p.type, 'status', p.status, 'resolved_at', p.resolved_at,
+      'content', p.content, 'created_at', p.created_at, 'created_mode', p.created_mode
+    ) into payload
+    from public.posts_public p
+    where p.id = new.id;
+    payload := payload || jsonb_build_object('op', tg_op);
+  end if;
+
+  perform realtime.send(payload, 'post_change', 'lecture:' || target_lecture_id::text, false);
+  return coalesce(new, old);
+end;
+$$ language plpgsql;
+
+create trigger trg_broadcast_post_change
+after insert or update or delete on posts
+for each row execute function broadcast_post_change();
+
+create or replace function broadcast_post_like_change()
+returns trigger
+security definer
+set search_path = ''
+as $$
+declare
+  affected_post_id uuid := coalesce(new.post_id, old.post_id);
+  target_lecture_id uuid;
+  count_val integer;
+begin
+  select lecture_id into target_lecture_id from public.posts where id = affected_post_id;
+  select like_count into count_val from public.post_likes_counts where post_id = affected_post_id;
+
+  perform realtime.send(
+    jsonb_build_object('post_id', affected_post_id, 'like_count', coalesce(count_val, 0)),
+    'like_change',
+    'lecture:' || target_lecture_id::text,
+    false
+  );
+  return coalesce(new, old);
+end;
+$$ language plpgsql;
+
+create trigger trg_broadcast_post_like_change
+after insert or delete on post_likes
+for each row execute function broadcast_post_like_change();
+
+create or replace function broadcast_feedback_vote_change()
+returns trigger
+security definer
+set search_path = ''
+as $$
+declare
+  affected_lecture_id uuid := coalesce(new.lecture_id, old.lecture_id);
+  affected_type text := coalesce(new.feedback_type, old.feedback_type);
+  counts record;
+begin
+  select like_count, dislike_count into counts
+  from public.lecture_feedback_votes_counts
+  where lecture_id = affected_lecture_id and feedback_type = affected_type;
+
+  perform realtime.send(
+    jsonb_build_object(
+      'feedback_type', affected_type,
+      'like_count', coalesce(counts.like_count, 0),
+      'dislike_count', coalesce(counts.dislike_count, 0)
+    ),
+    'feedback_change',
+    'lecture:' || affected_lecture_id::text,
+    false
+  );
+  return coalesce(new, old);
+end;
+$$ language plpgsql;
+
+create trigger trg_broadcast_feedback_vote_change
+after insert or delete on lecture_feedback_votes
+for each row execute function broadcast_feedback_vote_change();
+
+create or replace function broadcast_lecture_name_change()
+returns trigger
+security definer
+set search_path = ''
+as $$
+begin
+  if new.type = 'lecture' and new.name is distinct from old.name then
+    perform realtime.send(
+      jsonb_build_object('id', new.id, 'name', new.name),
+      'lecture_updated',
+      'lecture:' || new.id::text,
+      false
+    );
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trg_broadcast_lecture_name_change
+after update on nodes
+for each row execute function broadcast_lecture_name_change();
+
+create or replace function broadcast_lecture_details_change()
+returns trigger
+security definer
+set search_path = ''
+as $$
+begin
+  perform realtime.send(
+    jsonb_build_object(
+      'id', new.id, 'start_time', new.start_time, 'end_time', new.end_time,
+      'location', new.location, 'max_participants', new.max_participants
+    ),
+    'lecture_details_updated',
+    'lecture:' || new.id::text,
+    false
+  );
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trg_broadcast_lecture_details_change
+after update on lectures
+for each row execute function broadcast_lecture_details_change();
 ```
 
 ### RPC 함수
@@ -1008,3 +1165,4 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
   - `20260708170000_lectures_public_view.sql` — 강의실 페이지에서 강의자 이름이 안 보이던 문제(`profiles`가 본인만 SELECT 가능해서, 강의를 만든 본인이 아니면 이름을 조회할 수 없었음) 해결용 `lectures_public` 뷰 추가. `posts_public`과 같은 원리(뷰 소유자 권한으로 `profiles` 우회 조인)로 강의 제목/일시/장소와 함께 강의자 이름(`lecturer_name`)을 공개 노출. `profiles` RLS 자체를 완화하지 않은 이유는 그러면 강의자뿐 아니라 가입한 모든 사용자 이름을 익명 스크래핑당할 수 있기 때문(자세한 내용은 "정책·트리거·뷰 보완 설명" 참고)
   - `20260708180000_feedback_type_dark_to_unclear.sql` — 피드백 유형 `dark`를 `unclear`로 변경(조명이 어둡다는 뜻으로 오해되기 쉬워서, 원래 의도인 "글씨가 작아서/흐려서 안 보임"에 맞게). 이전에 한 번 이 값을 바꾼 적이 있었지만 그땐 이미 적용된 `init_schema.sql`의 텍스트만 고치고 실제 `ALTER`를 안 해서 라이브 DB와 프론트가 계속 `dark`를 쓰고 있었고, 이번엔 기존 데이터를 `unclear`로 `UPDATE`한 뒤 `lecture_feedback_votes_feedback_type_valid` 제약을 실제로 `ALTER`해서 라이브 DB에 반영. 프론트(`frontend` 브랜치의 `FeedbackKey`/`FEEDBACK_KEYS`/`FEEDBACK_LABELS`)는 아직 `dark`를 쓰고 있어 별도로 갱신이 필요함([SUPABASE_GUIDE.md 참고](./SUPABASE_GUIDE.md#테이블-조회))
   - `20260708190000_posts_realtime_publication.sql` — 강의실 게시글 실시간 갱신(TODO.md #6) 구현의 선행 작업으로 `posts`를 `supabase_realtime` publication에 추가(`postgres_changes` 이벤트 자체가 발생하려면 필요). 라이브 검증 결과, 이것만으로는 비회원까지 안전하게 실시간 구독을 붙일 수 없다는 게 확인됨 — `posts_select_own`의 `guest_token` 헤더 비교 조건이 WebSocket 연결에선 평가될 방법이 없어(커스텀 헤더를 못 실음), guest_token으로 쓴 글의 INSERT 이벤트가 매칭 identity 없는 연결엔 전달 안 됨. 자세한 내용과 남은 과제는 TODO.md #6 참고
+  - `20260708200000_broadcast_triggers_for_realtime_updates.sql` — `postgres_changes` 대신 Broadcast from Database(`realtime.send()`)로 방향을 바꿔 강의 페이지 실시간 갱신을 실제로 구현. `posts`/`post_likes`/`lecture_feedback_votes`/`nodes`(강의 제목)/`lectures`(일정/장소/정원) 다섯 테이블에 `SECURITY DEFINER` 트리거를 달아 변경이 생기면 `lecture:<lecture_id>` 채널로 브로드캐스트. `realtime.send()`는 원본 테이블 RLS와 무관한 별도 경로(`realtime.messages`에 INSERT할 뿐)라 회원/비회원 구분 없이 받을 수 있음. 계정 이름(`profiles.name`)은 한 사람이 여러 강의를 소유할 수 있어 채널 하나로 안 끝나는 부채살 구조라 이번 범위에서 제외. 자세한 설계는 [SQL → 트리거 함수 → 실시간 갱신용 Broadcast 트리거 5종](#실시간-갱신용-broadcast-트리거-5종), 프론트 구독 방법은 [SUPABASE_GUIDE.md](./SUPABASE_GUIDE.md) 참고. 라이브 리스너로 다섯 이벤트 전부 실제 발신·수신 확인 완료
