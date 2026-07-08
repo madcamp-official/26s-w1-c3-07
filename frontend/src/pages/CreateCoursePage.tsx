@@ -1,7 +1,9 @@
-import { ArrowLeft, ArrowRight, Calendar, CheckCircle2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { ArrowLeft, ArrowRight, Calendar, CheckCircle2, Clock } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import Button from '../components/ui/Button'
+import DatePicker from '../components/ui/DatePicker'
+import TimeDropdown from '../components/ui/TimeDropdown'
 import { useStudentCourses } from '../hooks/useStudentCourses'
 import type { Course, CourseFolder } from '../types/course'
 
@@ -37,11 +39,16 @@ export default function CreateCoursePage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [isUpdated, setIsUpdated] = useState(false)
+  // 한 번 채워 넣은 값은 folders/courses가 refresh되며 참조가 바뀌어도 다시 덮어쓰지 않도록
+  // courseId별로 최초 1회만 채움 - 안 그러면 입력 도중 폼이 원래 값으로 리셋됨.
+  const hydratedCourseIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!isEditMode || !courseId || isLoading) return
+    if (hydratedCourseIdRef.current === courseId) return
     const course = findCourseById(folders, courses, courseId)
     if (!course) return
+    hydratedCourseIdRef.current = courseId
     setTitle(course.title)
     setDate(course.date ?? '')
     setStartTime(course.startTime ?? '')
@@ -146,7 +153,7 @@ export default function CreateCoursePage() {
             <label className="mb-2 block font-bold text-slate-800">강의 날짜 <span className="text-rose-500">*</span></label>
             <div className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 focus-within:border-violet-500 focus-within:ring-4 focus-within:ring-violet-100">
               <Calendar className="size-5 shrink-0 text-violet-400" />
-              <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="w-full outline-none" />
+              <DatePicker value={date} onChange={setDate} />
             </div>
           </div>
 
@@ -155,12 +162,18 @@ export default function CreateCoursePage() {
             <div className="flex items-center gap-3">
               <div className="flex-1">
                 <span className="mb-1 block text-xs font-medium text-slate-400">시작</span>
-                <input type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100" />
+                <div className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 focus-within:border-violet-500 focus-within:ring-4 focus-within:ring-violet-100">
+                  <Clock className="size-5 shrink-0 text-violet-400" />
+                  <TimeDropdown value={startTime} onChange={setStartTime} />
+                </div>
               </div>
               <span className="mt-5 text-slate-300">→</span>
               <div className="flex-1">
                 <span className="mb-1 block text-xs font-medium text-slate-400">종료</span>
-                <input type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100" />
+                <div className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 focus-within:border-violet-500 focus-within:ring-4 focus-within:ring-violet-100">
+                  <Clock className="size-5 shrink-0 text-violet-400" />
+                  <TimeDropdown value={endTime} onChange={setEndTime} />
+                </div>
               </div>
             </div>
           </div>

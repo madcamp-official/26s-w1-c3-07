@@ -245,9 +245,9 @@ function nodeToItem(node: NodeRow, ownership: FolderOwnership): CourseFolder | C
       questionCount: 0,
       color: ownership === 'owned' ? 'purple' : 'blue',
       ownership,
-      date: node.lectures?.start_time,
-      startTime: node.lectures?.start_time,
-      endTime: node.lectures?.end_time,
+      date: node.lectures ? toDateInputValue(node.lectures.start_time) : undefined,
+      startTime: node.lectures ? toTimeInputValue(node.lectures.start_time) : undefined,
+      endTime: node.lectures ? toTimeInputValue(node.lectures.end_time) : undefined,
       location: node.lectures?.location ?? undefined,
       capacity: node.lectures?.max_participants ?? null,
     }
@@ -446,9 +446,9 @@ async function findCourseByJoinCode(code: string): Promise<Course> {
     updatedAt: '방금 전',
     color: 'blue',
     ownership: 'registered',
-    date: node.lectures?.start_time,
-    startTime: node.lectures?.start_time,
-    endTime: node.lectures?.end_time,
+    date: node.lectures ? toDateInputValue(node.lectures.start_time) : undefined,
+    startTime: node.lectures ? toTimeInputValue(node.lectures.start_time) : undefined,
+    endTime: node.lectures ? toTimeInputValue(node.lectures.end_time) : undefined,
     location: node.lectures?.location ?? undefined,
     capacity: node.lectures?.max_participants ?? null,
   }
@@ -704,6 +704,23 @@ function formatLectureDate(startTime: string): string {
   const date = new Date(startTime)
   const weekday = ['일', '월', '화', '수', '목', '금', '토'][date.getDay()]
   return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 (${weekday})`
+}
+
+/** <input type="date">가 요구하는 YYYY-MM-DD 형식으로, 로컬 타임존 기준 날짜를 뽑습니다. */
+function toDateInputValue(isoDateTime: string): string {
+  const date = new Date(isoDateTime)
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+/** <input type="time">가 요구하는 HH:mm 형식으로, 로컬 타임존 기준 시각을 뽑습니다. */
+function toTimeInputValue(isoDateTime: string): string {
+  const date = new Date(isoDateTime)
+  const hh = String(date.getHours()).padStart(2, '0')
+  const mi = String(date.getMinutes()).padStart(2, '0')
+  return `${hh}:${mi}`
 }
 
 interface CourseRoomMeta {
