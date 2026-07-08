@@ -44,6 +44,7 @@ export interface CourseRoom {
   date: string
   lecturerName: string
   participantCount: number
+  capacity: number | null
   feedbackOptions: FeedbackOption[]
   questions: Question[]
 }

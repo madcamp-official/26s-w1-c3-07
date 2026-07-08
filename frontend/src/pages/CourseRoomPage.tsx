@@ -9,6 +9,7 @@ import Sidebar from '../components/navigation/Sidebar'
 import Button from '../components/ui/Button'
 import ShareCourseModal from '../components/course/ShareCourseModal'
 import { useCourseRoom } from '../hooks/useCourseRoom'
+import { useRoomPresence } from '../hooks/useRoomPresence'
 import { getCurrentUser } from '../services/api'
 import type { QuestionFilter } from '../types/room'
 import type { User } from '../types/user'
@@ -24,8 +25,10 @@ export default function CourseRoomPage() {
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isShareOpen, setIsShareOpen] = useState(false)
+  const participantCount = useRoomPresence(room ? courseId : undefined, room?.capacity ?? null)
 
   const highlightId = searchParams.get('highlight')
+  const isInstructor = user?.role === 'instructor'
 
   useEffect(() => {
     void getCurrentUser().then(setUser)
@@ -64,7 +67,6 @@ export default function CourseRoomPage() {
   const resolvedCount = room.questions.length - unresolvedCount
   const visibleQuestions = room.questions.filter((question) => (filter === 'unresolved' ? !question.isResolved : question.isResolved))
   const sortedFeedbackOptions = [...room.feedbackOptions].sort((a, b) => (b.likeCount - b.dislikeCount) - (a.likeCount - a.dislikeCount))
-  const isInstructor = user?.role === 'instructor'
 
   return (
     <div className="min-h-screen bg-slate-50 pb-16">
@@ -91,7 +93,7 @@ export default function CourseRoomPage() {
             title={room.title}
             date={room.date}
             lecturerName={room.lecturerName}
-            participantCount={room.participantCount}
+            participantCount={participantCount}
             questionCount={room.questions.length}
             onShare={isInstructor ? () => setIsShareOpen(true) : undefined}
           />
@@ -176,7 +178,7 @@ export default function CourseRoomPage() {
         course={{
           id: room.id,
           title: room.title,
-          participantCount: room.participantCount,
+          participantCount,
           questionCount: room.questions.length,
           color: 'purple',
           ownership: 'owned',

@@ -670,6 +670,7 @@ interface CourseRoomMeta {
   date: string
   lecturerName: string
   participantCount: number
+  capacity: number | null
 }
 
 /** 실제 DB(lectures_public)에서 강의 메타데이터만 조회합니다. */
@@ -689,6 +690,7 @@ async function getCourseRoomFromDb(courseId: string): Promise<CourseRoomMeta> {
     // lecturer_name이 null이면 강의를 만든 계정이 탈퇴한 것입니다.
     lecturerName: lecture.lecturer_name ?? '탈퇴한 계정입니다',
     participantCount: 0,
+    capacity: lecture.max_participants,
   }
 }
 
