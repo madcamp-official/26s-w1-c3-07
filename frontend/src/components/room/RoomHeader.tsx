@@ -19,7 +19,11 @@ export default function RoomHeader({ title, date, lecturerName, participantCount
         <h1 className="truncate text-xl font-extrabold text-slate-900 sm:text-2xl">{title}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm font-medium text-slate-500">
           <span className="inline-flex items-center gap-1.5"><Calendar className="size-4" />{date}</span>
-          <span className="inline-flex items-center gap-1.5"><UserRound className="size-4" />{lecturerName} Lecturer</span>
+          <span className="inline-flex items-center gap-1.5">
+            <UserRound className="size-4" />
+            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">강의자</span>
+            {lecturerName}
+          </span>
           <span className="inline-flex items-center gap-1.5"><UsersRound className="size-4" />{participantCount}명 참여 중</span>
         </div>
       </div>
