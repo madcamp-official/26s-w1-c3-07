@@ -214,9 +214,19 @@ export function useCourseRoom(courseId: string | undefined) {
       onFeedbackChange: (payload) => {
         setState((current) => {
           if (!current.room) return current
+          // 좋아요/싫어요가 둘 다 0이면 해당 항목에 남은 투표 행이 하나도 없다는 뜻이므로
+          // (강의자가 초기화했든 마지막 투표가 취소됐든) 내 투표 표시(초록/빨강)도 같이
+          // 지워야 함 - 안 그러면 다른 사람이 초기화했을 때 새로고침 전까지 색이 안 없어짐.
+          const isCleared = payload.like_count === 0 && payload.dislike_count === 0
           const feedbackOptions = current.room.feedbackOptions.map((option) =>
             option.key === payload.feedback_type
-              ? { ...option, likeCount: payload.like_count, dislikeCount: payload.dislike_count }
+              ? {
+                  ...option,
+                  likeCount: payload.like_count,
+                  dislikeCount: payload.dislike_count,
+                  myLiked: isCleared ? false : option.myLiked,
+                  myDisliked: isCleared ? false : option.myDisliked,
+                }
               : option,
           )
           return { ...current, room: { ...current.room, feedbackOptions } }
