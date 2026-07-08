@@ -3,7 +3,7 @@
 // 요청: { content: string }
 // 응답: { corrected: string }
 import { corsHeaders } from "../_shared/cors.ts";
-import { CORRECTION_SYSTEM_PROMPT } from "./prompt.ts";
+import { CORRECTION_SYSTEM_PROMPT } from "./correction-prompt.ts";
 
 const OPENAI_MODEL = "gpt-4o-mini";
 
