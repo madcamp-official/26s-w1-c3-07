@@ -11,7 +11,7 @@ import {
   resetFeedbackOption,
   resolvePostAuthorName,
   resolveQuestion,
-  subscribeToRoomBroadcasts,
+  subscribeToRoomChannel,
   submitDraft,
   toggleFeedback,
   toggleQuestionLike,
@@ -124,6 +124,7 @@ function mergePostChange(setState: Dispatch<SetStateAction<CourseRoomState>>, pa
 
 export function useCourseRoom(courseId: string | undefined) {
   const [state, setState] = useState<CourseRoomState>({ room: null, isLoading: true, error: null, actionError: null })
+  const [participantCount, setParticipantCount] = useState(0)
 
   const load = useCallback(async () => {
     if (!courseId) return
@@ -146,12 +147,19 @@ export function useCourseRoom(courseId: string | undefined) {
     void load()
   }, [load])
 
-  // 강의실 실시간 갱신(질문/답글/좋아요/피드백/강의 제목·일정) 구독. useRoomPresence가 여는
-  // 채널과 토픽은 같지만(lecture:<courseId>) 별도 인스턴스라 이 채널로는 track() 안 함.
-  useEffect(() => {
-    if (!courseId) return
+  // 강의 정보가 로드된 뒤에 실시간 채널을 엽니다. capacity를 알아야 presence track 여부를
+  // 정할 수 있고, 로드 전에 오는 브로드캐스트는 room이 null이라 어차피 버려지기 때문.
+  const capacity = state.room?.capacity ?? null
+  const roomLoaded = state.room !== null
 
-    const unsubscribe = subscribeToRoomBroadcasts(courseId, {
+  // 강의실 실시간 갱신(질문/답글/좋아요/피드백/강의 제목·일정)과 접속자 수(Presence)를
+  // 단일 채널로 구독. 같은 토픽으로 채널을 두 개 열면 먼저 열린 쪽이 서버에서 닫히므로
+  // 반드시 하나의 채널을 공유해야 함(subscribeToRoomChannel 주석 참고).
+  useEffect(() => {
+    if (!courseId || !roomLoaded) return
+
+    const unsubscribe = subscribeToRoomChannel(courseId, capacity, {
+      onParticipantCount: setParticipantCount,
       onPostChange: (payload) => mergePostChange(setState, payload),
       onLikeChange: (payload) => {
         setState((current) => {
@@ -188,7 +196,7 @@ export function useCourseRoom(courseId: string | undefined) {
     })
 
     return unsubscribe
-  }, [courseId, load])
+  }, [courseId, load, roomLoaded, capacity])
 
   const addQuestionToState = (question: Question) => {
     setState((current) => (current.room ? { ...current, room: { ...current.room, questions: [question, ...current.room.questions] } } : current))
@@ -300,6 +308,7 @@ export function useCourseRoom(courseId: string | undefined) {
 
   return {
     ...state,
+    participantCount,
     reload: load,
     submitQuestion,
     submitReply,
