@@ -155,12 +155,13 @@ create table lecture_feedback_votes (
 
 #### `posts`
 
-게시글과 답글을 하나로 통합한 자기참조 트리로, `parent_id`가 `null`이면 최상위 게시글, 값이 있으면 답글입니다(무한 depth). 최상위 글을 삭제하면 답글도 `on delete cascade`로 재귀 삭제됩니다. `author_id`는 비회원이면 `null`이고, 회원이 탈퇴해도 `on delete set null`로 글은 남고 작성자 정보만 사라집니다 — 이때 `is_anonymous`는 건드리지 않고 원래 값 그대로 둡니다(자세한 이유는 아래 CHECK 제약 설명과 "정책·트리거·뷰" 절 참고). `guest_token`은 비회원 글 수정/삭제 인증용인 `uuid`이며(`crypto.randomUUID()`로 생성, 자세한 이유는 아래 "비회원 익명 식별자" 절 참고), 강의가 끝나도 무효화하지 않고 영구 보존합니다 — 왜 무효화가 필요 없는지는 아래 CHECK 제약 설명 참고. `status`는 최상위 게시글만 사용(답글은 `null`)하고, `resolved_at`은 해결됨으로 바뀐 시각으로 해결된 게시글 정렬 기준이며 미해결로 되돌아가면 다시 `null` 처리됩니다. `created_mode`는 강의자 모드/수강생 모드 중 어느 화면에서 썼는지를 저장해 화면에서 색을 구분하는 데 씁니다. 다섯 개의 `check` 제약은 각각:
+게시글과 답글을 하나로 통합한 자기참조 트리로, `parent_id`가 `null`이면 최상위 게시글, 값이 있으면 답글입니다(무한 depth). 최상위 글을 삭제하면 답글도 `on delete cascade`로 재귀 삭제됩니다. `author_id`는 비회원이면 `null`이고, 회원이 탈퇴해도 `on delete set null`로 글은 남고 작성자 정보만 사라집니다 — 이때 `is_anonymous`는 건드리지 않고 원래 값 그대로 둡니다(자세한 이유는 아래 CHECK 제약 설명과 "정책·트리거·뷰" 절 참고). `guest_token`은 비회원 글 수정/삭제 인증용인 `uuid`이며(`crypto.randomUUID()`로 생성, 자세한 이유는 아래 "비회원 익명 식별자" 절 참고), 강의가 끝나도 무효화하지 않고 영구 보존합니다 — 왜 무효화가 필요 없는지는 아래 CHECK 제약 설명 참고. `status`는 최상위 게시글만 사용(답글은 `null`)하고, `resolved_at`은 해결됨으로 바뀐 시각으로 해결된 게시글 정렬 기준이며 미해결로 되돌아가면 다시 `null` 처리됩니다. `created_mode`는 강의자 모드/수강생 모드 중 어느 화면에서 썼는지를 저장해 화면에서 색을 구분하는 데 씁니다. 여섯 개의 `check` 제약은 각각:
 - `posts_guest_must_be_anonymous`: `guest_token`이 있는 글(=진짜 비회원 글)은 반드시 익명이어야 함. 원래는 "작성자(`author_id`)가 없으면 무조건 익명"이었는데, 이러면 탈퇴한 회원의 실명 글까지 이 제약에 걸려버려서(아래 참고) `guest_token` 기준으로 좁혔습니다.
 - 최상위 게시글은 `status` 필수·답글은 `status` 필수 `null`
 - 강의자 모드로 쓴 글은 답글+`opinion` 타입만 가능
 - `resolved`일 때만 `resolved_at`이 존재하도록 양방향 강제
 - `posts_author_id_guest_token_not_both_set`: `author_id`와 `guest_token`이 동시에 값을 갖지는 못하게 막음(둘 다 `null`인 상태는 허용). 한때 "정확히 하나만 값을 가짐"(XOR)으로 강화했다가, 회원 탈퇴 시 `author_id`가 `null`이 되면서 `guest_token`(원래도 `null`)과 함께 "둘 다 `null`"인 상태가 정상적으로 발생해야 한다는 게 드러나 다시 완화했습니다(`guest_token` 자체를 지우는 무효화 로직을 다시 쓰는 건 아님 — 왜 무효화가 필요 없는지는 [TODO.md](./TODO.md#해결된-것-참고용-기록) 참고).
+- `posts_lecturer_mode_not_anonymous`: 강의자 모드로 쓴 글(`created_mode = 'lecturer'`)은 반드시 실명(`is_anonymous = false`)이어야 함. `created_mode`는 `author_id`와 별개 컬럼이라 회원 탈퇴로 `author_id`가 `null`이 돼도 그대로 남고, 탈퇴해도 `is_anonymous`를 건드리지 않기로 한 위 결정 덕분에 탈퇴 여부와 무관하게 항상 성립하는 제약이라 안전하게 추가할 수 있었습니다.
 
 ```sql
 create table posts (
@@ -180,7 +181,8 @@ create table posts (
   check ((parent_id is null) = (status is not null)),
   check (created_mode <> 'lecturer' or (parent_id is not null and type = 'opinion')),
   check ((status = 'resolved') = (resolved_at is not null)),
-  constraint posts_author_id_guest_token_not_both_set check (author_id is null or guest_token is null)
+  constraint posts_author_id_guest_token_not_both_set check (author_id is null or guest_token is null),
+  constraint posts_lecturer_mode_not_anonymous check (created_mode <> 'lecturer' or is_anonymous = false)
 );
 ```
 
@@ -947,3 +949,4 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
   - `20260707210000_get_similarity_candidates_rpc.sql` — `submit-post`의 유사도 검사가 AI에게 넘길 비교 대상을 얻기 위한 RPC. 같은 강의의 미해결(`status = 'unresolved'`) 질문 게시글들과 그 답글 트리 전체(재귀 CTE로 `parent_id` 체인을 끝까지 따라감)를 `(id, content)` 쌍으로 반환
   - `20260707211000_restrict_get_similarity_candidates_execute.sql` — 새 함수가 기본으로 `PUBLIC`에 EXECUTE 권한이 열려 있는 Postgres 기본 동작을 발견하고, `anon`/`authenticated`/`public`의 실행 권한을 회수하고 `service_role`에만 부여 — 클라이언트가 이 RPC를 직접 호출해 다른 사람 글 내용을 긁어가지 못하게 함(`submit-post`를 거치지 않은 직접 호출 차단)
   - `20260708130000_posts_deleted_author_placeholder.sql` — 탈퇴한 회원이 실명으로 쓴 글을 익명 처리하지 않고 "탈퇴한 계정입니다"로 표시할 수 있도록 스키마 변경. `anonymize_posts_before_profile_delete()` 트리거/함수를 삭제하고(더 이상 탈퇴 시 글을 강제로 `is_anonymous = true`로 바꾸지 않음), 이로 인해 깨지는 두 체크 제약을 손봄: `posts_check`(작성자 없으면 무조건 익명)를 `posts_guest_must_be_anonymous`(`guest_token`이 있으면, 즉 진짜 비회원 글이면 반드시 익명)로 좁히고, `posts_author_id_xor_guest_token`(정확히 하나만 값을 가짐)을 `posts_author_id_guest_token_not_both_set`(둘 다 값을 갖지는 않음, 둘 다 `null`은 허용)으로 다시 완화. 라이브 DB에서 실명 글을 쓴 회원이 탈퇴하는 시나리오를 직접 실행해 제약 위반 없이 통과하는지 검증 완료
+  - `20260708140000_posts_lecturer_mode_not_anonymous.sql` — 강의자 모드로 쓴 글(`created_mode = 'lecturer'`)은 반드시 실명이어야 한다는 `posts_lecturer_mode_not_anonymous` 체크 제약 추가. 바로 위 변경으로 회원 탈퇴가 더 이상 `is_anonymous`를 건드리지 않게 되어, 이 제약이 탈퇴 여부와 무관하게 항상 성립하게 됨. 라이브 DB에서 강의자 모드 실명 답글을 쓴 계정이 탈퇴하는 시나리오까지 함께 검증 완료
