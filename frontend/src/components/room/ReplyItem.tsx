@@ -19,6 +19,12 @@ export default function ReplyItem({ reply, isHighlighted = false, onLike, onRepl
   const accentText = isLecturer ? 'text-teal-600' : isOpinion ? 'text-cyan-600' : 'text-violet-600'
   const accentFill = isLecturer ? 'fill-teal-600' : isOpinion ? 'fill-cyan-600' : 'fill-violet-600'
   const accentHover = isLecturer ? 'hover:text-teal-600' : isOpinion ? 'hover:text-cyan-600' : 'hover:text-violet-600'
+  // 하이라이트도 무채색 대신 셀 색의 연한 톤으로 - 눈에 더 잘 띄면서 셀 색과 통일감 있게.
+  const accentHighlight = isLecturer
+    ? 'bg-teal-50 shadow-lg shadow-teal-200/60 ring-2 ring-teal-300'
+    : isOpinion
+      ? 'bg-cyan-50 shadow-lg shadow-cyan-200/60 ring-2 ring-cyan-300'
+      : 'bg-violet-50 shadow-lg shadow-violet-200/60 ring-2 ring-violet-300'
   const [isEditing, setIsEditing] = useState(false)
   const [draft, setDraft] = useState(reply.content)
   const [isSaving, setIsSaving] = useState(false)
@@ -50,7 +56,7 @@ export default function ReplyItem({ reply, isHighlighted = false, onLike, onRepl
       className={cn(
         'scroll-mt-6 rounded-2xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-slate-50 p-4 transition-all duration-700 ease-out',
         isLecturer ? 'border-l-teal-400' : isOpinion ? 'border-l-cyan-400' : 'border-l-violet-400',
-        isHighlighted && 'bg-slate-100 shadow-lg shadow-slate-300/60 ring-2 ring-slate-300',
+        isHighlighted && accentHighlight,
       )}
       style={reply.depth > 0 ? { marginLeft: `${Math.min(reply.depth, 6) * 1.5}rem` } : undefined}
     >
