@@ -60,8 +60,8 @@ export default function QuestionThread({ question, canResolve = false, isHighlig
     <article
       id={`post-${question.id}`}
       className={cn(
-        'scroll-mt-6 rounded-3xl border-2 bg-white p-5 shadow-sm transition-shadow sm:p-6',
-        isOpinion ? 'border-blue-400' : 'border-violet-400',
+        'scroll-mt-6 rounded-3xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-white p-5 shadow-sm transition-shadow sm:p-6',
+        isOpinion ? 'border-l-blue-400' : 'border-l-violet-400',
         isHighlighted && 'ring-4 ring-amber-300',
       )}
     >
