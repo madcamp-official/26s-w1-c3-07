@@ -430,6 +430,8 @@ for each row execute function unresolve_post_on_question_reply();
 
 `nodes_insert_own`/`nodes_update_own` RLS는 새로 쓰는 행 자신의 `created_by = auth.uid()`만 검사할 뿐, `parent_id`가 가리키는 부모 행은 검사하지 않습니다. 그래서 다른 사람 폴더 밑에 내 노드를 끼워 넣거나(INSERT), 같은 계정이라도 강의자 모드 폴더를 수강생 모드 폴더 밑으로 옮기는 것(UPDATE, "위치 이동" 기능)이 막혀 있지 않았고, 강의(`type = 'lecture'`)를 다른 노드의 부모로 지정하는 것도(강의는 트리의 리프여야 함) 막혀 있지 않았습니다. 이 트리거는 `parent_id`가 가리키는 부모 노드가 (1) 강의가 아니고 (2) `created_by`/`created_mode`가 반드시 일치하도록 강제해, `nodes.parent_id` 체인이 항상 한 사람·한 모드의 트리 안에서만, 리프가 아닌 노드 밑으로만 이어지게 합니다. 다른 행(부모 행)을 참조해야 해서 `check` 제약으로는 표현할 수 없어(서브쿼리 금지) 트리거로 구현했습니다. (원래 이름은 `enforce_nodes_parent_ownership()`였는데, 소유권 검사만 하는 것처럼 보여 실제 검사 범위에 맞게 개명함)
 
+INSERT는 새 행이라 자기 자신의 자손이 될 수 없어 문제없지만, UPDATE로 어떤 노드의 `parent_id`를 그 노드 자신의 하위 트리 안에 있는 노드로 바꾸면(예: A → B → C인데 A의 부모를 C로 변경) 사이클이 생겨 재귀 조회(`get_my_favorite_subtrees()` 등)가 무한 루프에 빠질 수 있었습니다. 그래서 `parent_id`가 실제로 바뀌는 UPDATE에 한해 두 가지를 추가로 검사합니다: (1) 새 부모가 자기 자신인 경우를 즉시 비교로 거르고, (2) 더 깊은 사이클은 새 부모 후보가 이 노드의 자손 트리에 속하는지 `with recursive`로 확인합니다(다른 행을 재귀적으로 조회해야 해서 `check` 제약으로는 표현 불가). `parent_id` 변경이 없는 UPDATE와 INSERT는 이 검사를 건너뛰어 불필요한 재귀 조회를 피합니다.
+
 ```sql
 create or replace function enforce_nodes_parent_rules()
 returns trigger as $$
@@ -452,6 +454,25 @@ begin
   then
     raise exception '부모 폴더와 소유자/모드가 일치해야 합니다';
   end if;
+
+  if tg_op = 'UPDATE' and new.parent_id is not null and new.parent_id is distinct from old.parent_id then
+    if new.parent_id = new.id then
+      raise exception '자기 자신을 부모로 지정할 수 없습니다';
+    end if;
+
+    if exists (
+      with recursive descendants as (
+        select id from nodes where parent_id = new.id
+        union all
+        select n.id from nodes n join descendants d on n.parent_id = d.id
+      )
+      select 1 from descendants where id = new.parent_id
+    )
+    then
+      raise exception '자기 자신의 하위 노드를 부모로 지정할 수 없습니다 (트리에 사이클이 생깁니다)';
+    end if;
+  end if;
+
   return new;
 end;
 $$ language plpgsql;
@@ -1180,3 +1201,4 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
   - `20260708210000_lectures_end_after_start.sql` — `lectures.end_time`이 `start_time`보다 늦어야 한다는 `lectures_end_after_start` 체크 제약 추가. 라이브 DB에 이미 위반하는 테스트성 데이터 2건(`DUMMY_DATA.md` 시드 아님, 수동 테스트 중 생성된 것으로 보임)이 있어서 `end_time`을 `start_time` + 1시간으로 먼저 고친 뒤 제약 추가. 실제 UPDATE로 차단되는 것까지 검증 완료
   - `20260708220000_posts_counts_top_level_only.sql` — `posts_counts`가 답글까지 포함해 `lecture_id`별 `posts` 전체를 세고 있었는데, 프론트(`CourseMeta.tsx`)는 이 값을 "게시글 {n}개"로 표시하고 있어 최상위 게시글만 세도록 `where parent_id is null` 추가. 라이브 DB에서 답글 포함 10건/최상위만 6건인 강의로 값이 6으로 바뀌는 것까지 확인
   - `20260708230000_user_mode_enum.sql` — `profiles.mode`/`nodes.created_mode`/`posts.created_mode`/`post_drafts.created_mode` 네 컬럼이 각자 `text` + `check (... in ('lecturer', 'student'))`로 값 목록을 중복 강제하던 걸 `user_mode` enum 타입 하나로 통일. `nodes.created_mode`/`posts.created_mode`를 참조하는 RLS 정책(`favorites_*_only_favorite_lecturer_mode`, `favorites_*_anchor_must_be_own_student_folder`, `posts_*_lecturer_mode_matches_owner`)과 `created_mode`를 리터럴과 비교하는 `check` 제약(`nodes_lecture_requires_lecturer_mode`, `posts_lecturer_mode_reply_opinion_only`, `posts_lecturer_mode_not_anonymous`), `posts.created_mode`를 select하는 `posts_public` 뷰는 컬럼 타입 변경 자체를 막아서(각각 "cannot alter type of a column used in a policy definition"/"...used by a view or rule", 그리고 이미 저장된 표현식의 리터럴이 text로 고정돼 있어 나는 "operator does not exist: user_mode = text") 전부 지웠다가 타입 변경 후 원래 정의 그대로 다시 만듦. PostgREST로 조회 시 다른 문자열 컬럼과 동일하게 평범한 문자열로 직렬화되어 프론트는 변경 없음 — 라이브 DB에서 `posts_public` 조회로 확인 완료
+  - `20260708240000_nodes_prevent_parent_cycle.sql` — `enforce_nodes_parent_rules()`가 부모가 강의가 아닌지/소유자·모드 일치만 검사하고 `parent_id` 체인의 사이클은 막지 않던 문제(TODO #2) 해결. UPDATE로 `parent_id`가 실제로 바뀔 때만, (1) 새 부모가 자기 자신인 경우와 (2) 새 부모가 자기 자신의 자손 트리에 속하는 경우(`with recursive`로 확인)를 막도록 함수에 검사 추가. 라이브 DB에서 A→B→C 체인을 만들어 A의 부모를 C로 바꾸는 시도(사이클)와 A의 부모를 자기 자신으로 바꾸는 시도 둘 다 거부되는 것, C를 A 밑으로 정상 이동하는 건 그대로 성공하는 것까지 확인 완료
