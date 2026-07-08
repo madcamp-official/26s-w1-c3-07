@@ -307,6 +307,7 @@ async function getInstructorDataset(userId: string): Promise<{ folders: CourseFo
     .select('id, parent_id, type, name, created_by, created_mode, created_at, lectures(start_time, end_time, location, max_participants)')
     .eq('created_by', userId)
     .eq('created_mode', 'lecturer')
+    .order('created_at')
 
   if (error) throw error
   return buildFolderTree((data ?? []) as NodeRow[], 'owned')
@@ -318,9 +319,10 @@ async function getStudentDataset(userId: string): Promise<{ folders: CourseFolde
       .from('nodes')
       .select('id, parent_id, type, name, created_by, created_mode, created_at')
       .eq('created_by', userId)
-      .eq('created_mode', 'student'),
+      .eq('created_mode', 'student')
+      .order('created_at'),
     supabase.from('favorites').select('node_id, anchor_id').eq('user_id', userId),
-    supabase.rpc('get_my_favorite_subtrees'),
+    supabase.rpc('get_my_favorite_subtrees').order('created_at'),
   ])
 
   if (createdError) throw createdError
@@ -488,7 +490,7 @@ export async function createRootFolder(input: CreateFolderInput): Promise<Course
 
   const { data, error } = await supabase
     .from('nodes')
-    .insert({ name: input.name, type: 'folder', created_by: userId, created_mode: createdMode })
+    .insert({ name: input.name, type: 'folder', created_by: userId, created_mode: createdMode, parent_id: input.parentId ?? null })
     .select('id, name')
     .single<{ id: string; name: string }>()
 

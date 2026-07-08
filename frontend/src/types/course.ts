@@ -30,6 +30,7 @@ export type SortOrder = 'created' | 'alphabetical'
 
 export interface CreateFolderInput {
   name: string
+  parentId?: string | null
 }
 
 export interface CreateCourseInput {
