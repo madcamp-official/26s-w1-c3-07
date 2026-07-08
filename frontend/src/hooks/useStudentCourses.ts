@@ -77,10 +77,9 @@ export function useStudentCourses() {
     return course
   }
 
-  const registerCourse = async (code: string): Promise<Course> => {
-    const course = await registerCourseByCode(code)
+  const registerCourse = async (code: string): Promise<void> => {
+    await registerCourseByCode(code)
     await refresh()
-    return course
   }
 
   const moveItem = async (input: MoveItemInput): Promise<void> => {

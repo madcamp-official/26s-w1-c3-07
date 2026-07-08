@@ -9,7 +9,7 @@ import {
 import { getGuestToken } from './guestToken'
 import { supabase } from './supabaseClient'
 import type { Course, CourseFolder, CreateCourseInput, CreateFolderInput, DeleteItemInput, FolderOwnership, MoveItemInput, RenameItemInput, UpdateCourseInput } from '../types/course'
-import type { ComposerSubmission, CourseRoom, FeedbackKey, FeedbackOption, Question, QuestionReply, UnansweredFolderNode, UnansweredQuestion } from '../types/room'
+import type { ComposerSubmission, CourseRoom, FeedbackKey, FeedbackOption, Question, QuestionReply, SubmitPostResult, UnansweredFolderNode, UnansweredQuestion } from '../types/room'
 import type { User, UserRole } from '../types/user'
 
 type DbMode = 'lecturer' | 'student'
@@ -82,8 +82,8 @@ const feedbackVotesByUser = new Map<string, Map<FeedbackKey, 'like' | 'dislike'>
 const questionLikesByUser = new Map<string, Set<string>>()
 
 /**
- * 답글의 "수정하기"는 실제로 그 글을 작성한 사람에게만 보여야 합니다.
- * 데모 계정은 역할 전환으로 수강생/강의자를 오가므로, 답글을 작성할 때의
+ * 질문/답글의 "수정하기"는 실제로 그 글을 작성한 사람에게만 보여야 합니다.
+ * 데모 계정은 역할 전환으로 수강생/강의자를 오가므로, 글을 작성할 때의
  * 뷰어 키(`id:role`)를 기록해 두었다가 현재 뷰어와 비교해 판단합니다.
  * 시드 데이터의 답글은 mockCurrentUser 명의로 작성된 것으로 간주해
  * 아래에서 초기값을 채워 넣습니다.
@@ -119,15 +119,24 @@ function applyViewerVotes(room: CourseRoom, voterKey: string): CourseRoom {
   const votes = getFeedbackVotes(voterKey)
   const likes = getQuestionLikes(voterKey)
 
-  const applyToQuestion = (question: Question): Question => ({
-    ...question,
-    isLikedByMe: likes.has(question.id),
-    replies: question.replies.map((reply) => ({
-      ...reply,
-      isLikedByMe: likes.has(reply.id),
-      isEditable: replyAuthorKeyById.get(reply.id) === voterKey,
-    })),
-  })
+  const applyToQuestion = (question: Question): Question => {
+    const isOwnQuestion = replyAuthorKeyById.get(question.id) === voterKey
+    return {
+      ...question,
+      isLikedByMe: likes.has(question.id),
+      isEditable: isOwnQuestion,
+      canDelete: isOwnQuestion || isPrivilegedEditor(),
+      replies: question.replies.map((reply) => {
+        const isOwn = replyAuthorKeyById.get(reply.id) === voterKey
+        return {
+          ...reply,
+          isLikedByMe: likes.has(reply.id),
+          isEditable: isOwn,
+          canDelete: isOwn || isPrivilegedEditor(),
+        }
+      }),
+    }
+  }
 
   return {
     ...room,
@@ -448,46 +457,29 @@ export async function joinCourse(code: string): Promise<Course> {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-/** 강의 UUID(nodes.id)로 강의를 직접 조회합니다. */
-async function findCourseById(id: string): Promise<Course> {
+/** 강의/폴더 UUID(nodes.id)로 강의자 모드로 만든 노드가 맞는지 확인합니다. */
+async function findRegistrableNodeById(id: string): Promise<{ id: string; type: 'folder' | 'lecture' }> {
   const { data: node, error: nodeError } = await supabase
     .from('nodes')
-    .select('id, name, lectures(start_time, end_time, location, max_participants)')
+    .select('id, type, created_mode')
     .eq('id', id)
-    .eq('type', 'lecture')
-    .single<NodeWithLectureRow>()
+    .maybeSingle<{ id: string; type: 'folder' | 'lecture'; created_mode: DbMode }>()
 
-  if (nodeError || !node) throw new Error('유효하지 않은 강의입니다.')
-
-  const { data: countRow } = await supabase.from('posts_counts').select('post_count').eq('lecture_id', node.id).maybeSingle<{ post_count: number }>()
-
-  return {
-    id: node.id,
-    title: node.name,
-    participantCount: 0,
-    questionCount: countRow?.post_count ?? 0,
-    updatedAt: '방금 전',
-    color: 'blue',
-    ownership: 'registered',
-    date: node.lectures?.start_time,
-    startTime: node.lectures?.start_time,
-    endTime: node.lectures?.end_time,
-    location: node.lectures?.location ?? undefined,
-    capacity: node.lectures?.max_participants ?? null,
-  }
+  if (nodeError) throw nodeError
+  if (!node) throw new Error('존재하지 않는 강의/폴더입니다.')
+  if (node.created_mode !== 'lecturer') throw new Error('강의자 모드로 만든 강의/폴더만 등록할 수 있습니다.')
+  return node
 }
 
-/** 강의 UUID로 강의를 찾아 "내 강의" 목록(favorites)에 등록합니다. 항상 최상위에 등록되고, 이후 moveCourseItem으로 정리합니다. */
-export async function registerCourseByCode(id: string): Promise<Course> {
-  if (!UUID_PATTERN.test(id)) throw new Error('강의 UUID를 입력해 주세요.')
+/** 강의/폴더 UUID로 "내 강의" 목록(favorites)에 등록합니다. 항상 최상위에 등록되고, 이후 moveCourseItem으로 정리합니다. */
+export async function registerCourseByCode(id: string): Promise<void> {
+  if (!UUID_PATTERN.test(id)) throw new Error('강의/폴더 UUID를 입력해 주세요.')
 
-  const course = await findCourseById(id)
+  const node = await findRegistrableNodeById(id)
   const userId = await requireAuthUserId()
 
-  const { error } = await supabase.from('favorites').insert({ user_id: userId, node_id: course.id, anchor_id: null })
+  const { error } = await supabase.from('favorites').insert({ user_id: userId, node_id: node.id, anchor_id: null })
   if (error) throw error
-
-  return course
 }
 
 export async function createRootFolder(input: CreateFolderInput): Promise<CourseFolder> {
@@ -656,11 +648,14 @@ export async function deleteCourseItem(input: DeleteItemInput): Promise<void> {
   if (error) throw error
 }
 
-interface NodeWithLectureAndOwnerRow {
+interface LecturePublicRow {
   id: string
-  name: string
-  created_by: string | null
-  lectures: { start_time: string; end_time: string; location: string | null } | null
+  title: string
+  start_time: string
+  end_time: string
+  location: string | null
+  max_participants: number | null
+  lecturer_name: string | null
 }
 
 function formatLectureDate(startTime: string): string {
@@ -675,37 +670,27 @@ interface CourseRoomMeta {
   date: string
   lecturerName: string
   participantCount: number
+  capacity: number | null
 }
 
-/** 실제 DB(nodes+lectures)에서 강의 메타데이터만 조회합니다. */
+/** 실제 DB(lectures_public)에서 강의 메타데이터만 조회합니다. */
 async function getCourseRoomFromDb(courseId: string): Promise<CourseRoomMeta> {
-  const { data: node, error } = await supabase
-    .from('nodes')
-    .select('id, name, created_by, lectures(start_time, end_time, location)')
+  const { data: lecture, error } = await supabase
+    .from('lectures_public')
+    .select('id, title, start_time, end_time, location, max_participants, lecturer_name')
     .eq('id', courseId)
-    .eq('type', 'lecture')
-    .single<NodeWithLectureAndOwnerRow>()
+    .single<LecturePublicRow>()
 
-  if (error || !node) throw new Error('강의실을 찾을 수 없습니다.')
-
-  // profiles는 본인만 SELECT 가능(RLS)이라, 남의 강의를 볼 때는 소유자 이름을 조회할 수 없습니다.
-  // 로그인한 계정이 이 강의의 소유자 본인인 경우에만 정확한 이름을 얻을 수 있고,
-  // 그 외(다른 강의자/수강생/게스트가 볼 때)에는 기본값으로 폴백합니다.
-  let lecturerName = '강의자'
-  if (node.created_by) {
-    const { data: sessionData } = await supabase.auth.getSession()
-    if (sessionData.session?.user.id === node.created_by) {
-      const { data: owner } = await supabase.from('profiles').select('name').eq('id', node.created_by).maybeSingle<{ name: string | null }>()
-      if (owner?.name) lecturerName = owner.name
-    }
-  }
+  if (error || !lecture) throw new Error('강의실을 찾을 수 없습니다.')
 
   return {
-    id: node.id,
-    title: node.name,
-    date: node.lectures ? formatLectureDate(node.lectures.start_time) : '',
-    lecturerName,
+    id: lecture.id,
+    title: lecture.title,
+    date: formatLectureDate(lecture.start_time),
+    // lecturer_name이 null이면 강의를 만든 계정이 탈퇴한 것입니다.
+    lecturerName: lecture.lecturer_name ?? '탈퇴한 계정입니다',
     participantCount: 0,
+    capacity: lecture.max_participants,
   }
 }
 
@@ -761,6 +746,27 @@ function postAuthorRole(row: Pick<PostPublicRow, 'is_anonymous' | 'created_mode'
   return row.created_mode === 'lecturer' ? 'lecturer' : 'student'
 }
 
+/**
+ * 익명 글은 항상 "익명"으로 표시합니다. 실명 글인데 author_display_name이 null이면
+ * 작성자가 탈퇴한 회원이라는 뜻이라 "탈퇴한 계정입니다"로 표시합니다.
+ */
+function resolvePostAuthorName(row: Pick<PostPublicRow, 'is_anonymous' | 'author_display_name'>): string {
+  if (row.is_anonymous) return '익명'
+  return row.author_display_name ?? '탈퇴한 계정입니다'
+}
+
+/** 유사 질문 발견 모달에서 보여줄 글 내용을 조회합니다. */
+export async function getSimilarQuestionPreview(postId: string): Promise<{ content: string; authorName: string } | null> {
+  const { data, error } = await supabase
+    .from('posts_public')
+    .select('content, is_anonymous, author_display_name')
+    .eq('id', postId)
+    .maybeSingle<{ content: string; is_anonymous: boolean; author_display_name: string | null }>()
+
+  if (error || !data) return null
+  return { content: data.content, authorName: resolvePostAuthorName(data) }
+}
+
 /** posts_public(flat) + 좋아요/내 투표 정보를 합쳐 최상위 질문(Question[]) 트리로 조립합니다. */
 async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
   const { data: sessionData } = await supabase.auth.getSession()
@@ -791,12 +797,15 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
     else byParent.set(row.parent_id, [row])
   }
 
+  const canDelete = (row: PostPublicRow): boolean => row.is_mine || isPrivilegedEditor()
+
   const toReply = (row: PostPublicRow, depth: number): QuestionReply => ({
     id: row.id,
-    authorName: row.is_anonymous ? '익명' : (row.author_display_name ?? '이름 없음'),
+    authorName: resolvePostAuthorName(row),
     authorRole: postAuthorRole(row),
     postType: row.type,
     isEditable: row.is_mine,
+    canDelete: canDelete(row),
     createdAt: formatRelativeTime(row.created_at),
     content: row.content,
     likeCount: likeCountByPostId.get(row.id) ?? 0,
@@ -813,9 +822,11 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
   return topLevel
     .map((row): Question => ({
       id: row.id,
-      authorName: row.is_anonymous ? '익명' : (row.author_display_name ?? '이름 없음'),
+      authorName: resolvePostAuthorName(row),
       authorRole: postAuthorRole(row),
       postType: row.type,
+      isEditable: row.is_mine,
+      canDelete: canDelete(row),
       createdAt: formatRelativeTime(row.created_at),
       content: row.content,
       likeCount: likeCountByPostId.get(row.id) ?? 0,
@@ -826,8 +837,8 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
 }
 
-const FEEDBACK_LABELS: Record<FeedbackKey, string> = { cold: '추워요', hot: '더워요', quiet: '소리가 작아요', dark: '잘 안 보여요' }
-const FEEDBACK_KEYS: FeedbackKey[] = ['cold', 'hot', 'quiet', 'dark']
+const FEEDBACK_LABELS: Record<FeedbackKey, string> = { cold: '추워요', hot: '더워요', quiet: '소리가 작아요', unclear: '잘 안 보여요' }
+const FEEDBACK_KEYS: FeedbackKey[] = ['cold', 'hot', 'quiet', 'unclear']
 
 async function getFeedbackOptionsFromDb(lectureId: string): Promise<FeedbackOption[]> {
   const voterKey = await getCurrentVoterKey()
@@ -856,14 +867,26 @@ function isAnsweredByLecturer(question: Question): boolean {
   return question.replies.some((reply) => reply.authorRole === 'lecturer')
 }
 
-function findUnansweredInCourses(courses: Course[]): Array<{ id: string; title: string; questions: UnansweredQuestion[] }> {
+function collectAllCourses(folders: CourseFolder[], rootCourses: Course[]): Course[] {
+  const collected: Course[] = [...rootCourses]
+  const visit = (folder: CourseFolder): void => {
+    collected.push(...folder.courses)
+    folder.children.forEach(visit)
+  }
+  folders.forEach(visit)
+  return collected
+}
+
+function findUnansweredInCourses(
+  courses: Course[],
+  questionsByCourseId: Map<string, Question[]>,
+): Array<{ id: string; title: string; questions: UnansweredQuestion[] }> {
   const groups: Array<{ id: string; title: string; questions: UnansweredQuestion[] }> = []
 
   for (const course of courses) {
-    const room = mockCourseRooms[course.id]
-    if (!room) continue
+    const roomQuestions = mockCourseRooms[course.id]?.questions ?? questionsByCourseId.get(course.id) ?? []
 
-    const questions = room.questions
+    const questions = roomQuestions
       .filter((question) => question.postType === 'question' && !isAnsweredByLecturer(question))
       .map((question) => ({ ...question, courseId: course.id, courseTitle: course.title }))
 
@@ -873,12 +896,12 @@ function findUnansweredInCourses(courses: Course[]): Array<{ id: string; title: 
   return groups
 }
 
-function buildUnansweredTree(folders: CourseFolder[]): UnansweredFolderNode[] {
+function buildUnansweredTree(folders: CourseFolder[], questionsByCourseId: Map<string, Question[]>): UnansweredFolderNode[] {
   const nodes: UnansweredFolderNode[] = []
 
   for (const folder of folders) {
-    const courses = findUnansweredInCourses(folder.courses)
-    const children = buildUnansweredTree(folder.children)
+    const courses = findUnansweredInCourses(folder.courses, questionsByCourseId)
+    const children = buildUnansweredTree(folder.children, questionsByCourseId)
     const count = courses.reduce((sum, group) => sum + group.questions.length, 0) + children.reduce((sum, child) => sum + child.count, 0)
 
     if (count > 0) nodes.push({ id: folder.id, name: folder.name, count, children, courses })
@@ -889,27 +912,116 @@ function buildUnansweredTree(folders: CourseFolder[]): UnansweredFolderNode[] {
 
 /** 강의자의 모든 강의에서 강의자 본인이 아직 답변하지 않은 '질문' 유형 게시글만 폴더 구조로 모아 반환합니다. */
 export async function getUnansweredQuestions(): Promise<{ folders: UnansweredFolderNode[]; standaloneCourses: Array<{ id: string; title: string; questions: UnansweredQuestion[] }>; totalCount: number }> {
-  await delay()
+  const userId = await requireAuthUserId()
+  const { folders: activeFolders, rootCourses } = await getInstructorDataset(userId)
 
-  const { folders: activeFolders, rootCourses } = getActiveDataset()
-  const folders = buildUnansweredTree(activeFolders)
-  const standaloneCourses = findUnansweredInCourses(rootCourses)
+  const dbCourses = collectAllCourses(activeFolders, rootCourses).filter((course) => !mockCourseRooms[course.id])
+  const questionLists = await Promise.all(dbCourses.map((course) => getQuestionsFromDb(course.id)))
+  const questionsByCourseId = new Map(dbCourses.map((course, index) => [course.id, questionLists[index]]))
+
+  const folders = buildUnansweredTree(activeFolders, questionsByCourseId)
+  const standaloneCourses = findUnansweredInCourses(rootCourses, questionsByCourseId)
   const totalCount = folders.reduce((sum, folder) => sum + folder.count, 0) + standaloneCourses.reduce((sum, group) => sum + group.questions.length, 0)
 
   return { folders, standaloneCourses, totalCount }
 }
 
-export function refineWithAi(content: string): string {
-  const trimmed = content.trim()
-  if (!trimmed) return trimmed
-  return /[.?!]$/.test(trimmed) ? trimmed : `${trimmed}. 관련하여 구체적인 예시를 들어 설명해 주실 수 있을까요?`
+/** AI 교정(ai-correct Edge Function)을 호출합니다. 실패해도 에러를 던지지 않고 원문을 그대로 돌려줍니다. */
+export async function refineWithAi(content: string): Promise<string> {
+  const headers = await guestHeaderIfNeeded()
+  const { data, error } = await supabase.functions.invoke<{ corrected: string }>('ai-correct', {
+    body: { content },
+    headers,
+  })
+  if (error || !data) return content
+  return data.corrected
 }
 
-const BLOCKED_WORDS = ['씨발', '개새끼', '병신', '지랄', '좆', '섹스', '죽어', '바보야']
+/** 요청에 회원이면 아무것도, 비회원이면 x-guest-token 헤더를 붙인 쿼리 빌더를 반환합니다. */
+function withGuestHeader<T extends { setHeader: (name: string, value: string) => T }>(query: T, isLoggedIn: boolean): T {
+  return isLoggedIn ? query : query.setHeader('x-guest-token', getGuestToken())
+}
 
-export function containsInappropriateContent(content: string): boolean {
-  const normalized = content.toLowerCase()
-  return BLOCKED_WORDS.some((word) => normalized.includes(word))
+/** 로그인 상태면 빈 헤더, 비회원이면 x-guest-token 헤더를 담은 객체를 돌려줍니다(Edge Function 호출용). */
+async function guestHeaderIfNeeded(): Promise<Record<string, string>> {
+  const { data: sessionData } = await supabase.auth.getSession()
+  if (sessionData.session?.user.id) return {}
+  return { 'x-guest-token': getGuestToken() }
+}
+
+interface SubmitPostFunctionResponse {
+  result: 'created' | 'rejected' | 'similar_found'
+  post?: { id: string; content: string; status: 'unresolved' | 'resolved' | null; created_at: string }
+  reason?: string
+  draft_id?: string
+  similar_id?: string
+}
+
+/** submit-post Edge Function의 non-2xx 응답 본문을 파싱합니다(FunctionsHttpError는 원본 Response를 context로 담아 던짐). */
+async function parseFunctionsHttpError(error: unknown): Promise<SubmitPostFunctionResponse | null> {
+  if (!(error instanceof Error) || error.name !== 'FunctionsHttpError') return null
+  const context = (error as { context?: unknown }).context
+  if (!(context instanceof Response)) return null
+  try {
+    return await context.json()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 글 작성(새 질문/의견/답글)을 submit-post Edge Function으로 제출합니다.
+ * 적절성 검사 → (질문 타입이면) 유사 질문 탐지 → 저장까지 서버에서 한 번에 처리합니다.
+ */
+async function submitPostToServer(
+  lectureId: string,
+  parentId: string | null,
+  submission: ComposerSubmission,
+): Promise<{ postId: string; createdAt: string; status: 'unresolved' | 'resolved' | null } | { similarFound: true; draftId: string; similarId: string }> {
+  const createdMode: DbMode = isPrivilegedEditor() ? 'lecturer' : 'student'
+  const isAnonymous = isPrivilegedEditor() ? false : submission.isAnonymous
+  const headers = await guestHeaderIfNeeded()
+
+  const { data, error } = await supabase.functions.invoke<SubmitPostFunctionResponse>('submit-post', {
+    body: {
+      lecture_id: lectureId,
+      parent_id: parentId,
+      type: submission.postType,
+      content: submission.content,
+      created_mode: createdMode,
+      is_anonymous: isAnonymous,
+    },
+    headers,
+  })
+
+  if (error) {
+    const parsed = await parseFunctionsHttpError(error)
+    if (parsed?.result === 'rejected') throw new Error(parsed.reason ?? '부적절한 내용이 감지되었습니다.')
+    if (parsed?.result === 'similar_found' && parsed.draft_id && parsed.similar_id) {
+      return { similarFound: true, draftId: parsed.draft_id, similarId: parsed.similar_id }
+    }
+    throw new Error(parsed?.reason ?? '등록하지 못했습니다. 잠시 후 다시 시도해주세요.')
+  }
+  if (!data?.post) throw new Error('등록하지 못했습니다. 잠시 후 다시 시도해주세요.')
+
+  return { postId: data.post.id, createdAt: data.post.created_at, status: data.post.status }
+}
+
+/** "그래도 제출"(유사 질문 무시하고 강행 제출)을 처리합니다. */
+async function submitDraftToServer(draftId: string): Promise<{ postId: string; createdAt: string; status: 'unresolved' | 'resolved' | null }> {
+  const headers = await guestHeaderIfNeeded()
+  const { data, error } = await supabase.functions.invoke<SubmitPostFunctionResponse>('submit-post', {
+    body: { draft_id: draftId },
+    headers,
+  })
+
+  if (error) {
+    const parsed = await parseFunctionsHttpError(error)
+    throw new Error(parsed?.reason ?? '등록하지 못했습니다. 잠시 후 다시 시도해주세요.')
+  }
+  if (!data?.post) throw new Error('등록하지 못했습니다. 잠시 후 다시 시도해주세요.')
+
+  return { postId: data.post.id, createdAt: data.post.created_at, status: data.post.status }
 }
 
 function resolveAuthor(submission: ComposerSubmission): { authorName: string; authorRole: 'lecturer' | 'anonymous' | 'student' } {
@@ -918,132 +1030,78 @@ function resolveAuthor(submission: ComposerSubmission): { authorName: string; au
   return { authorName: mockCurrentUser.name, authorRole: 'student' }
 }
 
-/** 요청에 회원이면 아무것도, 비회원이면 x-guest-token 헤더를 붙인 쿼리 빌더를 반환합니다. */
-function withGuestHeader<T extends { setHeader: (name: string, value: string) => T }>(query: T, isLoggedIn: boolean): T {
-  return isLoggedIn ? query : query.setHeader('x-guest-token', getGuestToken())
-}
-
-/**
- * posts 테이블은 SELECT 권한이 완전히 회수되어 있어 INSERT ... RETURNING(=.select())이
- * 동작하지 않습니다. INSERT만 요청하고, 응답 값은 클라이언트가 이미 알고 있는 payload와
- * 현재 시각으로 직접 구성합니다.
- */
-async function createPost(lectureId: string, parentId: string | null, submission: ComposerSubmission): Promise<PostPublicRow> {
-  const { data: sessionData } = await supabase.auth.getSession()
-  const authUserId = sessionData.session?.user.id ?? null
-  const createdMode: DbMode = isPrivilegedEditor() ? 'lecturer' : 'student'
-  const isAnonymous = isPrivilegedEditor() ? false : submission.isAnonymous
-  const id = crypto.randomUUID()
-  const createdAt = new Date().toISOString()
-
-  const payload = {
-    id,
-    lecture_id: lectureId,
-    parent_id: parentId,
-    author_id: authUserId,
-    is_anonymous: isAnonymous,
-    guest_token: authUserId ? null : getGuestToken(),
-    type: submission.postType,
-    status: parentId === null ? ('unresolved' as const) : null,
-    content: submission.content,
-    created_mode: createdMode,
-    created_at: createdAt,
-  }
-
-  const query = withGuestHeader(supabase.from('posts').insert(payload), Boolean(authUserId))
-  const { error } = await query
-  if (error) throw error
-
+function buildOwnQuestion(id: string, createdAt: string, status: 'unresolved' | 'resolved' | null, submission: ComposerSubmission): Question {
+  const { authorName, authorRole } = resolveAuthor(submission)
   return {
     id,
-    lecture_id: lectureId,
-    parent_id: parentId,
-    author_display_name: isAnonymous ? null : mockCurrentUser.name,
-    is_anonymous: isAnonymous,
-    type: submission.postType,
-    status: parentId === null ? 'unresolved' : null,
-    resolved_at: null,
+    authorName,
+    authorRole,
+    postType: submission.postType,
+    isEditable: true,
+    canDelete: true,
+    createdAt: formatRelativeTime(createdAt),
     content: submission.content,
-    created_at: createdAt,
-    created_mode: createdMode,
-    is_mine: true,
+    likeCount: 0,
+    isLikedByMe: false,
+    isResolved: status === 'resolved',
+    replies: [],
   }
 }
 
-export async function createQuestion(courseId: string, submission: ComposerSubmission): Promise<Question> {
+function buildOwnReply(id: string, createdAt: string, submission: ComposerSubmission): QuestionReply {
+  const { authorName, authorRole } = resolveAuthor(submission)
+  return {
+    id,
+    authorName,
+    authorRole,
+    postType: submission.postType,
+    isEditable: true,
+    canDelete: true,
+    createdAt: formatRelativeTime(createdAt),
+    content: submission.content,
+    likeCount: 0,
+    isLikedByMe: false,
+    depth: 0,
+  }
+}
+
+export async function createQuestion(courseId: string, submission: ComposerSubmission): Promise<SubmitPostResult> {
   if (isPrivilegedEditor()) throw new Error('강의자는 답글만 작성할 수 있습니다.')
 
   const room = mockCourseRooms[courseId]
   if (room) {
     await delay(300)
-    const { authorName, authorRole } = resolveAuthor(submission)
-    const question: Question = {
-      id: `question-${crypto.randomUUID()}`,
-      authorName,
-      authorRole,
-      postType: submission.postType,
-      createdAt: '방금 전',
-      content: submission.content,
-      likeCount: 0,
-      isLikedByMe: false,
-      isResolved: false,
-      replies: [],
-    }
+    const question = buildOwnQuestion(`question-${crypto.randomUUID()}`, new Date().toISOString(), 'unresolved', submission)
+    replyAuthorKeyById.set(question.id, getViewerKey())
     room.questions = [question, ...room.questions]
-    return question
+    return { result: 'created', post: question }
   }
 
-  const row = await createPost(courseId, null, submission)
-  return {
-    id: row.id,
-    authorName: row.is_anonymous ? '익명' : mockCurrentUser.name,
-    authorRole: postAuthorRole(row),
-    postType: row.type,
-    createdAt: formatRelativeTime(row.created_at),
-    content: row.content,
-    likeCount: 0,
-    isLikedByMe: false,
-    isResolved: false,
-    replies: [],
-  }
+  const outcome = await submitPostToServer(courseId, null, submission)
+  if ('similarFound' in outcome) return { result: 'similar_found', draftId: outcome.draftId, similarId: outcome.similarId }
+  return { result: 'created', post: buildOwnQuestion(outcome.postId, outcome.createdAt, outcome.status, submission) }
 }
 
-export async function createReply(courseId: string, questionId: string, submission: ComposerSubmission): Promise<QuestionReply> {
+export async function createReply(courseId: string, questionId: string, submission: ComposerSubmission): Promise<SubmitPostResult> {
   const room = mockCourseRooms[courseId]
   if (room) {
     await delay(300)
-    const { authorName, authorRole } = resolveAuthor(submission)
-    const reply: QuestionReply = {
-      id: `reply-${crypto.randomUUID()}`,
-      authorName,
-      authorRole,
-      postType: submission.postType,
-      isEditable: true,
-      createdAt: '방금 전',
-      content: submission.content,
-      likeCount: 0,
-      isLikedByMe: false,
-      depth: 0,
-    }
+    const reply = buildOwnReply(`reply-${crypto.randomUUID()}`, new Date().toISOString(), submission)
     replyAuthorKeyById.set(reply.id, getViewerKey())
     const question = room.questions.find((item) => item.id === questionId)
     if (question) question.replies = [...question.replies, reply]
-    return reply
+    return { result: 'created', post: reply }
   }
 
-  const row = await createPost(courseId, questionId, submission)
-  return {
-    id: row.id,
-    authorName: row.is_anonymous ? '익명' : mockCurrentUser.name,
-    authorRole: postAuthorRole(row),
-    postType: row.type,
-    isEditable: row.is_mine,
-    createdAt: formatRelativeTime(row.created_at),
-    content: row.content,
-    likeCount: 0,
-    isLikedByMe: false,
-    depth: 0,
-  }
+  const outcome = await submitPostToServer(courseId, questionId, submission)
+  if ('similarFound' in outcome) return { result: 'similar_found', draftId: outcome.draftId, similarId: outcome.similarId }
+  return { result: 'created', post: buildOwnReply(outcome.postId, outcome.createdAt, submission) }
+}
+
+/** 유사 질문 발견 후 "그래도 제출"을 눌렀을 때 호출합니다. draft를 그대로 저장합니다. */
+export async function submitDraft(draftId: string, submission: ComposerSubmission, isReply: boolean): Promise<Question | QuestionReply> {
+  const outcome = await submitDraftToServer(draftId)
+  return isReply ? buildOwnReply(outcome.postId, outcome.createdAt, submission) : buildOwnQuestion(outcome.postId, outcome.createdAt, outcome.status, submission)
 }
 
 /** 답글을 수정합니다. 실제로 그 답글을 작성한 본인만 수정할 수 있습니다(RLS: posts_update_own). */
@@ -1078,12 +1136,82 @@ export async function updateReply(courseId: string, questionId: string, replyId:
     authorRole: postAuthorRole(updated),
     postType: updated.type,
     isEditable: true,
+    canDelete: true,
     createdAt: formatRelativeTime(updated.created_at),
     content,
     likeCount: 0,
     isLikedByMe: false,
     depth: 0,
   }
+}
+
+/** 최상위 질문/의견 글을 수정합니다. 실제로 그 글을 작성한 본인만 수정할 수 있습니다(RLS: posts_update_own). */
+export async function updateQuestion(courseId: string, questionId: string, content: string): Promise<Question> {
+  const room = mockCourseRooms[courseId]
+  if (room) {
+    await delay(250)
+    const question = room.questions.find((item) => item.id === questionId)
+    if (!question) throw new Error('질문을 찾을 수 없습니다.')
+    if (replyAuthorKeyById.get(questionId) !== getViewerKey()) throw new Error('내가 작성한 글만 수정할 수 있습니다.')
+    question.content = content
+    return clone({ ...question, isEditable: true })
+  }
+
+  const { data: sessionData } = await supabase.auth.getSession()
+  const isLoggedIn = Boolean(sessionData.session?.user.id)
+  const query = withGuestHeader(supabase.from('posts').update({ content }).eq('id', questionId), isLoggedIn)
+  const { error } = await query
+  if (error) throw new Error('내가 작성한 글만 수정할 수 있습니다.')
+
+  const { data: updated, error: fetchError } = await supabase
+    .from('posts_public')
+    .select('id, is_anonymous, type, status, created_at, created_mode')
+    .eq('id', questionId)
+    .single<Pick<PostPublicRow, 'id' | 'is_anonymous' | 'type' | 'status' | 'created_at' | 'created_mode'>>()
+  if (fetchError) throw fetchError
+
+  return {
+    id: updated.id,
+    authorName: updated.is_anonymous ? '익명' : mockCurrentUser.name,
+    authorRole: postAuthorRole(updated),
+    postType: updated.type,
+    isEditable: true,
+    canDelete: true,
+    createdAt: formatRelativeTime(updated.created_at),
+    content,
+    likeCount: 0,
+    isLikedByMe: false,
+    isResolved: updated.status === 'resolved',
+    replies: [],
+  }
+}
+
+/**
+ * 질문/답글을 삭제합니다. 본인 글이거나(RLS: posts_delete_own), 강의자면 자기 강의의 어떤 글이든
+ * 삭제할 수 있습니다(RLS: posts_lecturer_delete). 최상위 질문을 지우면 그 답글들도 cascade로 함께 삭제됩니다.
+ */
+export async function deletePost(courseId: string, postId: string): Promise<void> {
+  const room = mockCourseRooms[courseId]
+  if (room) {
+    await delay(200)
+    const question = room.questions.find((item) => item.id === postId)
+    if (question) {
+      room.questions = room.questions.filter((item) => item.id !== postId)
+      return
+    }
+    for (const item of room.questions) {
+      const before = item.replies.length
+      item.replies = item.replies.filter((reply) => reply.id !== postId)
+      if (item.replies.length !== before) return
+    }
+    throw new Error('삭제할 글을 찾을 수 없습니다.')
+  }
+
+  const { data: sessionData } = await supabase.auth.getSession()
+  const isLoggedIn = Boolean(sessionData.session?.user.id)
+  const { data: deleted, error } = await withGuestHeader(supabase.from('posts').delete().eq('id', postId), isLoggedIn).select('id')
+  if (error) throw new Error('삭제 권한이 없습니다.')
+  if (!deleted || deleted.length === 0) throw new Error('삭제 권한이 없습니다.')
 }
 
 export async function toggleQuestionLike(courseId: string, questionId: string): Promise<{ likeCount: number; isLikedByMe: boolean }> {
@@ -1224,8 +1352,14 @@ export async function resetFeedbackOption(courseId: string, key: FeedbackKey): P
     return clone(applyViewerVotes(room, getViewerKey()))
   }
 
-  const { error } = await supabase.from('lecture_feedback_votes').delete().eq('lecture_id', courseId).eq('feedback_type', key)
+  const { data: deleted, error } = await supabase
+    .from('lecture_feedback_votes')
+    .delete()
+    .eq('lecture_id', courseId)
+    .eq('feedback_type', key)
+    .select('lecture_id')
   if (error) throw error
+  if (!deleted || deleted.length === 0) throw new Error('피드백 초기화에 실패했습니다. 잠시 후 다시 시도해주세요.')
 
   const meta = await getCourseRoomFromDb(courseId)
   const feedbackOptions = await getFeedbackOptionsFromDb(courseId)

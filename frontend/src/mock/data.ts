@@ -167,11 +167,12 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
     date: '2026년 7월 3일 (금)',
     lecturerName: mockCurrentUser.name,
     participantCount: 34,
+    capacity: null,
     feedbackOptions: [
       { key: 'cold', label: '추워요', likeCount: 8, dislikeCount: 2, myVote: null },
       { key: 'hot', label: '더워요', likeCount: 1, dislikeCount: 4, myVote: null },
       { key: 'quiet', label: '소리가 작아요', likeCount: 5, dislikeCount: 1, myVote: null },
-      { key: 'dark', label: '잘 안 보여요', likeCount: 3, dislikeCount: 0, myVote: null },
+      { key: 'unclear', label: '잘 안 보여요', likeCount: 3, dislikeCount: 0, myVote: null },
     ],
     questions: [
       {
@@ -183,6 +184,8 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
         content: 'DFS와 BFS의 메모리 사용량 차이와 실제 적용 사례가 궁금합니다.',
         likeCount: 14,
         isLikedByMe: false,
+        isEditable: true,
+        canDelete: true,
         isResolved: false,
         replies: [
           {
@@ -191,6 +194,7 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
             authorRole: 'lecturer',
             postType: 'question',
             isEditable: true,
+            canDelete: true,
             createdAt: '8분 전',
             content: '좋은 질문입니다! DFS는 트리 높이 h만큼의 공간(O(h))을 사용하고, BFS는 최대 너비 w만큼의 큐를 유지합니다(O(w)). 균형 이진 트리에서 h ≈ log n이므로 DFS가 훨씬 효율적입니다. 반면 최단 경로를 찾아야 할 때는 BFS가 필수입니다.',
             likeCount: 9,
@@ -203,6 +207,7 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
             authorRole: 'anonymous',
             postType: 'question',
             isEditable: true,
+            canDelete: true,
             createdAt: '5분 전',
             content: '그렇다면 SNS 친구 관계처럼 매우 넓은 그래프에서는 BFS가 메모리 측면에서 불리한가요?',
             likeCount: 3,
@@ -215,6 +220,7 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
             authorRole: 'anonymous',
             postType: 'opinion',
             isEditable: true,
+            canDelete: true,
             createdAt: '2분 전',
             content: '제가 보는 유튜브 추천드립니다!',
             likeCount: 2,
@@ -232,6 +238,8 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
         content: '무방향 그래프에서 DFS로 사이클을 감지하는 방법이 방향 그래프와 어떻게 다른가요?',
         likeCount: 7,
         isLikedByMe: false,
+        isEditable: true,
+        canDelete: true,
         isResolved: false,
         replies: [],
       },
@@ -244,6 +252,8 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
         content: '트리의 정의에서 사이클이 없다는 조건이 왜 필요한가요?',
         likeCount: 5,
         isLikedByMe: false,
+        isEditable: true,
+        canDelete: true,
         isResolved: true,
         replies: [
           {
@@ -252,6 +262,7 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
             authorRole: 'lecturer',
             postType: 'question',
             isEditable: true,
+            canDelete: true,
             createdAt: '35분 전',
             content: '사이클이 있으면 루트에서 특정 노드까지 가는 경로가 여러 개가 되어 트리의 계층 구조가 깨지기 때문입니다.',
             likeCount: 6,
@@ -269,6 +280,8 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
         content: '최소 신장 트리에서 크루스칼과 프림 알고리즘의 시간 복잡도 차이를 다시 설명해 주실 수 있나요?',
         likeCount: 4,
         isLikedByMe: false,
+        isEditable: true,
+        canDelete: true,
         isResolved: true,
         replies: [],
       },
@@ -280,11 +293,12 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
     date: '2026년 7월 6일 (월)',
     lecturerName: mockCurrentUser.name,
     participantCount: 41,
+    capacity: null,
     feedbackOptions: [
       { key: 'cold', label: '추워요', likeCount: 2, dislikeCount: 0, myVote: null },
       { key: 'hot', label: '더워요', likeCount: 0, dislikeCount: 0, myVote: null },
       { key: 'quiet', label: '소리가 작아요', likeCount: 1, dislikeCount: 0, myVote: null },
-      { key: 'dark', label: '잘 안 보여요', likeCount: 0, dislikeCount: 0, myVote: null },
+      { key: 'unclear', label: '잘 안 보여요', likeCount: 0, dislikeCount: 0, myVote: null },
     ],
     questions: [
       {
@@ -296,6 +310,8 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
         content: '정규화 3단계(3NF)까지만 해도 충분한 경우와 그렇지 않은 경우의 기준이 궁금합니다.',
         likeCount: 5,
         isLikedByMe: false,
+        isEditable: true,
+        canDelete: true,
         isResolved: false,
         replies: [],
       },

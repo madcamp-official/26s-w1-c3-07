@@ -3,11 +3,12 @@ import Button from '../ui/Button'
 
 interface ModerationBlockedModalProps {
   isOpen: boolean
+  reason?: string
   onEdit: () => void
   onCancel: () => void
 }
 
-export default function ModerationBlockedModal({ isOpen, onEdit, onCancel }: ModerationBlockedModalProps) {
+export default function ModerationBlockedModal({ isOpen, reason, onEdit, onCancel }: ModerationBlockedModalProps) {
   if (!isOpen) return null
 
   return (
@@ -17,7 +18,7 @@ export default function ModerationBlockedModal({ isOpen, onEdit, onCancel }: Mod
           <span className="grid size-10 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-600"><TriangleAlert className="size-5" /></span>
           <div>
             <h2 id="moderation-title" className="text-lg font-extrabold text-slate-900">부적절한 질문이 감지되었습니다</h2>
-            <p className="mt-2 text-sm leading-relaxed text-slate-500">질문에 부적절한 표현이나 강의와 관련 없는 내용이 포함되어 있습니다.<br />내용을 수정한 후 다시 제출해 주세요.</p>
+            <p className="mt-2 text-sm leading-relaxed text-slate-500">{reason || '질문에 부적절한 표현이나 강의와 관련 없는 내용이 포함되어 있습니다.'}<br />내용을 수정한 후 다시 제출해 주세요.</p>
           </div>
         </div>
         <div className="mt-6 space-y-2">

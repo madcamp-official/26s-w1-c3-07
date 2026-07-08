@@ -1,4 +1,4 @@
-export type FeedbackKey = 'cold' | 'hot' | 'quiet' | 'dark'
+export type FeedbackKey = 'cold' | 'hot' | 'quiet' | 'unclear'
 export type PostType = 'question' | 'opinion'
 
 export interface FeedbackOption {
@@ -15,6 +15,7 @@ export interface QuestionReply {
   authorRole: 'lecturer' | 'anonymous' | 'student'
   postType: PostType
   isEditable: boolean
+  canDelete: boolean
   createdAt: string
   content: string
   likeCount: number
@@ -27,6 +28,8 @@ export interface Question {
   authorName: string
   authorRole: 'lecturer' | 'anonymous' | 'student'
   postType: PostType
+  isEditable: boolean
+  canDelete: boolean
   createdAt: string
   content: string
   likeCount: number
@@ -41,6 +44,7 @@ export interface CourseRoom {
   date: string
   lecturerName: string
   participantCount: number
+  capacity: number | null
   feedbackOptions: FeedbackOption[]
   questions: Question[]
 }
@@ -57,6 +61,11 @@ export interface ComposerSubmission {
   postType: PostType
   isAnonymous: boolean
 }
+
+export type SubmitPostResult =
+  | { result: 'created'; post: Question | QuestionReply }
+  | { result: 'similar_found'; draftId: string; similarId: string }
+  | { result: 'rejected'; reason: string }
 
 export interface UnansweredQuestion extends Question {
   courseId: string

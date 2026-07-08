@@ -6,7 +6,7 @@ import PostComposer from '../components/room/PostComposer'
 import RoomHeader from '../components/room/RoomHeader'
 import Button from '../components/ui/Button'
 import { useCourseRoom } from '../hooks/useCourseRoom'
-import { createQuestion, createReply, getCurrentUser } from '../services/api'
+import { getCurrentUser } from '../services/api'
 import type { ComposerTarget } from '../types/room'
 import type { User } from '../types/user'
 
@@ -18,7 +18,7 @@ export default function PostWritePage() {
   const { courseId } = useParams<{ courseId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
-  const { room, isLoading, error, reload } = useCourseRoom(courseId)
+  const { room, isLoading, error, reload, submitQuestion, submitReply, submitDraftPost } = useCourseRoom(courseId)
   const [user, setUser] = useState<User | null>(null)
 
   const target = (location.state as WriteLocationState | null)?.target ?? null
@@ -81,10 +81,15 @@ export default function PostWritePage() {
                 isInstructor={isInstructor}
                 onCancel={() => navigate(`/room/${courseId}`)}
                 onSubmit={async (submission) => {
-                  if (target) await createReply(courseId, target.questionId, submission)
-                  else await createQuestion(courseId, submission)
+                  const outcome = target ? await submitReply(target.questionId, submission) : await submitQuestion(submission)
+                  if (outcome.result === 'created') navigate(`/room/${courseId}`)
+                  return outcome
+                }}
+                onSubmitDraft={async (draftId, submission) => {
+                  await submitDraftPost(draftId, submission, target?.questionId ?? null)
                   navigate(`/room/${courseId}`)
                 }}
+                onViewSimilar={(similarId) => navigate(`/room/${courseId}?highlight=${similarId}`)}
               />
             </div>
           </>

@@ -1,16 +1,19 @@
 import { Bot, CornerDownRight, RotateCcw, Send, Sparkles, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
-import { containsInappropriateContent, refineWithAi } from '../../services/api'
-import type { ComposerSubmission, ComposerTarget, PostType } from '../../types/room'
+import { refineWithAi } from '../../services/api'
+import type { ComposerSubmission, ComposerTarget, PostType, SubmitPostResult } from '../../types/room'
 import { cn } from '../../utils/cn'
 import Button from '../ui/Button'
 import ModerationBlockedModal from './ModerationBlockedModal'
+import SimilarQuestionModal from './SimilarQuestionModal'
 
 interface PostComposerProps {
   target: ComposerTarget | null
   isLoggedIn: boolean
   isInstructor?: boolean
-  onSubmit: (submission: ComposerSubmission) => Promise<void>
+  onSubmit: (submission: ComposerSubmission) => Promise<SubmitPostResult>
+  onSubmitDraft: (draftId: string, submission: ComposerSubmission) => Promise<void>
+  onViewSimilar: (similarId: string) => void
   onCancel?: () => void
 }
 
@@ -47,33 +50,62 @@ function ToggleRow({ label, description, checked, disabled, onChange }: ToggleRo
   )
 }
 
-export default function PostComposer({ target, isLoggedIn, isInstructor = false, onSubmit, onCancel }: PostComposerProps) {
+export default function PostComposer({ target, isLoggedIn, isInstructor = false, onSubmit, onSubmitDraft, onViewSimilar, onCancel }: PostComposerProps) {
   const [content, setContent] = useState('')
   const [isAnonymous, setIsAnonymous] = useState(!isInstructor)
-  const [isAiAssisted, setIsAiAssisted] = useState(false)
-  const [isOpinion, setIsOpinion] = useState(false)
+  const [isAiAssisted, setIsAiAssisted] = useState(true)
+  const [isQuestion, setIsQuestion] = useState(true)
   const [aiDraft, setAiDraft] = useState<string | null>(null)
+  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isBlocked, setIsBlocked] = useState(false)
+  const [blockedReason, setBlockedReason] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState('')
+  const [pendingSimilar, setPendingSimilar] = useState<{ draftId: string; similarId: string; content: string } | null>(null)
 
-  const postType: PostType = isInstructor || isOpinion ? 'opinion' : 'question'
+  const postType: PostType = isInstructor || !isQuestion ? 'opinion' : 'question'
 
-  const generateDraft = () => setAiDraft(refineWithAi(content))
+  const generateDraft = async () => {
+    setIsGeneratingDraft(true)
+    try {
+      setAiDraft(await refineWithAi(content))
+    } finally {
+      setIsGeneratingDraft(false)
+    }
+  }
+
+  const resetComposer = () => {
+    setContent('')
+    setAiDraft(null)
+    setIsAiAssisted(true)
+    setIsQuestion(true)
+  }
 
   const finalize = async (finalContent: string) => {
-    if (containsInappropriateContent(finalContent)) {
-      setIsBlocked(true)
-      return
-    }
     setSubmitError('')
     setIsSubmitting(true)
     try {
-      await onSubmit({ content: finalContent, postType, isAnonymous })
-      setContent('')
-      setAiDraft(null)
-      setIsAiAssisted(false)
-      setIsOpinion(false)
+      const outcome = await onSubmit({ content: finalContent, postType, isAnonymous })
+      if (outcome.result === 'created') {
+        resetComposer()
+      } else if (outcome.result === 'similar_found') {
+        setPendingSimilar({ draftId: outcome.draftId, similarId: outcome.similarId, content: finalContent })
+      } else {
+        setBlockedReason(outcome.reason)
+      }
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : '등록하지 못했습니다. 잠시 후 다시 시도해주세요.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const forceSubmit = async () => {
+    if (!pendingSimilar) return
+    setIsSubmitting(true)
+    try {
+      await onSubmitDraft(pendingSimilar.draftId, { content: pendingSimilar.content, postType, isAnonymous })
+      setPendingSimilar(null)
+      resetComposer()
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : '등록하지 못했습니다. 잠시 후 다시 시도해주세요.')
     } finally {
@@ -125,10 +157,10 @@ export default function PostComposer({ target, isLoggedIn, isInstructor = false,
         />
         {!isInstructor && (
           <ToggleRow
-            label={isOpinion ? '의견' : '질문'}
-            description={isOpinion ? '강의자에게 의견을 남깁니다' : '강의자에게 질문합니다'}
-            checked={isOpinion}
-            onChange={setIsOpinion}
+            label={isQuestion ? '질문' : '의견'}
+            description={isQuestion ? '강의자에게 질문합니다' : '강의자에게 의견을 남깁니다'}
+            checked={isQuestion}
+            onChange={setIsQuestion}
           />
         )}
       </div>
@@ -149,8 +181,8 @@ export default function PostComposer({ target, isLoggedIn, isInstructor = false,
             className="w-full resize-none rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
           />
           <div className="mt-3 flex items-center justify-between gap-2">
-            <button type="button" onClick={generateDraft} className="inline-flex items-center gap-1.5 text-sm font-bold text-slate-400 hover:text-violet-600">
-              <RotateCcw className="size-4" />다시 생성
+            <button type="button" onClick={() => void generateDraft()} disabled={isGeneratingDraft} className="inline-flex items-center gap-1.5 text-sm font-bold text-slate-400 hover:text-violet-600 disabled:cursor-not-allowed disabled:opacity-50">
+              <RotateCcw className="size-4" />{isGeneratingDraft ? '생성 중' : '다시 생성'}
             </button>
             <Button onClick={() => void finalize(aiDraft.trim())} disabled={!aiDraft.trim() || isSubmitting}>
               <Send className="size-4" />{isSubmitting ? '등록 중' : '제출하기'}
@@ -164,20 +196,30 @@ export default function PostComposer({ target, isLoggedIn, isInstructor = false,
         {aiDraft === null && (
           <Button
             type="button"
-            disabled={!content.trim() || isSubmitting}
+            disabled={!content.trim() || isSubmitting || isGeneratingDraft}
             className={cn(isAiAssisted && 'bg-gradient-to-r from-violet-600 to-purple-600')}
-            onClick={() => (isAiAssisted ? generateDraft() : void finalize(content.trim()))}
+            onClick={() => (isAiAssisted ? void generateDraft() : void finalize(content.trim()))}
           >
             {isAiAssisted && <Sparkles className="size-4" />}
-            {isSubmitting ? '등록 중' : isAiAssisted ? 'AI로 질문 생성하기' : '제출하기'}
+            {isSubmitting ? '등록 중' : isGeneratingDraft ? '생성 중' : isAiAssisted ? 'AI로 질문 생성하기' : '제출하기'}
           </Button>
         )}
       </div>
 
       <ModerationBlockedModal
-        isOpen={isBlocked}
-        onEdit={() => setIsBlocked(false)}
-        onCancel={() => setIsBlocked(false)}
+        isOpen={blockedReason !== null}
+        reason={blockedReason ?? undefined}
+        onEdit={() => setBlockedReason(null)}
+        onCancel={() => setBlockedReason(null)}
+      />
+
+      <SimilarQuestionModal
+        isOpen={pendingSimilar !== null}
+        similarId={pendingSimilar?.similarId ?? null}
+        isSubmitting={isSubmitting}
+        onViewSimilar={onViewSimilar}
+        onForceSubmit={() => void forceSubmit()}
+        onCancel={() => setPendingSimilar(null)}
       />
     </div>
   )
