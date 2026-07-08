@@ -15,6 +15,7 @@ export interface QuestionReply {
   authorRole: 'lecturer' | 'anonymous' | 'student'
   postType: PostType
   isEditable: boolean
+  canDelete: boolean
   createdAt: string
   content: string
   likeCount: number
@@ -27,6 +28,7 @@ export interface Question {
   authorName: string
   authorRole: 'lecturer' | 'anonymous' | 'student'
   postType: PostType
+  canDelete: boolean
   createdAt: string
   content: string
   likeCount: number
@@ -57,6 +59,11 @@ export interface ComposerSubmission {
   postType: PostType
   isAnonymous: boolean
 }
+
+export type SubmitPostResult =
+  | { result: 'created'; post: Question | QuestionReply }
+  | { result: 'similar_found'; draftId: string; similarId: string }
+  | { result: 'rejected'; reason: string }
 
 export interface UnansweredQuestion extends Question {
   courseId: string

@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronDown, MessageSquare, ThumbsUp } from 'lucide-react'
+import { CheckCircle2, ChevronDown, MessageSquare, ThumbsUp, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { Question } from '../../types/room'
 import { cn } from '../../utils/cn'
@@ -7,13 +7,15 @@ import ReplyItem from './ReplyItem'
 interface QuestionThreadProps {
   question: Question
   canResolve?: boolean
+  isHighlighted?: boolean
   onLike: (questionId: string) => Promise<void>
   onResolve?: (questionId: string) => Promise<void>
-  onReply: (questionId: string, label: string) => void
+  onReply: (parentPostId: string, label: string) => void
   onEditReply?: (questionId: string, replyId: string, content: string) => Promise<void>
+  onDelete?: (postId: string) => void
 }
 
-export default function QuestionThread({ question, canResolve = false, onLike, onResolve, onReply, onEditReply }: QuestionThreadProps) {
+export default function QuestionThread({ question, canResolve = false, isHighlighted = false, onLike, onResolve, onReply, onEditReply, onDelete }: QuestionThreadProps) {
   const [isExpanded, setIsExpanded] = useState(true)
   const [isResolving, setIsResolving] = useState(false)
   const isOpinion = question.postType === 'opinion'
@@ -30,7 +32,14 @@ export default function QuestionThread({ question, canResolve = false, onLike, o
   }
 
   return (
-    <article className={cn('rounded-3xl border-2 bg-white p-5 shadow-sm sm:p-6', isOpinion ? 'border-rose-400' : 'border-violet-400')}>
+    <article
+      id={`post-${question.id}`}
+      className={cn(
+        'scroll-mt-6 rounded-3xl border-2 bg-white p-5 shadow-sm transition-shadow sm:p-6',
+        isOpinion ? 'border-rose-400' : 'border-violet-400',
+        isHighlighted && 'ring-4 ring-amber-300',
+      )}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 text-sm text-slate-400">
           <span className={cn('font-bold', isLecturer ? 'text-blue-700' : 'text-slate-600')}>{question.authorName}</span>
@@ -50,6 +59,11 @@ export default function QuestionThread({ question, canResolve = false, onLike, o
               )}
             >
               <CheckCircle2 className="size-3.5" />{question.isResolved ? '해결됨' : '해결 완료'}
+            </button>
+          )}
+          {question.canDelete && onDelete && (
+            <button type="button" onClick={() => onDelete(question.id)} className="rounded-lg p-1.5 text-slate-300 hover:bg-rose-50 hover:text-rose-500" aria-label="삭제">
+              <Trash2 className="size-4" />
             </button>
           )}
           <button type="button" onClick={() => setIsExpanded((current) => !current)} className="rounded-lg p-1 text-slate-300 hover:bg-slate-50 hover:text-slate-500" aria-label={isExpanded ? '접기' : '펼치기'}>
@@ -80,8 +94,9 @@ export default function QuestionThread({ question, canResolve = false, onLike, o
             <ReplyItem
               key={reply.id}
               reply={reply}
-              onReply={() => onReply(question.id, reply.content)}
+              onReply={() => onReply(reply.id, reply.content)}
               onEdit={onEditReply ? (content) => onEditReply(question.id, reply.id, content) : undefined}
+              onDelete={onDelete ? () => onDelete(reply.id) : undefined}
             />
           ))}
         </div>

@@ -1,6 +1,6 @@
 import { Plus, RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import FeedbackBar from '../components/room/FeedbackBar'
 import QuestionThread from '../components/room/QuestionThread'
 import RoomHeader from '../components/room/RoomHeader'
@@ -16,13 +16,29 @@ import { cn } from '../utils/cn'
 export default function CourseRoomPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const navigate = useNavigate()
-  const { room, isLoading, error, actionError, reload, likeQuestion, voteFeedback, resetFeedback, resolveQuestion, editReply } = useCourseRoom(courseId)
+  const [searchParams] = useSearchParams()
+  const { room, isLoading, error, actionError, reload, likeQuestion, voteFeedback, resetFeedback, resolveQuestion, editReply, deletePost } = useCourseRoom(courseId)
   const [user, setUser] = useState<User | null>(null)
   const [filter, setFilter] = useState<QuestionFilter>('unresolved')
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  const highlightId = searchParams.get('highlight')
 
   useEffect(() => {
     void getCurrentUser().then(setUser)
   }, [])
+
+  useEffect(() => {
+    if (!highlightId || !room) return
+    const target = room.questions.find((question) => question.id === highlightId)
+    if (target) setFilter(target.isResolved ? 'resolved' : 'unresolved')
+
+    const timer = window.setTimeout(() => {
+      document.getElementById(`post-${highlightId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 100)
+    return () => window.clearTimeout(timer)
+  }, [highlightId, room])
 
   if (isLoading) {
     return <div className="grid min-h-screen place-items-center"><div className="size-10 animate-spin rounded-full border-4 border-violet-100 border-t-violet-600" aria-label="강의실 불러오는 중" /></div>
@@ -111,14 +127,43 @@ export default function CourseRoomPage() {
               key={question.id}
               question={question}
               canResolve={isInstructor}
+              isHighlighted={question.id === highlightId}
               onLike={likeQuestion}
               onResolve={resolveQuestion}
               onReply={(questionId, label) => navigate(`/room/${courseId}/write`, { state: { target: { questionId, label } } })}
               onEditReply={editReply}
+              onDelete={setDeleteTargetId}
             />
           ))}
         </div>
       </div>
+
+      {deleteTargetId && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/30 p-4 backdrop-blur-sm" role="presentation" onMouseDown={() => setDeleteTargetId(null)}>
+          <section role="alertdialog" aria-modal="true" className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+            <h2 className="text-lg font-extrabold text-slate-900">삭제하시겠습니까?</h2>
+            <p className="mt-2 text-sm text-slate-500">삭제하면 되돌릴 수 없습니다. 답글이 달려 있다면 함께 삭제됩니다.</p>
+            <div className="mt-6 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setDeleteTargetId(null)} disabled={isDeleting}>취소</Button>
+              <Button
+                onClick={async () => {
+                  setIsDeleting(true)
+                  try {
+                    await deletePost(deleteTargetId)
+                    setDeleteTargetId(null)
+                  } finally {
+                    setIsDeleting(false)
+                  }
+                }}
+                disabled={isDeleting}
+                className="bg-rose-600 hover:bg-rose-700"
+              >
+                {isDeleting ? '삭제 중' : '삭제'}
+              </Button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   )
 }
