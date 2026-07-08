@@ -24,7 +24,7 @@ interface FolderNodeProps {
 }
 
 function FolderNode({ folder, depth = 0, isInstructor = false, onAddSubfolder, onEditCourse, onRename, onMove, onDelete, onDrop, renamingId, renameValue, onRenameValueChange, onRenameSubmit, onRenameCancel }: FolderNodeProps) {
-  const [isExpanded, setIsExpanded] = useState(folder.expandedByDefault ?? false)
+  const [isExpanded, setIsExpanded] = useState(folder.expandedByDefault ?? true)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const hasChildren = folder.children.length > 0 || folder.courses.length > 0
@@ -123,7 +123,7 @@ function FolderNode({ folder, depth = 0, isInstructor = false, onAddSubfolder, o
           {folder.courses.length > 0 && (
             <div className="my-2 ml-8 space-y-3">
               {folder.courses.map((course) => (
-                <CourseRow key={course.id} course={course} isInstructor={isInstructor} isInBlockedFolder={!isOwned} onEdit={onEditCourse} onRename={onRename} onMove={onMove} onDelete={onDelete} />
+                <CourseRow key={course.id} course={course} isInstructor={isInstructor} isInBlockedFolder={!isOwned} onEdit={onEditCourse} onMove={onMove} onDelete={onDelete} />
               ))}
             </div>
           )}

@@ -1,4 +1,4 @@
-import { Plus, Search } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import Button from '../ui/Button'
 import Modal from '../ui/Modal'
@@ -40,16 +40,13 @@ export default function RegisterByCodeModal({ isOpen, onClose, onRegister }: Reg
       </div>
 
       <form onSubmit={handleSubmit} className="mt-5 space-y-5">
-        <div className="flex gap-2">
-          <input
-            autoFocus
-            value={code}
-            onChange={(event) => setCode(event.target.value)}
-            placeholder="예: 123e4567-e89b-12d3-a456-426614174000"
-            className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition placeholder:text-slate-300 focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-100"
-          />
-          <Button type="button" variant="secondary" className="shrink-0"><Search className="size-4" />검색</Button>
-        </div>
+        <input
+          autoFocus
+          value={code}
+          onChange={(event) => setCode(event.target.value)}
+          placeholder="예: 123e4567-e89b-12d3-a456-426614174000"
+          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition placeholder:text-slate-300 focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-100"
+        />
         {message && <p className="text-xs font-medium text-rose-500" aria-live="polite">{message}</p>}
         <div className="flex gap-2">
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">취소</Button>
