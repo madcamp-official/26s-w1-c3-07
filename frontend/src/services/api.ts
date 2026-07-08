@@ -845,17 +845,23 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
   }
 
   const topLevel = byParent.get(null) ?? []
-  // 미해결 게시글: 좋아요 개수 내림차순, 동률이면 제출 시각 최신순(최근 제출일수록 위).
-  // 해결된 게시글: 해결된 시각 최신순(최근에 해결될수록 위). 필터 탭이 미해결/해결을
-  // 나눠서 보여주므로 두 그룹 사이의 상대 순서는 의미 없음.
-  const sortedTopLevel = [...topLevel].sort((a, b) => {
-    if (a.status === 'resolved' && b.status === 'resolved') {
-      return (b.resolved_at ?? '').localeCompare(a.resolved_at ?? '')
-    }
+  // 미해결/해결 게시글은 정렬 기준이 완전히 달라서(좋아요·제출시각 vs 해결시각) 한 배열에
+  // 섞은 채로 비교 함수 하나로 처리하면 비교 함수가 추이성을 잃어 Array.sort 결과가
+  // 불안정해짐 - 두 그룹으로 나눠 각자 정렬한 뒤 합침(필터 탭이 어차피 나눠서 보여주므로
+  // 두 그룹 사이의 상대 순서는 의미 없음).
+  const unresolved = topLevel.filter((row) => row.status !== 'resolved')
+  const resolved = topLevel.filter((row) => row.status === 'resolved')
+
+  // 미해결: 좋아요 개수 내림차순, 동률이면 제출 시각 최신순(최근 제출일수록 위).
+  unresolved.sort((a, b) => {
     const likeDiff = (likeCountByPostId.get(b.id) ?? 0) - (likeCountByPostId.get(a.id) ?? 0)
     if (likeDiff !== 0) return likeDiff
     return b.created_at.localeCompare(a.created_at)
   })
+  // 해결됨: 해결된 시각 오름차순(해결된 시각이 이를수록 위).
+  resolved.sort((a, b) => (a.resolved_at ?? '').localeCompare(b.resolved_at ?? ''))
+
+  const sortedTopLevel = [...unresolved, ...resolved]
 
   return sortedTopLevel.map((row): Question => ({
     id: row.id,
