@@ -78,7 +78,7 @@ const clone = <T,>(value: T): T => structuredClone(value)
  * 오가므로, 계정 id만으로는 두 역할을 구분할 수 없습니다. 따라서
  * `id:role`을 투표자 키로 사용해 역할별로 다른 사람처럼 취급합니다.
  */
-const feedbackVotesByUser = new Map<string, Map<FeedbackKey, 'like' | 'dislike'>>()
+const feedbackVotesByUser = new Map<string, Map<FeedbackKey, Set<'like' | 'dislike'>>>()
 const questionLikesByUser = new Map<string, Set<string>>()
 
 /**
@@ -97,7 +97,7 @@ function getViewerKey(): string {
   return `${mockCurrentUser.id}:${mockCurrentUser.role}`
 }
 
-function getFeedbackVotes(voterKey: string): Map<FeedbackKey, 'like' | 'dislike'> {
+function getFeedbackVotes(voterKey: string): Map<FeedbackKey, Set<'like' | 'dislike'>> {
   let votes = feedbackVotesByUser.get(voterKey)
   if (!votes) {
     votes = new Map()
@@ -140,7 +140,11 @@ function applyViewerVotes(room: CourseRoom, voterKey: string): CourseRoom {
 
   return {
     ...room,
-    feedbackOptions: room.feedbackOptions.map((option) => ({ ...option, myVote: votes.get(option.key) ?? null })),
+    feedbackOptions: room.feedbackOptions.map((option) => ({
+      ...option,
+      myLiked: votes.get(option.key)?.has('like') ?? false,
+      myDisliked: votes.get(option.key)?.has('dislike') ?? false,
+    })),
     questions: room.questions.map(applyToQuestion),
   }
 }
@@ -873,14 +877,16 @@ async function getFeedbackOptionsFromDb(lectureId: string): Promise<FeedbackOpti
   if (myVotesError) throw myVotesError
 
   const countByType = new Map((counts ?? []).map((row) => [row.feedback_type as FeedbackKey, { likeCount: row.like_count as number, dislikeCount: row.dislike_count as number }]))
-  const myVoteByType = new Map((myVotes ?? []).map((row) => [row.feedback_type as FeedbackKey, row.value === 1 ? 'like' as const : 'dislike' as const]))
+  const myLikedTypes = new Set((myVotes ?? []).filter((row) => row.value === 1).map((row) => row.feedback_type as FeedbackKey))
+  const myDislikedTypes = new Set((myVotes ?? []).filter((row) => row.value === -1).map((row) => row.feedback_type as FeedbackKey))
 
   return FEEDBACK_KEYS.map((key) => ({
     key,
     label: FEEDBACK_LABELS[key],
     likeCount: countByType.get(key)?.likeCount ?? 0,
     dislikeCount: countByType.get(key)?.dislikeCount ?? 0,
-    myVote: myVoteByType.get(key) ?? null,
+    myLiked: myLikedTypes.has(key),
+    myDisliked: myDislikedTypes.has(key),
   }))
 }
 
@@ -1419,18 +1425,17 @@ export async function toggleFeedback(courseId: string, key: FeedbackKey, vote: '
     if (!option) throw new Error('피드백 항목을 찾을 수 없습니다.')
 
     const votes = getFeedbackVotes(getViewerKey())
-    const myVote = votes.get(key) ?? null
+    const hadVote = votes.get(key)?.has(vote) ?? false
 
-    if (myVote === vote) {
+    if (hadVote) {
       if (vote === 'like') option.likeCount -= 1
       else option.dislikeCount -= 1
-      votes.delete(key)
+      votes.get(key)?.delete(vote)
     } else {
-      if (myVote === 'like') option.likeCount -= 1
-      if (myVote === 'dislike') option.dislikeCount -= 1
       if (vote === 'like') option.likeCount += 1
       else option.dislikeCount += 1
-      votes.set(key, vote)
+      if (!votes.has(key)) votes.set(key, new Set())
+      votes.get(key)?.add(vote)
     }
 
     return clone(applyViewerVotes(room, getViewerKey()))
@@ -1441,23 +1446,19 @@ export async function toggleFeedback(courseId: string, key: FeedbackKey, vote: '
   const voterKey = await getCurrentVoterKey()
   const value = vote === 'like' ? 1 : -1
 
-  const { data: existingRows, error: existingError } = await withGuestHeader(
-    supabase.from('lecture_feedback_votes').select('value').eq('lecture_id', courseId).eq('feedback_type', key).eq('voter_key', voterKey),
+  const { data: existing, error: existingError } = await withGuestHeader(
+    supabase.from('lecture_feedback_votes').select('value').eq('lecture_id', courseId).eq('feedback_type', key).eq('voter_key', voterKey).eq('value', value),
     isLoggedIn,
-  )
+  ).maybeSingle()
   if (existingError) throw existingError
 
-  const alreadyVoted = (existingRows ?? []).some((row) => row.value === value)
-
-  if ((existingRows?.length ?? 0) > 0) {
-    const { error: deleteError } = await withGuestHeader(
-      supabase.from('lecture_feedback_votes').delete().eq('lecture_id', courseId).eq('feedback_type', key).eq('voter_key', voterKey),
+  if (existing) {
+    const { error } = await withGuestHeader(
+      supabase.from('lecture_feedback_votes').delete().eq('lecture_id', courseId).eq('feedback_type', key).eq('voter_key', voterKey).eq('value', value),
       isLoggedIn,
     )
-    if (deleteError) throw deleteError
-  }
-
-  if (!alreadyVoted) {
+    if (error) throw error
+  } else {
     const { error } = await withGuestHeader(
       supabase.from('lecture_feedback_votes').insert({ lecture_id: courseId, feedback_type: key, voter_key: voterKey, value }),
       isLoggedIn,

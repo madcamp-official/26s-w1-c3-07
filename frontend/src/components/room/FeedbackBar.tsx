@@ -24,10 +24,10 @@ export default function FeedbackBar({ options, canVote = true, onVote, onAcknowl
               disabled={!canVote}
               className={cn(
                 'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 transition disabled:cursor-not-allowed',
-                option.myVote === 'like' ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400',
-                canVote && option.myVote !== 'like' && 'hover:text-emerald-600',
+                option.myLiked ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400',
+                canVote && !option.myLiked && 'hover:text-emerald-600',
               )}
-              aria-pressed={option.myVote === 'like'}
+              aria-pressed={option.myLiked}
               aria-label={`${option.label} 좋아요`}
             >
               <ThumbsUp className="size-3.5" />{option.likeCount}
@@ -38,10 +38,10 @@ export default function FeedbackBar({ options, canVote = true, onVote, onAcknowl
               disabled={!canVote}
               className={cn(
                 'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 transition disabled:cursor-not-allowed',
-                option.myVote === 'dislike' ? 'bg-rose-100 text-rose-700' : 'text-slate-400',
-                canVote && option.myVote !== 'dislike' && 'hover:text-rose-600',
+                option.myDisliked ? 'bg-rose-100 text-rose-700' : 'text-slate-400',
+                canVote && !option.myDisliked && 'hover:text-rose-600',
               )}
-              aria-pressed={option.myVote === 'dislike'}
+              aria-pressed={option.myDisliked}
               aria-label={`${option.label} 싫어요`}
             >
               <ThumbsDown className="size-3.5" />{option.dislikeCount}

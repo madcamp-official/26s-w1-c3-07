@@ -6,7 +6,8 @@ export interface FeedbackOption {
   label: string
   likeCount: number
   dislikeCount: number
-  myVote: 'like' | 'dislike' | null
+  myLiked: boolean
+  myDisliked: boolean
 }
 
 export interface QuestionReply {

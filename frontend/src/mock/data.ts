@@ -169,10 +169,10 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
     participantCount: 34,
     capacity: null,
     feedbackOptions: [
-      { key: 'cold', label: '추워요', likeCount: 8, dislikeCount: 2, myVote: null },
-      { key: 'hot', label: '더워요', likeCount: 1, dislikeCount: 4, myVote: null },
-      { key: 'quiet', label: '소리가 작아요', likeCount: 5, dislikeCount: 1, myVote: null },
-      { key: 'unclear', label: '잘 안 보여요', likeCount: 3, dislikeCount: 0, myVote: null },
+      { key: 'cold', label: '추워요', likeCount: 8, dislikeCount: 2, myLiked: false, myDisliked: false },
+      { key: 'hot', label: '더워요', likeCount: 1, dislikeCount: 4, myLiked: false, myDisliked: false },
+      { key: 'quiet', label: '소리가 작아요', likeCount: 5, dislikeCount: 1, myLiked: false, myDisliked: false },
+      { key: 'unclear', label: '잘 안 보여요', likeCount: 3, dislikeCount: 0, myLiked: false, myDisliked: false },
     ],
     questions: [
       {
@@ -295,10 +295,10 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
     participantCount: 41,
     capacity: null,
     feedbackOptions: [
-      { key: 'cold', label: '추워요', likeCount: 2, dislikeCount: 0, myVote: null },
-      { key: 'hot', label: '더워요', likeCount: 0, dislikeCount: 0, myVote: null },
-      { key: 'quiet', label: '소리가 작아요', likeCount: 1, dislikeCount: 0, myVote: null },
-      { key: 'unclear', label: '잘 안 보여요', likeCount: 0, dislikeCount: 0, myVote: null },
+      { key: 'cold', label: '추워요', likeCount: 2, dislikeCount: 0, myLiked: false, myDisliked: false },
+      { key: 'hot', label: '더워요', likeCount: 0, dislikeCount: 0, myLiked: false, myDisliked: false },
+      { key: 'quiet', label: '소리가 작아요', likeCount: 1, dislikeCount: 0, myLiked: false, myDisliked: false },
+      { key: 'unclear', label: '잘 안 보여요', likeCount: 0, dislikeCount: 0, myLiked: false, myDisliked: false },
     ],
     questions: [
       {
