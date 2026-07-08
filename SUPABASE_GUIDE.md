@@ -292,7 +292,7 @@ const rootCourses = topLevel.filter(root => 'title' in root)
 |---|---|---|
 | `moveCourseItem` (owned 폴더/강의) | 강의자는 소유권 제한 없이 자유 이동 | `nodes` `update`로 `parent_id` 변경. `nodes_update_own` + `enforce_nodes_parent_rules`이 "내 것만, 같은 모드끼리만" 강제 |
 | `moveCourseItem` (registered 개별 강의) | "등록된 개별 강의는 보라 폴더로 이동 가능(소유권 유지)" | `nodes.parent_id`가 아니라 **`favorites` `update`로 `anchor_id` 변경**. `favorites_update_anchor_must_be_own_student_folder`가 "내 소유 폴더로만" 강제 |
-| `moveCourseItem` (registered 폴더) | "등록된 폴더 자체는 이동 불가" | 프론트에서 애초에 시도 자체를 안 함(UI에서 이미 막혀 있음) |
+| `moveCourseItem` (registered 폴더) | 등록한 덩어리의 최상위(favorite root)는 통째로 이동 가능, 서브트리 내부 하위 폴더는 이동 불가 | `nodes.parent_id`가 아니라 **`favorites` `update`로 `anchor_id` 변경**(favorites 행이 없는 서브트리 내부 노드는 0행 업데이트되어 명시적으로 거부됨) |
 | `renameCourseItem` | "강의자가 공유한 항목은 이름 변경 불가" | owned 항목만 `nodes` `update`(`name`). registered 항목은 애초에 UI에서 버튼이 안 보여야 함 — `nodes_update_own`도 어차피 남의 노드라 막음 |
 | `deleteCourseItem` | "내가 만든 건 완전 삭제, 등록된 건 등록만 취소" | owned → `nodes` `delete`(cascade로 하위까지 정리). registered → `favorites` `delete`(해당 즐겨찾기 행만 삭제, 원본 노드는 그대로) |
 | `createRootFolder` | 새 폴더 생성 | `nodes` `insert`(`type: 'folder'`, `created_mode`는 현재 모드) |
