@@ -151,7 +151,7 @@ export default function PostComposer({ target, isLoggedIn, isInstructor = false,
         )}
         <ToggleRow
           label="AI 교정"
-          description={isAiAssisted ? 'AI가 질문을 더 명확하게 개선합니다' : 'AI를 사용하지 않고 질문을 생성합니다'}
+          description={isAiAssisted ? 'AI가 글을 더 명확하게 개선합니다' : 'AI를 사용하지 않고 질문을 생성합니다'}
           checked={isAiAssisted}
           onChange={(checked) => { setIsAiAssisted(checked); setAiDraft(null) }}
         />
@@ -201,7 +201,7 @@ export default function PostComposer({ target, isLoggedIn, isInstructor = false,
             onClick={() => (isAiAssisted ? void generateDraft() : void finalize(content.trim()))}
           >
             {isAiAssisted && <Sparkles className="size-4" />}
-            {isSubmitting ? '등록 중' : isGeneratingDraft ? '생성 중' : isAiAssisted ? 'AI로 질문 생성하기' : '제출하기'}
+            {isSubmitting ? '등록 중' : isGeneratingDraft ? '생성 중' : isAiAssisted ? 'AI로 교정하기' : '제출하기'}
           </Button>
         )}
       </div>
