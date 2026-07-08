@@ -50,6 +50,8 @@ export interface CourseRoom {
   lecturerName: string
   participantCount: number
   capacity: number | null
+  /** 현재 로그인한 회원이 이 강의를 "내 강의"(favorites)로 등록했는지. 비회원이면 항상 false. */
+  isFavorited: boolean
   feedbackOptions: FeedbackOption[]
   questions: Question[]
 }

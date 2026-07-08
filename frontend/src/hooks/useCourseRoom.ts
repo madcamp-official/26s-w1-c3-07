@@ -13,6 +13,7 @@ import {
   resolveQuestion,
   subscribeToRoomChannel,
   submitDraft,
+  toggleCourseRegistration,
   toggleFeedback,
   toggleQuestionLike,
   updateQuestion,
@@ -352,6 +353,12 @@ export function useCourseRoom(courseId: string | undefined) {
     })
   }
 
+  const toggleRegistration = async (): Promise<void> => {
+    if (!courseId) return
+    const { isFavorited } = await toggleCourseRegistration(courseId)
+    setState((current) => (current.room ? { ...current, room: { ...current.room, isFavorited } } : current))
+  }
+
   return {
     ...state,
     participantCount,
@@ -367,5 +374,6 @@ export function useCourseRoom(courseId: string | undefined) {
     voteFeedback,
     resetFeedback,
     resolveQuestion: resolveQuestionById,
+    toggleRegistration,
   }
 }

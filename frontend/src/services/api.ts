@@ -486,6 +486,32 @@ export async function registerCourseByCode(id: string): Promise<void> {
   if (error) throw error
 }
 
+async function isCourseFavorited(courseId: string, userId: string): Promise<boolean> {
+  const { data, error } = await supabase.from('favorites').select('node_id').eq('user_id', userId).eq('node_id', courseId).maybeSingle()
+  if (error) throw error
+  return !!data
+}
+
+/**
+ * 강의실 헤더의 "내 강의로 등록" 토글. 이미 등록돼 있으면 취소, 아니면 최상위에 등록.
+ * deleteCourseItem과 달리 owned 여부를 따지지 않고 항상 favorites만 다룸(이 버튼은
+ * 강의 자체를 삭제하는 용도가 아니라 즐겨찾기 등록/취소 전용이라서).
+ */
+export async function toggleCourseRegistration(courseId: string): Promise<{ isFavorited: boolean }> {
+  const userId = await requireAuthUserId()
+  const alreadyFavorited = await isCourseFavorited(courseId, userId)
+
+  if (alreadyFavorited) {
+    const { error } = await supabase.from('favorites').delete().eq('user_id', userId).eq('node_id', courseId)
+    if (error) throw error
+    return { isFavorited: false }
+  }
+
+  const { error } = await supabase.from('favorites').insert({ user_id: userId, node_id: courseId, anchor_id: null })
+  if (error) throw error
+  return { isFavorited: true }
+}
+
 export async function createRootFolder(input: CreateFolderInput): Promise<CourseFolder> {
   const userId = await requireAuthUserId()
   const createdMode = roleToMode(mockCurrentUser.role)
@@ -687,6 +713,7 @@ interface CourseRoomMeta {
   lecturerName: string
   participantCount: number
   capacity: number | null
+  isFavorited: boolean
 }
 
 /** 실제 DB(lectures_public)에서 강의 메타데이터만 조회합니다. */
@@ -699,6 +726,10 @@ async function getCourseRoomFromDb(courseId: string): Promise<CourseRoomMeta> {
 
   if (error || !lecture) throw new Error('강의실을 찾을 수 없습니다.')
 
+  const { data: sessionData } = await supabase.auth.getSession()
+  const userId = sessionData.session?.user.id
+  const isFavorited = userId ? await isCourseFavorited(courseId, userId) : false
+
   return {
     id: lecture.id,
     title: lecture.title,
@@ -707,6 +738,7 @@ async function getCourseRoomFromDb(courseId: string): Promise<CourseRoomMeta> {
     lecturerName: lecture.lecturer_name ?? '탈퇴한 계정입니다',
     participantCount: 0,
     capacity: lecture.max_participants,
+    isFavorited,
   }
 }
 

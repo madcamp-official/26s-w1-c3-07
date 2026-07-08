@@ -18,12 +18,13 @@ export default function CourseRoomPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { room, isLoading, error, actionError, participantCount, admissionStatus, reload, likeQuestion, voteFeedback, resetFeedback, resolveQuestion, editQuestion, editReply, deletePost } = useCourseRoom(courseId)
+  const { room, isLoading, error, actionError, participantCount, admissionStatus, reload, likeQuestion, voteFeedback, resetFeedback, resolveQuestion, editQuestion, editReply, deletePost, toggleRegistration } = useCourseRoom(courseId)
   const [user, setUser] = useState<User | null>(null)
   const [filter, setFilter] = useState<QuestionFilter>('unresolved')
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isShareOpen, setIsShareOpen] = useState(false)
+  const [isTogglingFavorite, setIsTogglingFavorite] = useState(false)
 
   const highlightId = searchParams.get('highlight')
   const [activeHighlightId, setActiveHighlightId] = useState<string | null>(null)
@@ -121,6 +122,20 @@ export default function CourseRoomPage() {
             participantCount={participantCount}
             questionCount={room.questions.length}
             onShare={isInstructor ? () => setIsShareOpen(true) : undefined}
+            isFavorited={room.isFavorited}
+            isTogglingFavorite={isTogglingFavorite}
+            onToggleFavorite={
+              user && !isInstructor
+                ? async () => {
+                    setIsTogglingFavorite(true)
+                    try {
+                      await toggleRegistration()
+                    } finally {
+                      setIsTogglingFavorite(false)
+                    }
+                  }
+                : undefined
+            }
           />
 
           <div className="mt-5">

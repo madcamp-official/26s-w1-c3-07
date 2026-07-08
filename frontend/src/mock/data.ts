@@ -162,6 +162,7 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
     lecturerName: mockCurrentUser.name,
     participantCount: 34,
     capacity: null,
+    isFavorited: false,
     feedbackOptions: [
       { key: 'cold', label: '추워요', likeCount: 8, dislikeCount: 2, myLiked: false, myDisliked: false },
       { key: 'hot', label: '더워요', likeCount: 1, dislikeCount: 4, myLiked: false, myDisliked: false },
@@ -296,6 +297,7 @@ export const mockCourseRooms: Record<string, CourseRoom> = {
     lecturerName: mockCurrentUser.name,
     participantCount: 41,
     capacity: null,
+    isFavorited: false,
     feedbackOptions: [
       { key: 'cold', label: '추워요', likeCount: 2, dislikeCount: 0, myLiked: false, myDisliked: false },
       { key: 'hot', label: '더워요', likeCount: 0, dislikeCount: 0, myLiked: false, myDisliked: false },
