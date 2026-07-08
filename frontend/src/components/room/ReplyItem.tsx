@@ -15,6 +15,8 @@ interface ReplyItemProps {
 export default function ReplyItem({ reply, isHighlighted = false, onLike, onReply, onEdit, onDelete }: ReplyItemProps) {
   const isLecturer = reply.authorRole === 'lecturer'
   const isOpinion = reply.postType === 'opinion'
+  // 수정 펜 hover 색을 셀 왼쪽 테두리 색(강의자=노랑, 의견=파랑, 질문답글=보라)과 맞춤.
+  const penHoverClass = isLecturer ? 'hover:text-amber-600' : isOpinion ? 'hover:text-blue-600' : 'hover:text-violet-600'
   const [isEditing, setIsEditing] = useState(false)
   const [draft, setDraft] = useState(reply.content)
   const [isSaving, setIsSaving] = useState(false)
@@ -45,7 +47,7 @@ export default function ReplyItem({ reply, isHighlighted = false, onLike, onRepl
       id={`post-${reply.id}`}
       className={cn(
         'scroll-mt-6 rounded-2xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-slate-50 p-4 transition-all duration-700 ease-out',
-        isLecturer ? 'border-l-rose-400' : isOpinion ? 'border-l-blue-400' : 'border-l-violet-400',
+        isLecturer ? 'border-l-amber-400' : isOpinion ? 'border-l-blue-400' : 'border-l-violet-400',
         isHighlighted && 'bg-slate-100 shadow-lg shadow-slate-300/60 ring-2 ring-slate-300',
       )}
       style={reply.depth > 0 ? { marginLeft: `${Math.min(reply.depth, 6) * 1.5}rem` } : undefined}
@@ -53,12 +55,12 @@ export default function ReplyItem({ reply, isHighlighted = false, onLike, onRepl
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="font-extrabold text-slate-800">{reply.authorName}</span>
-          {isLecturer && <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700">Lecturer</span>}
+          {isLecturer && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">Lecturer</span>}
           <span className="shrink-0 text-xs text-slate-400">{reply.createdAt}</span>
         </div>
         <div className="flex items-center gap-2">
           {reply.isEditable && !isEditing && (
-            <button type="button" onClick={startEditing} className="rounded-lg p-1.5 text-slate-300 hover:bg-slate-50 hover:text-violet-600" aria-label="수정">
+            <button type="button" onClick={startEditing} className={cn('rounded-lg p-1.5 text-slate-300 hover:bg-slate-50', penHoverClass)} aria-label="수정">
               <Pencil className="size-4" />
             </button>
           )}

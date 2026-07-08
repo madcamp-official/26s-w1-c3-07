@@ -25,6 +25,8 @@ export default function QuestionThread({ question, canResolve = false, highlight
   const [editError, setEditError] = useState('')
   const isOpinion = question.postType === 'opinion'
   const isLecturer = question.authorRole === 'lecturer'
+  // 수정 펜 hover 색을 셀 왼쪽 테두리 색(의견=파랑, 질문=보라)과 맞춤.
+  const penHoverClass = isOpinion ? 'hover:text-blue-600' : 'hover:text-violet-600'
 
   const handleResolve = async () => {
     if (!onResolve) return
@@ -87,7 +89,7 @@ export default function QuestionThread({ question, canResolve = false, highlight
             </button>
           )}
           {question.isEditable && onEdit && !isEditing && (
-            <button type="button" onClick={startEditing} className="rounded-lg p-1.5 text-slate-300 hover:bg-slate-50 hover:text-violet-600" aria-label="수정">
+            <button type="button" onClick={startEditing} className={cn('rounded-lg p-1.5 text-slate-300 hover:bg-slate-50', penHoverClass)} aria-label="수정">
               <Pencil className="size-4" />
             </button>
           )}
