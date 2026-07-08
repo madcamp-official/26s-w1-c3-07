@@ -73,7 +73,7 @@ create table post_likes (
 -- 실시간 피드백(추워요/더워요/소리 작아요/잘 안 보여요)의 좋아요/싫어요
 create table lecture_feedback_votes (
   lecture_id uuid references lectures(node_id) on delete cascade,
-  feedback_type text not null check (feedback_type in ('cold', 'hot', 'quiet', 'unclear')),
+  feedback_type text not null check (feedback_type in ('cold', 'hot', 'quiet', 'dark')),
   voter_key uuid not null,
   value smallint not null check (value in (1, -1)), -- 좋아요/싫어요
   primary key (lecture_id, feedback_type, voter_key)

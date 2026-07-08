@@ -158,6 +158,23 @@ const { data } = await supabase
 
 `posts.lecture_id`가 답글까지 포함해 모든 행에 직접 저장되어 있어서, 트리 depth와 무관하게 비재귀 조회로 끝납니다.
 
+### 강의실 헤더 메타데이터(제목/일시/장소/강의자 이름) — `lectures_public`
+
+강의실 페이지 상단(제목, 일시, 강의자 이름)을 채우려면 `nodes`+`lectures`를 조회하면 되는데, 강의자 이름은 `profiles.name`에서 가져와야 합니다. `profiles`는 본인만 SELECT 가능(RLS)이라 `nodes`/`lectures`를 직접 조회하는 방식으로는 강의를 만든 본인 외에는 이름을 알 수 없습니다. 이 문제를 푸는 `lectures_public` 뷰가 추가됐으니 이걸로 조회하세요(자세한 이유는 [DB_DESIGN.md의 `lectures_public` 설명](./DB_DESIGN.md#lectures_public) 참고).
+
+```js
+const { data } = await supabase
+  .from('lectures_public')
+  .select('id, title, start_time, end_time, location, max_participants, lecturer_name')
+  .eq('id', lectureId)
+  .single()
+```
+
+**⚠️ 지금 `frontend` 브랜치는 이 뷰가 생기기 전에 작성된 우회 코드를 쓰고 있어서 정리가 필요합니다** — `services/api.ts`의 `getCourseRoomFromDb()`가 `nodes`를 직접 조회한 뒤, `supabase.auth.getSession()`으로 "내가 이 강의 소유자인지"를 확인해서 본인일 때만 `profiles.name`을 추가로 조회하고, 그 외에는 `'강의자'`라는 하드코딩된 기본값으로 폴백하고 있습니다(그래서 지금은 강의를 만든 본인이 자기 강의실에 들어갔을 때만 진짜 이름이 보이고, 다른 강의자/수강생/비회원에게는 전부 "강의자"라고만 표시됨). `lectures_public`으로 바꾸면:
+- `nodes` 직접 조회 → `lectures_public` 조회 하나로 교체
+- 세션 확인(`supabase.auth.getSession()`) + 소유자 여부 분기 + 조건부 `profiles` 조회 로직을 통째로 제거
+- `lecturer_name`이 `null`일 수 있는 경우(탈퇴한 계정 등)에만 `'강의자'` 같은 기본값으로 폴백하면 충분합니다.
+
 ### (2)·(3) "내 강의" — `getCourseFolders()`/`getStandaloneCourses()`가 반환해야 할 모양
 
 `frontend/src/types/course.ts`를 보면 최종적으로 필요한 모양이 이미 정해져 있어요.
