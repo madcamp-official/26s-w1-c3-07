@@ -19,6 +19,7 @@
     - [`posts_counts`](#posts_counts)
     - [`post_likes_counts`](#post_likes_counts)
     - [`lecture_feedback_votes_counts`](#lecture_feedback_votes_counts)
+    - [`lectures_public`](#lectures_public)
   - [트리거 함수](#트리거-함수)
     - [`block_status_change_by_non_lecturer()`](#block_status_change_by_non_lecturer)
     - [`set_resolved_at_on_status_change()`](#set_resolved_at_on_status_change)
@@ -66,6 +67,7 @@
 | `posts_counts` (뷰) | `posts`를 `lecture_id`별로 `count(*)`한 게시글 개수 집계 뷰. `posts_public`처럼 숨길 값이 있어서가 아니라, 여러 강의의 개수를 한 번의 요청으로 가져오기 위한 효율성 목적 |
 | `post_likes_counts` (뷰) | `post_likes`에서 `voter_key` 없이 게시글별 좋아요 개수만 집계한 공개 조회용 뷰 |
 | `lecture_feedback_votes_counts` (뷰) | `lecture_feedback_votes`에서 `voter_key` 없이 강의·피드백 유형별 좋아요/싫어요 개수만 집계한 공개 조회용 뷰 |
+| `lectures_public` (뷰) | `lectures`+`nodes`+`profiles`를 조인해 강의 제목/일시/장소와 강의자 이름(`lecturer_name`)을 한 번에 보여주는 공개 조회용 뷰. `profiles`가 본인만 SELECT 가능해서 막혀 있던 강의자 이름을 이 뷰로 우회 노출 |
 
 ## SQL
 
@@ -298,6 +300,26 @@ select
   count(*) filter (where value = -1) as dislike_count
 from lecture_feedback_votes
 group by lecture_id, feedback_type;
+```
+
+#### `lectures_public`
+
+강의실 페이지에서 강의 제목/일시/장소와 강의자 이름을 한 번에 보여주기 위한 뷰입니다. `profiles`는 본인만 SELECT 가능(RLS)이라, 강의를 만든 본인이 아닌 사람(다른 강의자/수강생/비회원)이 강의실에 들어왔을 때는 `profiles.name`을 직접 조회할 수 없어 강의자 이름을 알 수 없는 문제가 있었습니다. `posts_public`이 `author_display_name`을 노출하는 것과 같은 원리로, 뷰는 조회자가 아니라 **뷰 소유자 권한**으로 실행되기 때문에 이 뷰 안에서는 `profiles`를 조인해도 RLS에 걸리지 않습니다. `lectures`/`nodes`가 이미 전체 공개라 이 뷰도 별도 RLS나 REVOKE 없이 기본 공개 SELECT 권한으로 충분합니다. `created_by`가 탈퇴 등으로 `null`이 되거나 `profiles.name`이 없는 경우 `lecturer_name`은 `null`이 되므로, 프론트에서 기본값 문자열로 폴백 처리해야 합니다.
+
+```sql
+create view lectures_public as
+select
+  l.id,
+  l.start_time,
+  l.end_time,
+  l.location,
+  l.max_participants,
+  n.name as title,
+  n.created_by,
+  p.name as lecturer_name
+from lectures l
+join nodes n on n.id = l.id
+left join profiles p on p.id = n.created_by;
 ```
 
 ### 트리거 함수
@@ -908,6 +930,7 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
 - **`posts_public` 뷰**: `posts` 테이블 자체는 SELECT 권한이 없어(위 [RLS 정책 → `posts`](#posts-1) 참고) 이 뷰로만 조회할 수 있습니다. `guest_token`은 완전히 제외하고, `author_id`(uid)도 통째로 숨긴 뒤 `is_anonymous`가 `false`인 글만 `profiles.name`을 조인해서 보여줍니다. 뷰가 `profiles`를 조인할 수 있는 건 Postgres 뷰가 기본적으로 조회자가 아니라 **뷰 소유자의 권한**으로 실행되기 때문으로, `profiles`가 본인만 조회 가능하도록 좁혀져 있어도 뷰 내부 조인에는 영향이 없습니다(수정/삭제 자체는 여전히 `posts` 테이블의 RLS 정책으로 처리).
 - **`posts_counts` 뷰는 `post_likes_counts`/`lecture_feedback_votes_counts`와 성격이 다릅니다**: 그 두 뷰는 `voter_key` 노출을 막기 위한 보안 목적이었지만, `posts_counts`가 조회하는 `posts_public`은 이미 전체 공개라 숨길 값이 없습니다. 이 뷰가 필요한 이유는 순전히 **PostgREST가 서버 사이드 `group by` 집계를 지원하지 않기 때문**입니다 — "내 강의" 목록 화면에서 강의마다 게시글 개수를 보여줘야 하는데, 뷰 없이는 강의 하나당 조회를 따로 보내야 하거나(요청 수 증가) 전체 게시글을 다 받아와 클라이언트에서 세야 합니다(대역폭 낭비). `lecture_id`별 `count(*)`만 집계해서, 여러 강의의 개수를 `.in('lecture_id', [...])` 한 번의 요청으로 가져올 수 있게 합니다.
 - **`post_likes_counts`/`lecture_feedback_votes_counts` 뷰**: `post_likes`/`lecture_feedback_votes`도 테이블 자체 SELECT는 본인 투표 행(`voter_key` 일치)만 가능하도록 좁혀서(위 [RLS 정책 → `post_likes`](#post_likes-1)/[`lecture_feedback_votes`](#lecture_feedback_votes-1) 참고), 남이 무엇을 눌렀는지는 직접 조회할 수 없습니다. 하지만 좋아요/피드백 개수는 누구나 봐야 하는 값이라, `voter_key` 없이 `count(*)`로 집계만 한 별도 뷰로 공개합니다. `post_likes_counts`는 `post_id`별 좋아요 개수, `lecture_feedback_votes_counts`는 `lecture_id`·`feedback_type`별 좋아요/싫어요 개수(`count(*) filter (where value = 1/-1)`)를 보여줍니다. "내가 이미 눌렀는지"는 이 뷰가 아니라 `post_likes`/`lecture_feedback_votes` 테이블에 본인 `voter_key`로 직접 SELECT해서 확인합니다(RLS가 본인 행만 허용하므로 가능).
+- **`lectures_public` 뷰**: `posts_public`과 같은 이유(뷰 소유자 권한으로 `profiles`를 우회 조인)로 강의자 이름을 노출합니다. `profiles` RLS를 완화하는 대신 뷰로 좁힌 이유는, `profiles`를 통째로 공개하면 강의자 이름뿐 아니라 가입한 모든 사용자의 이름을 익명 스크래핑당할 수 있기 때문입니다(공개된 anon key만으로 전체 `profiles` 덤프 가능). `lectures_public`은 이미 존재를 아는 특정 강의 하나의 소유자 이름만 좁게 노출하므로 이런 대량 노출 위험이 없습니다.
 
 ## 실시간 접속자 수 (강의별)
 
@@ -974,3 +997,4 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
   - `20260708140000_posts_lecturer_mode_not_anonymous.sql` — 강의자 모드로 쓴 글(`created_mode = 'lecturer'`)은 반드시 실명이어야 한다는 `posts_lecturer_mode_not_anonymous` 체크 제약 추가. 바로 위 변경으로 회원 탈퇴가 더 이상 `is_anonymous`를 건드리지 않게 되어, 이 제약이 탈퇴 여부와 무관하게 항상 성립하게 됨. 라이브 DB에서 강의자 모드 실명 답글을 쓴 계정이 탈퇴하는 시나리오까지 함께 검증 완료
   - `20260708150000_rename_auto_generated_check_constraints.sql` — Postgres가 이름 없는 `check` 제약에 자동으로 붙이는 `<table>[_컬럼]_check[N]` 이름들을 이 프로젝트 스타일(서술적 이름)로 통일. 일부는 과거 컬럼 리네임(`node_type`→`type`, `post_type`→`type`, `last_mode`→`mode`) 이후에도 옛 컬럼명을 그대로 가진 이름이라 이번에 같이 바로잡음(`nodes_node_type_check`→`nodes_type_valid`, `posts_post_type_check`→`posts_type_valid`, `profiles_last_mode_check`→`profiles_mode_valid` 등). `rename constraint`는 이름표만 바꾸는 메타데이터 작업이라 데이터/락 영향 없음. 이 문서의 모든 테이블 SQL도 새 이름을 명시하도록 갱신
   - `20260708160000_rename_enforce_nodes_parent_ownership_to_rules.sql` — `enforce_nodes_parent_ownership()`/`trg_enforce_nodes_parent_ownership`이 `20260708120000`부터 소유권 검사뿐 아니라 "부모가 강의면 안 됨" 구조 검사까지 하게 됐는데 이름은 여전히 "ownership"만 검사하는 것처럼 보여서, `enforce_nodes_parent_rules()`/`trg_enforce_nodes_parent_rules`로 개명(`alter function ... rename to`/`alter trigger ... rename to`라 함수 본문·트리거 동작은 그대로, 이름표만 바뀜). 개명 후에도 강의를 부모로 지정하면 여전히 차단되는지 재검증 완료
+  - `20260708170000_lectures_public_view.sql` — 강의실 페이지에서 강의자 이름이 안 보이던 문제(`profiles`가 본인만 SELECT 가능해서, 강의를 만든 본인이 아니면 이름을 조회할 수 없었음) 해결용 `lectures_public` 뷰 추가. `posts_public`과 같은 원리(뷰 소유자 권한으로 `profiles` 우회 조인)로 강의 제목/일시/장소와 함께 강의자 이름(`lecturer_name`)을 공개 노출. `profiles` RLS 자체를 완화하지 않은 이유는 그러면 강의자뿐 아니라 가입한 모든 사용자 이름을 익명 스크래핑당할 수 있기 때문(자세한 내용은 "정책·트리거·뷰 보완 설명" 참고)
