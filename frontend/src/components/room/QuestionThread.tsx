@@ -29,6 +29,8 @@ export default function QuestionThread({ question, canResolve = false, highlight
   const accentText = isOpinion ? 'text-cyan-600' : 'text-violet-600'
   const accentFill = isOpinion ? 'fill-cyan-600' : 'fill-violet-600'
   const accentHover = isOpinion ? 'hover:text-cyan-600' : 'hover:text-violet-600'
+  // 하이라이트도 무채색 대신 셀 색의 연한 톤으로 - 눈에 더 잘 띄면서 셀 색과 통일감 있게.
+  const accentHighlight = isOpinion ? 'bg-cyan-50 shadow-lg shadow-cyan-200/60 ring-2 ring-cyan-300' : 'bg-violet-50 shadow-lg shadow-violet-200/60 ring-2 ring-violet-300'
 
   const handleResolve = async () => {
     if (!onResolve) return
@@ -66,7 +68,7 @@ export default function QuestionThread({ question, canResolve = false, highlight
       className={cn(
         'scroll-mt-6 rounded-3xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-white p-5 shadow-sm transition-all duration-700 ease-out sm:p-6',
         isOpinion ? 'border-l-cyan-400' : 'border-l-violet-400',
-        question.id === highlightId && 'bg-slate-50 shadow-lg shadow-slate-300/60 ring-2 ring-slate-300',
+        question.id === highlightId && accentHighlight,
       )}
     >
       <div className="flex items-start justify-between gap-3">
