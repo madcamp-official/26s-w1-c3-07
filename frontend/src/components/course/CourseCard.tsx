@@ -11,11 +11,12 @@ interface CourseCardProps {
   course: Course
   isInstructor?: boolean
   onEdit?: (courseId: string) => void
+  onShowCode: (itemId: string, itemType: TreeItemType, label: string) => void
   onMove: (itemId: string, itemType: TreeItemType, label: string) => void
   onDelete: (itemId: string, itemType: TreeItemType, label: string, isOwned: boolean) => void
 }
 
-export default function CourseCard({ course, isInstructor = false, onEdit, onMove, onDelete }: CourseCardProps) {
+export default function CourseCard({ course, isInstructor = false, onEdit, onShowCode, onMove, onDelete }: CourseCardProps) {
   const navigate = useNavigate()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const isOwned = isInstructor || course.ownership === 'owned'
@@ -42,6 +43,7 @@ export default function CourseCard({ course, isInstructor = false, onEdit, onMov
         </button>
         {isMenuOpen && (
           <ItemActionsMenu
+            onShowCode={isInstructor && isOwned ? () => onShowCode(course.id, 'course', course.title) : undefined}
             onEdit={isOwned && onEdit ? () => onEdit(course.id) : undefined}
             onMove={() => onMove(course.id, 'course', course.title)}
             onDelete={() => onDelete(course.id, 'course', course.title, isOwned)}

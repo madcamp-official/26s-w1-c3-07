@@ -8,6 +8,7 @@ import { DRAG_MIME, type DragPayload } from '../components/course/dragPayload'
 import FolderTree from '../components/course/FolderTree'
 import MoveItemModal from '../components/course/MoveItemModal'
 import RegisterByCodeModal from '../components/course/RegisterByCodeModal'
+import RegistrationCodeModal from '../components/course/RegistrationCodeModal'
 import ShareCourseModal from '../components/course/ShareCourseModal'
 import Button from '../components/ui/Button'
 import { useStudentCourses } from '../hooks/useStudentCourses'
@@ -56,6 +57,7 @@ export default function StudentCoursesPage() {
   const [renameValue, setRenameValue] = useState('')
   const [isRootDragOver, setIsRootDragOver] = useState(false)
   const [shareCourse, setShareCourse] = useState<Course | null>(null)
+  const [codeTarget, setCodeTarget] = useState<ItemTarget | null>(null)
   const isInstructor = user?.role === 'instructor'
 
   const pendingShareCourseId = (location.state as StudentCoursesLocationState | null)?.shareCourseId ?? null
@@ -162,6 +164,7 @@ export default function StudentCoursesPage() {
               isInstructor={isInstructor}
               onAddSubfolder={(parentId) => { setCreateFolderParentId(parentId); setIsCreateFolderOpen(true) }}
               onEditCourse={(courseId) => navigate(`/courses/${courseId}/edit`)}
+              onShowCode={(itemId, itemType, label) => setCodeTarget({ itemId, itemType, label })}
               onRename={startRename}
               onMove={(itemId, itemType, label) => setMoveTarget({ itemId, itemType, label })}
               onDelete={(itemId, itemType, label, isOwned) => setDeleteTarget({ itemId, itemType, label, isOwned })}
@@ -182,6 +185,7 @@ export default function StudentCoursesPage() {
                   course={course}
                   isInstructor={isInstructor}
                   onEdit={(courseId) => navigate(`/courses/${courseId}/edit`)}
+                  onShowCode={(itemId, itemType, label) => setCodeTarget({ itemId, itemType, label })}
                   onMove={(itemId, itemType, label) => setMoveTarget({ itemId, itemType, label })}
                   onDelete={(itemId, itemType, label, isOwned) => setDeleteTarget({ itemId, itemType, label, isOwned })}
                 />
@@ -209,6 +213,7 @@ export default function StudentCoursesPage() {
       />
       <RegisterByCodeModal isOpen={isRegisterOpen} onClose={() => setIsRegisterOpen(false)} onRegister={registerCourse} />
       <ShareCourseModal isOpen={shareCourse !== null} course={shareCourse} onClose={() => setShareCourse(null)} />
+      <RegistrationCodeModal isOpen={codeTarget !== null} label={codeTarget?.label ?? ''} code={codeTarget?.itemId ?? null} onClose={() => setCodeTarget(null)} />
       <MoveItemModal
         isOpen={moveTarget !== null}
         itemId={moveTarget?.itemId ?? null}

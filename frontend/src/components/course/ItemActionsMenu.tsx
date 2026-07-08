@@ -1,6 +1,7 @@
-import { CircleX, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { CircleX, KeyRound, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 
 interface ItemActionsMenuProps {
+  onShowCode?: () => void
   onEdit?: () => void
   onRename?: () => void
   onMove?: () => void
@@ -9,13 +10,18 @@ interface ItemActionsMenuProps {
   deleteLabel?: string
 }
 
-export default function ItemActionsMenu({ onEdit, onRename, onMove, onDelete, onClose, deleteLabel = '삭제' }: ItemActionsMenuProps) {
+export default function ItemActionsMenu({ onShowCode, onEdit, onRename, onMove, onDelete, onClose, deleteLabel = '삭제' }: ItemActionsMenuProps) {
   const isUnregister = deleteLabel !== '삭제'
 
   return (
     <>
       <div className="fixed inset-0 z-10" onClick={onClose} />
       <div className="absolute right-0 top-full z-20 mt-1 w-36 overflow-hidden rounded-2xl border border-slate-100 bg-white py-1.5 shadow-xl">
+        {onShowCode && (
+          <button type="button" onClick={() => { onShowCode(); onClose() }} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-bold text-slate-600 hover:bg-slate-50">
+            <KeyRound className="size-4" />등록 코드
+          </button>
+        )}
         {onEdit && (
           <button type="button" onClick={() => { onEdit(); onClose() }} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-bold text-slate-600 hover:bg-slate-50">
             <Pencil className="size-4" />수정
