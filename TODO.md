@@ -2,20 +2,12 @@
 
 ## 목차
 
-- [AI 보조 기능 관련](#ai-보조-기능-관련)
-  - [1. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정](#1-유사도-비교를-위한-벡터-컬럼-추가-여부-결정)
 - [Realtime 관련](#realtime-관련)
   - [4. `max_participants`(최다 참여 인원) 강제 여부 결정](#4-max_participants최다-참여-인원-강제-여부-결정)
   - [5. "내 강의" 목록에서 강의별 접속자 수(`participantCount`) 표시](#5-내-강의-목록에서-강의별-접속자-수participantcount-표시)
 - [join_code 관련](#join_code-관련)
   - [6. `lecture_join_codes` 파기 시점/주체 결정](#6-lecture_join_codes-파기delete-시점주체-결정)
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
-
-## AI 보조 기능 관련
-
-### 1. 유사도 비교를 위한 벡터 컬럼 추가 여부 결정
-
-원래 기획 단계에서는 세션당 질문 수가 적을 것으로 예상해 임베딩(pgvector) 대신 "기존 질문 목록을 프롬프트에 통째로 넣고 LLM이 판단"하는 방식으로 시작하기로 했고, 실제로 이 방식(GPT-4o-mini 프롬프트 비교)으로 구현·배포까지 완료됨(아래 "해결된 것" 참고). `posts`에 `embedding vector` 컬럼 + pgvector 확장을 추가해서 임베딩 기반 유사도 검색으로 바꿀지는 아직 결정 안 됨 — 강의당 질문 수가 예상보다 많아져서 프롬프트에 다 넣기엔 비효율적이거나 느려지면 그때 재검토.
 
 ## Realtime 관련
 
@@ -68,4 +60,4 @@
     - 유사 글 발견 시 즉시 저장하지 않고 `post_drafts`(anon/authenticated GRANT·RLS 정책 둘 다 없음, service_role 전용 스크래치 테이블, `20260707200000_post_drafts_staging_table.sql`)에 스테이징. "강행 제출"은 `{draft_id}`만 다시 보내면 재검사 없이(identity가 draft 작성자와 일치하는지만 확인) 그대로 insert하고 draft는 삭제 — 이때 `created_at`은 draft가 스테이징된 시각이 아니라 강행 제출한 실제 시점으로 새로 채워짐. "보러 가기"/"취소"는 아무 API 호출 없이 draft를 고아로 남겨둬도 무해함(나중에 오래된 것만 가끔 청소하면 됨).
   - **아직 안 한 것**: `posts` INSERT를 `anon`/`authenticated`에서 완전히 회수해 `submit-post`를 통해서만 쓰게 강제하는 건 여전히 계획 단계 — 지금은 프론트가 이 함수를 쓰도록 유도하는 단계이고, 직접 insert도 여전히 가능함.
   - 적절성 거부/유사 글 발견/무관한 글 정상 생성 3가지 시나리오와 identity 불일치로 인한 강행 제출 차단까지 실제 REST API로 라이브 테스트 완료.
-- **적절성 검사를 OpenAI Moderation API에서 chat completion 기반 커스텀 판별로 전환** — 실사용 중 "야이시발", "개새끼야" 같은 욕설이 Moderation API(`omni-moderation-latest`)를 통과하는 걸 발견. Moderation API는 혐오/폭력/성적 콘텐츠 같은 안전 카테고리 위주라 특정 대상을 향하지 않는 일반 욕설·비속어(특히 한국어 변형 표기)를 잘 못 잡는 게 원인. `ai-correct`/유사도 검사와 같은 패턴으로 GPT-4o-mini + 전용 프롬프트(`backend/supabase/functions/submit-post/moderation-prompt.ts`)를 만들어, 강의 게시판 맥락에 맞는 기준(욕설/인신공격/혐오/성희롱/위협/스팸은 차단, 수업·과제에 대한 불만·비판은 애매하면 통과)으로 직접 판단하도록 교체. 배포 후 욕설 두 건은 차단, 정당한 수업 불만("설명이 부실합니다")은 통과해 정상 생성되는 것까지 실제 REST API로 확인함.
+- **적절성 검사를 OpenAI Moderation API에서 chat completion 기반 커스텀 판별로 전환** — 실사용 중 "야이시발", "개새끼야" 같은 욕설이 Moderation API(`omni-moderation-latest`)를 통과하는 걸 발견. Moderation API는 혐오/폭력/성적 콘텐츠 같은 안전 카테고리 위주라 특정 대상을 향하지 않는 일반 욕설·비속어(특히 한국어 변형 표기)를 잘 못 잡는 게 원인. `ai-correct`/유사도 검사와 같은 패턴으로 GPT-4o-mini + 전용 프롬프트(`backend/supabase/functions/submit-post/moderate-prompt.ts`)를 만들어, 강의 게시판 맥락에 맞는 기준(욕설/인신공격/혐오/성희롱/위협/스팸은 차단, 수업·과제에 대한 불만·비판은 애매하면 통과)으로 직접 판단하도록 교체. 배포 후 욕설 두 건은 차단, 정당한 수업 불만("설명이 부실합니다")은 통과해 정상 생성되는 것까지 실제 REST API로 확인함.
