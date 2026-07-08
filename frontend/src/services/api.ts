@@ -1441,19 +1441,23 @@ export async function toggleFeedback(courseId: string, key: FeedbackKey, vote: '
   const voterKey = await getCurrentVoterKey()
   const value = vote === 'like' ? 1 : -1
 
-  const { data: existing, error: existingError } = await withGuestHeader(
-    supabase.from('lecture_feedback_votes').select('value').eq('lecture_id', courseId).eq('feedback_type', key).eq('voter_key', voterKey).eq('value', value),
+  const { data: existingRows, error: existingError } = await withGuestHeader(
+    supabase.from('lecture_feedback_votes').select('value').eq('lecture_id', courseId).eq('feedback_type', key).eq('voter_key', voterKey),
     isLoggedIn,
-  ).maybeSingle()
+  )
   if (existingError) throw existingError
 
-  if (existing) {
-    const { error } = await withGuestHeader(
-      supabase.from('lecture_feedback_votes').delete().eq('lecture_id', courseId).eq('feedback_type', key).eq('voter_key', voterKey).eq('value', value),
+  const alreadyVoted = (existingRows ?? []).some((row) => row.value === value)
+
+  if ((existingRows?.length ?? 0) > 0) {
+    const { error: deleteError } = await withGuestHeader(
+      supabase.from('lecture_feedback_votes').delete().eq('lecture_id', courseId).eq('feedback_type', key).eq('voter_key', voterKey),
       isLoggedIn,
     )
-    if (error) throw error
-  } else {
+    if (deleteError) throw deleteError
+  }
+
+  if (!alreadyVoted) {
     const { error } = await withGuestHeader(
       supabase.from('lecture_feedback_votes').insert({ lecture_id: courseId, feedback_type: key, voter_key: voterKey, value }),
       isLoggedIn,
