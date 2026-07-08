@@ -6,6 +6,7 @@ import QuestionThread from '../components/room/QuestionThread'
 import RoomHeader from '../components/room/RoomHeader'
 import BrandLogo from '../components/BrandLogo'
 import CourseJoinForm from '../components/course/CourseJoinForm'
+import GoogleIcon from '../components/GoogleIcon'
 import Sidebar from '../components/navigation/Sidebar'
 import Button from '../components/ui/Button'
 import LogoutConfirmModal from '../components/ui/LogoutConfirmModal'
@@ -194,7 +195,7 @@ export default function CourseRoomPage() {
                 <button type="button" onClick={() => setIsMenuOpen(true)} className="rounded-xl p-2 text-slate-600 transition hover:bg-slate-100 lg:hidden" aria-label="메뉴 열기"><Menu /></button>
               </>
             ) : (
-              <Button variant="secondary" onClick={() => void signInWithGoogle()}>Google 로그인</Button>
+              <Button variant="secondary" onClick={() => void signInWithGoogle()}><GoogleIcon className="size-4" />Google 로그인</Button>
             )}
           </div>
         </div>

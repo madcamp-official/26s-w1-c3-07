@@ -20,7 +20,7 @@ export default function Button({ children, className, variant = 'primary', type 
     <button
       type={type}
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-violet-200',
+        'inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-2xl px-5 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-violet-200',
         variants[variant],
         className,
       )}

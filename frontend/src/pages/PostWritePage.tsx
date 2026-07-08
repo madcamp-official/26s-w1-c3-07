@@ -2,6 +2,7 @@ import { LogOut, RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import BrandLogo from '../components/BrandLogo'
+import GoogleIcon from '../components/GoogleIcon'
 import PostComposer from '../components/room/PostComposer'
 import RoomHeader from '../components/room/RoomHeader'
 import Button from '../components/ui/Button'
@@ -62,7 +63,7 @@ export default function PostWritePage() {
           {user ? (
             <Button variant="secondary" onClick={() => setIsLogoutConfirmOpen(true)}><LogOut className="size-4" />로그아웃</Button>
           ) : (
-            <Button variant="secondary" onClick={() => void signInWithGoogle()}>Google 로그인</Button>
+            <Button variant="secondary" onClick={() => void signInWithGoogle()}><GoogleIcon className="size-4" />Google 로그인</Button>
           )}
         </div>
       </header>
