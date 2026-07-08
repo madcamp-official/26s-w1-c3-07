@@ -82,8 +82,8 @@ const feedbackVotesByUser = new Map<string, Map<FeedbackKey, 'like' | 'dislike'>
 const questionLikesByUser = new Map<string, Set<string>>()
 
 /**
- * 답글의 "수정하기"는 실제로 그 글을 작성한 사람에게만 보여야 합니다.
- * 데모 계정은 역할 전환으로 수강생/강의자를 오가므로, 답글을 작성할 때의
+ * 질문/답글의 "수정하기"는 실제로 그 글을 작성한 사람에게만 보여야 합니다.
+ * 데모 계정은 역할 전환으로 수강생/강의자를 오가므로, 글을 작성할 때의
  * 뷰어 키(`id:role`)를 기록해 두었다가 현재 뷰어와 비교해 판단합니다.
  * 시드 데이터의 답글은 mockCurrentUser 명의로 작성된 것으로 간주해
  * 아래에서 초기값을 채워 넣습니다.
@@ -119,20 +119,24 @@ function applyViewerVotes(room: CourseRoom, voterKey: string): CourseRoom {
   const votes = getFeedbackVotes(voterKey)
   const likes = getQuestionLikes(voterKey)
 
-  const applyToQuestion = (question: Question): Question => ({
-    ...question,
-    isLikedByMe: likes.has(question.id),
-    canDelete: isPrivilegedEditor(),
-    replies: question.replies.map((reply) => {
-      const isOwn = replyAuthorKeyById.get(reply.id) === voterKey
-      return {
-        ...reply,
-        isLikedByMe: likes.has(reply.id),
-        isEditable: isOwn,
-        canDelete: isOwn || isPrivilegedEditor(),
-      }
-    }),
-  })
+  const applyToQuestion = (question: Question): Question => {
+    const isOwnQuestion = replyAuthorKeyById.get(question.id) === voterKey
+    return {
+      ...question,
+      isLikedByMe: likes.has(question.id),
+      isEditable: isOwnQuestion,
+      canDelete: isOwnQuestion || isPrivilegedEditor(),
+      replies: question.replies.map((reply) => {
+        const isOwn = replyAuthorKeyById.get(reply.id) === voterKey
+        return {
+          ...reply,
+          isLikedByMe: likes.has(reply.id),
+          isEditable: isOwn,
+          canDelete: isOwn || isPrivilegedEditor(),
+        }
+      }),
+    }
+  }
 
   return {
     ...room,
@@ -819,6 +823,7 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
       authorName: row.is_anonymous ? '익명' : (row.author_display_name ?? '이름 없음'),
       authorRole: postAuthorRole(row),
       postType: row.type,
+      isEditable: row.is_mine,
       canDelete: canDelete(row),
       createdAt: formatRelativeTime(row.created_at),
       content: row.content,
@@ -1030,6 +1035,7 @@ function buildOwnQuestion(id: string, createdAt: string, status: 'unresolved' | 
     authorName,
     authorRole,
     postType: submission.postType,
+    isEditable: true,
     canDelete: true,
     createdAt: formatRelativeTime(createdAt),
     content: submission.content,
@@ -1064,6 +1070,7 @@ export async function createQuestion(courseId: string, submission: ComposerSubmi
   if (room) {
     await delay(300)
     const question = buildOwnQuestion(`question-${crypto.randomUUID()}`, new Date().toISOString(), 'unresolved', submission)
+    replyAuthorKeyById.set(question.id, getViewerKey())
     room.questions = [question, ...room.questions]
     return { result: 'created', post: question }
   }
@@ -1133,6 +1140,47 @@ export async function updateReply(courseId: string, questionId: string, replyId:
     likeCount: 0,
     isLikedByMe: false,
     depth: 0,
+  }
+}
+
+/** 최상위 질문/의견 글을 수정합니다. 실제로 그 글을 작성한 본인만 수정할 수 있습니다(RLS: posts_update_own). */
+export async function updateQuestion(courseId: string, questionId: string, content: string): Promise<Question> {
+  const room = mockCourseRooms[courseId]
+  if (room) {
+    await delay(250)
+    const question = room.questions.find((item) => item.id === questionId)
+    if (!question) throw new Error('질문을 찾을 수 없습니다.')
+    if (replyAuthorKeyById.get(questionId) !== getViewerKey()) throw new Error('내가 작성한 글만 수정할 수 있습니다.')
+    question.content = content
+    return clone({ ...question, isEditable: true })
+  }
+
+  const { data: sessionData } = await supabase.auth.getSession()
+  const isLoggedIn = Boolean(sessionData.session?.user.id)
+  const query = withGuestHeader(supabase.from('posts').update({ content }).eq('id', questionId), isLoggedIn)
+  const { error } = await query
+  if (error) throw new Error('내가 작성한 글만 수정할 수 있습니다.')
+
+  const { data: updated, error: fetchError } = await supabase
+    .from('posts_public')
+    .select('id, is_anonymous, type, status, created_at, created_mode')
+    .eq('id', questionId)
+    .single<Pick<PostPublicRow, 'id' | 'is_anonymous' | 'type' | 'status' | 'created_at' | 'created_mode'>>()
+  if (fetchError) throw fetchError
+
+  return {
+    id: updated.id,
+    authorName: updated.is_anonymous ? '익명' : mockCurrentUser.name,
+    authorRole: postAuthorRole(updated),
+    postType: updated.type,
+    isEditable: true,
+    canDelete: true,
+    createdAt: formatRelativeTime(updated.created_at),
+    content,
+    likeCount: 0,
+    isLikedByMe: false,
+    isResolved: updated.status === 'resolved',
+    replies: [],
   }
 }
 

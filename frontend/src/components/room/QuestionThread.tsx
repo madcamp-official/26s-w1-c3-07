@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronDown, MessageSquare, ThumbsUp, Trash2 } from 'lucide-react'
+import { CheckCircle2, ChevronDown, MessageSquare, Pencil, ThumbsUp, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { Question } from '../../types/room'
 import { cn } from '../../utils/cn'
@@ -11,13 +11,18 @@ interface QuestionThreadProps {
   onLike: (questionId: string) => Promise<void>
   onResolve?: (questionId: string) => Promise<void>
   onReply: (parentPostId: string, label: string) => void
+  onEdit?: (questionId: string, content: string) => Promise<void>
   onEditReply?: (questionId: string, replyId: string, content: string) => Promise<void>
   onDelete?: (postId: string) => void
 }
 
-export default function QuestionThread({ question, canResolve = false, isHighlighted = false, onLike, onResolve, onReply, onEditReply, onDelete }: QuestionThreadProps) {
+export default function QuestionThread({ question, canResolve = false, isHighlighted = false, onLike, onResolve, onReply, onEdit, onEditReply, onDelete }: QuestionThreadProps) {
   const [isExpanded, setIsExpanded] = useState(true)
   const [isResolving, setIsResolving] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [draft, setDraft] = useState(question.content)
+  const [isSaving, setIsSaving] = useState(false)
+  const [editError, setEditError] = useState('')
   const isOpinion = question.postType === 'opinion'
   const isLecturer = question.authorRole === 'lecturer'
 
@@ -28,6 +33,26 @@ export default function QuestionThread({ question, canResolve = false, isHighlig
       await onResolve(question.id)
     } finally {
       setIsResolving(false)
+    }
+  }
+
+  const startEditing = () => {
+    setDraft(question.content)
+    setEditError('')
+    setIsEditing(true)
+  }
+
+  const handleSave = async () => {
+    if (!onEdit || !draft.trim()) return
+    setEditError('')
+    setIsSaving(true)
+    try {
+      await onEdit(question.id, draft.trim())
+      setIsEditing(false)
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : '수정하지 못했습니다.')
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -61,6 +86,11 @@ export default function QuestionThread({ question, canResolve = false, isHighlig
               <CheckCircle2 className="size-3.5" />{question.isResolved ? '해결됨' : '해결 완료'}
             </button>
           )}
+          {question.isEditable && onEdit && !isEditing && (
+            <button type="button" onClick={startEditing} className="rounded-lg p-1.5 text-slate-300 hover:bg-slate-50 hover:text-violet-600" aria-label="수정">
+              <Pencil className="size-4" />
+            </button>
+          )}
           {question.canDelete && onDelete && (
             <button type="button" onClick={() => onDelete(question.id)} className="rounded-lg p-1.5 text-slate-300 hover:bg-rose-50 hover:text-rose-500" aria-label="삭제">
               <Trash2 className="size-4" />
@@ -72,7 +102,31 @@ export default function QuestionThread({ question, canResolve = false, isHighlig
         </div>
       </div>
 
-      <p className="mt-2 text-base font-bold text-slate-900">{question.content}</p>
+      {isEditing ? (
+        <div className="mt-2">
+          <textarea
+            autoFocus
+            rows={3}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            className="w-full resize-none rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
+          />
+          {editError && <p className="mt-1.5 text-xs font-medium text-rose-500">{editError}</p>}
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <button type="button" onClick={() => setIsEditing(false)} className="rounded-lg px-3 py-1.5 text-xs font-bold text-slate-400 hover:bg-slate-100">취소</button>
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={!draft.trim() || isSaving}
+              className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSaving ? '저장 중' : '저장'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-2 text-base font-bold text-slate-900">{question.content}</p>
+      )}
 
       <div className="mt-3 flex items-center gap-4">
         <button

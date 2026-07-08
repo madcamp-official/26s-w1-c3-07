@@ -17,7 +17,7 @@ export default function CourseRoomPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { room, isLoading, error, actionError, reload, likeQuestion, voteFeedback, resetFeedback, resolveQuestion, editReply, deletePost } = useCourseRoom(courseId)
+  const { room, isLoading, error, actionError, reload, likeQuestion, voteFeedback, resetFeedback, resolveQuestion, editQuestion, editReply, deletePost } = useCourseRoom(courseId)
   const [user, setUser] = useState<User | null>(null)
   const [filter, setFilter] = useState<QuestionFilter>('unresolved')
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
@@ -132,6 +132,7 @@ export default function CourseRoomPage() {
                 onLike={likeQuestion}
                 onResolve={resolveQuestion}
                 onReply={(questionId, label) => navigate(`/room/${courseId}/write`, { state: { target: { questionId, label } } })}
+                onEdit={editQuestion}
                 onEditReply={editReply}
                 onDelete={setDeleteTargetId}
               />

@@ -28,6 +28,7 @@ export interface Question {
   authorName: string
   authorRole: 'lecturer' | 'anonymous' | 'student'
   postType: PostType
+  isEditable: boolean
   canDelete: boolean
   createdAt: string
   content: string

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { createQuestion, createReply, deletePost, getCourseRoom, resetFeedbackOption, resolveQuestion, submitDraft, toggleFeedback, toggleQuestionLike, updateReply } from '../services/api'
+import { createQuestion, createReply, deletePost, getCourseRoom, resetFeedbackOption, resolveQuestion, submitDraft, toggleFeedback, toggleQuestionLike, updateQuestion, updateReply } from '../services/api'
 import type { ComposerSubmission, CourseRoom, FeedbackKey, Question, QuestionReply, SubmitPostResult } from '../types/room'
 
 interface CourseRoomState {
@@ -79,6 +79,18 @@ export function useCourseRoom(courseId: string | undefined) {
     })
   }
 
+  const editQuestion = async (questionId: string, content: string): Promise<void> => {
+    if (!courseId) return
+    const updated = await updateQuestion(courseId, questionId, content)
+    setState((current) => {
+      if (!current.room) return current
+      const questions = current.room.questions.map((question) =>
+        question.id === questionId ? { ...question, content: updated.content, isEditable: updated.isEditable } : question,
+      )
+      return { ...current, room: { ...current.room, questions } }
+    })
+  }
+
   const editReply = async (questionId: string, replyId: string, content: string): Promise<void> => {
     if (!courseId) return
     const updated = await updateReply(courseId, questionId, replyId, content)
@@ -135,6 +147,7 @@ export function useCourseRoom(courseId: string | undefined) {
     submitQuestion,
     submitReply,
     submitDraftPost,
+    editQuestion,
     editReply,
     deletePost: deletePostById,
     likeQuestion,
