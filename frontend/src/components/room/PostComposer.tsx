@@ -157,7 +157,7 @@ export default function PostComposer({ target, isLoggedIn, isInstructor = false,
         {!isInstructor && (
           <ToggleRow
             label={isQuestion ? '질문' : '의견'}
-            description={isQuestion ? '강의자에게 질문합니다' : '강의자에게 의견을 남깁니다'}
+            description={isQuestion ? '강의자에게 질문합니다' : '강의와 관련된 의견을 남깁니다'}
             checked={isQuestion}
             onChange={setIsQuestion}
           />
