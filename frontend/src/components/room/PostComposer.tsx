@@ -132,22 +132,21 @@ export default function PostComposer({ target, isLoggedIn, isInstructor = false,
       />
 
       <div className="mt-2 divide-y divide-slate-100">
-        <ToggleRow
-          label={isAnonymous ? '익명' : '실명'}
-          description={isAnonymous ? '이름이 공개되지 않습니다' : '이름이 공개됩니다'}
-          checked={isAnonymous}
-          disabled={!isLoggedIn || isInstructor}
-          onChange={setIsAnonymous}
-        />
-        {!isLoggedIn && (
-          <div className="border-t-0 py-2">
-            <p className="flex items-center gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700"><TriangleAlert className="size-4 shrink-0" />실명으로 작성하려면 Google 로그인이 필요합니다.</p>
-          </div>
-        )}
-        {isInstructor && (
-          <div className="border-t-0 py-2">
-            <p className="flex items-center gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700"><TriangleAlert className="size-4 shrink-0" />강의자는 익명으로 작성할 수 없습니다.</p>
-          </div>
+        {!isInstructor && (
+          <>
+            <ToggleRow
+              label={isAnonymous ? '익명' : '실명'}
+              description={isAnonymous ? '이름이 공개되지 않습니다' : '이름이 공개됩니다'}
+              checked={isAnonymous}
+              disabled={!isLoggedIn}
+              onChange={setIsAnonymous}
+            />
+            {!isLoggedIn && (
+              <div className="border-t-0 py-2">
+                <p className="flex items-center gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700"><TriangleAlert className="size-4 shrink-0" />실명으로 작성하려면 Google 로그인이 필요합니다.</p>
+              </div>
+            )}
+          </>
         )}
         <ToggleRow
           label="AI 교정"
