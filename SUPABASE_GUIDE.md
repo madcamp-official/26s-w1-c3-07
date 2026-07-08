@@ -337,7 +337,7 @@ const { data: newCode, error } = await supabase.rpc('reissue_join_code', {
 
 **⚠️ 반드시 `crypto.randomUUID()`를 쓰세요** — `Math.random()` 기반 라이브러리나 짧은 랜덤 문자열 같은 걸 쓰면 안 됩니다. `posts.guest_token`은 강의가 끝나도 무효화하지 않고 영구 보존하기로 결정했는데(자세한 이유는 [DB_DESIGN.md의 "비회원 익명 식별자" 절](./DB_DESIGN.md#비회원-익명-식별자-guest_token-여러-기능에서-공용으로-사용) 참고), 이 결정은 `guest_token`이 실제로 `crypto.randomUUID()`(UUID v4, 122비트 무작위성)만큼 예측 불가능하다는 전제 위에 있습니다. DB도 `posts.guest_token` 컬럼을 `uuid` 타입으로 강제하므로, 형식이 안 맞는 값을 보내면 요청 자체가 에러로 거부됩니다.
 
-**⚠️ 아직 아무 데도 구현 안 되어 있습니다** — `guest_token` 생성/저장 로직도, 헤더를 실어 보내는 코드도 지금 코드베이스 어디에도 없어요. 앞으로 만들어야 할 부분입니다. 정확히 언제/어떻게 생성할지(강의 최초 입장 시 1회 생성 등)는 아직 확정 필요.
+**✅ `frontend` 브랜치에 구현 완료** — `services/guestToken.ts`의 `getGuestToken()`이 `localStorage`에서 읽거나 없으면 `crypto.randomUUID()`로 새로 만들어 저장하고, `services/api.ts`의 `withGuestHeader()`(테이블 조회)/`guestHeaderIfNeeded()`(Edge Function 호출)가 로그인 여부를 그때그때 확인해 비회원일 때만 아래 방식대로 헤더를 붙입니다.
 
 **구현 방식: 요청마다 체이닝으로 헤더 설정**
 
@@ -361,6 +361,8 @@ supabase 클라이언트는 앱 시작할 때 딱 한 번만 만들고(`supabase
 ## 10. 글 작성/제출: `ai-correct`, `submit-post` Edge Function
 
 글 작성(새 질문/의견/답글)은 `posts`에 직접 insert하지 않고, 두 개의 Edge Function을 씁니다. 초기 설계안은 무상태(stateless) 방식이었으나 실제 구현에서 `post_drafts` 스테이징 테이블 방식으로 바뀌었습니다 — 자세한 변경 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고.
+
+**✅ `frontend` 브랜치에 구현 완료** — `services/api.ts`의 `submitPostToServer()`/`submitDraftToServer()`/`refineWithAi()`가 아래 계약대로 두 함수를 호출하고, 유사 질문 발견 시 `SimilarQuestionModal.tsx`가 미리보기 + "그 질문 보러가기"(강의실로 이동 후 스크롤/하이라이트)/"그래도 제출"(강행 제출)/취소 흐름을 처리합니다.
 
 - **`ai-correct`**: 문구를 다듬어주기만 하는, 적절성/유사도 검사와 완전히 분리된 함수. 글 작성 중 "AI 교정" 버튼을 눌렀을 때만 호출하면 됩니다.
 - **`submit-post`**: 실제 제출을 담당. 적절성 검사(GPT-4o-mini + 전용 프롬프트로 욕설/인신공격/혐오/성희롱/위협/스팸 차단, 수업 불만·비판은 통과) → (질문 타입이면) 유사 질문 탐지 → 저장까지 한 번에 처리합니다.
