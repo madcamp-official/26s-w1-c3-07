@@ -304,12 +304,13 @@ left join profiles pr on pr.id = p.author_id;
 
 #### `posts_counts`
 
-"내 강의" 목록에서 강의별 게시글 개수를 보여주기 위한 집계 뷰입니다. 다른 두 counts 뷰와 달리 보안 목적이 아닙니다 — `posts_public`이 이미 전체 공개라 숨길 값이 없습니다. PostgREST가 서버 사이드 `group by`를 지원하지 않아서, 여러 강의의 게시글 개수를 한 번의 요청으로 가져오기 위한 효율성 목적으로만 추가했습니다.
+"내 강의" 목록에서 강의별 게시글 개수를 보여주기 위한 집계 뷰입니다. 다른 두 counts 뷰와 달리 보안 목적이 아닙니다 — `posts_public`이 이미 전체 공개라 숨길 값이 없습니다. PostgREST가 서버 사이드 `group by`를 지원하지 않아서, 여러 강의의 게시글 개수를 한 번의 요청으로 가져오기 위한 효율성 목적으로만 추가했습니다. `parent_id is null`로 최상위 게시글만 세고 답글은 제외합니다 — 프론트가 이 값을 "게시글 {n}개"로 표시하는데, 최상위 게시글은 `parent_id is null`(`posts_status_matches_top_level` 제약으로 보장)이라 이 조건으로 답글과 구분됩니다.
 
 ```sql
 create view posts_counts as
 select lecture_id, count(*) as post_count
 from posts
+where parent_id is null
 group by lecture_id;
 ```
 
@@ -1168,3 +1169,4 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
   - `20260708190000_posts_realtime_publication.sql` — 강의실 게시글 실시간 갱신(TODO.md #6) 구현의 선행 작업으로 `posts`를 `supabase_realtime` publication에 추가(`postgres_changes` 이벤트 자체가 발생하려면 필요). 라이브 검증 결과, 이것만으로는 비회원까지 안전하게 실시간 구독을 붙일 수 없다는 게 확인됨 — `posts_select_own`의 `guest_token` 헤더 비교 조건이 WebSocket 연결에선 평가될 방법이 없어(커스텀 헤더를 못 실음), guest_token으로 쓴 글의 INSERT 이벤트가 매칭 identity 없는 연결엔 전달 안 됨. 자세한 내용과 남은 과제는 TODO.md #6 참고
   - `20260708200000_broadcast_triggers_for_realtime_updates.sql` — `postgres_changes` 대신 Broadcast from Database(`realtime.send()`)로 방향을 바꿔 강의 페이지 실시간 갱신을 실제로 구현. `posts`/`post_likes`/`lecture_feedback_votes`/`nodes`(강의 제목)/`lectures`(일정/장소/정원) 다섯 테이블에 `SECURITY DEFINER` 트리거를 달아 변경이 생기면 `lecture:<lecture_id>` 채널로 브로드캐스트. `realtime.send()`는 원본 테이블 RLS와 무관한 별도 경로(`realtime.messages`에 INSERT할 뿐)라 회원/비회원 구분 없이 받을 수 있음. 계정 이름(`profiles.name`)은 한 사람이 여러 강의를 소유할 수 있어 채널 하나로 안 끝나는 부채살 구조라 이번 범위에서 제외. 자세한 설계는 [SQL → 트리거 함수 → 실시간 갱신용 Broadcast 트리거 5종](#실시간-갱신용-broadcast-트리거-5종), 프론트 구독 방법은 [SUPABASE_GUIDE.md](./SUPABASE_GUIDE.md) 참고. 라이브 리스너로 다섯 이벤트 전부 실제 발신·수신 확인 완료
   - `20260708210000_lectures_end_after_start.sql` — `lectures.end_time`이 `start_time`보다 늦어야 한다는 `lectures_end_after_start` 체크 제약 추가. 라이브 DB에 이미 위반하는 테스트성 데이터 2건(`DUMMY_DATA.md` 시드 아님, 수동 테스트 중 생성된 것으로 보임)이 있어서 `end_time`을 `start_time` + 1시간으로 먼저 고친 뒤 제약 추가. 실제 UPDATE로 차단되는 것까지 검증 완료
+  - `20260708220000_posts_counts_top_level_only.sql` — `posts_counts`가 답글까지 포함해 `lecture_id`별 `posts` 전체를 세고 있었는데, 프론트(`CourseMeta.tsx`)는 이 값을 "게시글 {n}개"로 표시하고 있어 최상위 게시글만 세도록 `where parent_id is null` 추가. 라이브 DB에서 답글 포함 10건/최상위만 6건인 강의로 값이 6으로 바뀌는 것까지 확인
