@@ -12,6 +12,7 @@ interface FolderNodeProps {
   isInstructor?: boolean
   onAddSubfolder: (parentId: string) => void
   onEditCourse?: (courseId: string) => void
+  onShowCode: (itemId: string, itemType: TreeItemType, label: string) => void
   onRename: (itemId: string, itemType: TreeItemType, currentName: string) => void
   onMove: (itemId: string, itemType: TreeItemType, label: string) => void
   onDelete: (itemId: string, itemType: TreeItemType, label: string, isOwned: boolean) => void
@@ -23,17 +24,20 @@ interface FolderNodeProps {
   onRenameCancel: () => void
 }
 
-function FolderNode({ folder, depth = 0, isInstructor = false, onAddSubfolder, onEditCourse, onRename, onMove, onDelete, onDrop, renamingId, renameValue, onRenameValueChange, onRenameSubmit, onRenameCancel }: FolderNodeProps) {
+function FolderNode({ folder, depth = 0, isInstructor = false, onAddSubfolder, onEditCourse, onShowCode, onRename, onMove, onDelete, onDrop, renamingId, renameValue, onRenameValueChange, onRenameSubmit, onRenameCancel }: FolderNodeProps) {
   const [isExpanded, setIsExpanded] = useState(folder.expandedByDefault ?? true)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const hasChildren = folder.children.length > 0 || folder.courses.length > 0
   const Chevron = isExpanded ? ChevronDown : ChevronRight
   const isOwned = isInstructor || folder.ownership === 'owned'
+  // 이동 가능 여부: 내가 만든 폴더거나, 등록한 덩어리의 최상위(favorite root)면 통째로 이동 가능.
+  // 등록 서브트리 내부의 하위 폴더는 isFavoriteRoot가 아니라 이동 불가.
+  const isMovable = isOwned || Boolean(folder.isFavoriteRoot)
   const isRenaming = renamingId === folder.id
 
   const handleDragStart = (event: DragEvent<HTMLDivElement>) => {
-    if (!isOwned) {
+    if (!isMovable) {
       event.preventDefault()
       return
     }
@@ -63,7 +67,7 @@ function FolderNode({ folder, depth = 0, isInstructor = false, onAddSubfolder, o
   return (
     <li id={`folder-${folder.id}`}>
       <div
-        draggable={isOwned}
+        draggable={isMovable}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragLeave={() => setIsDragOver(false)}
@@ -109,8 +113,9 @@ function FolderNode({ folder, depth = 0, isInstructor = false, onAddSubfolder, o
               </button>
               {isMenuOpen && (
                 <ItemActionsMenu
+                  onShowCode={isInstructor && isOwned ? () => onShowCode(folder.id, 'folder', folder.name) : undefined}
                   onRename={isOwned ? () => onRename(folder.id, 'folder', folder.name) : undefined}
-                  onMove={isOwned ? () => onMove(folder.id, 'folder', folder.name) : undefined}
+                  onMove={isMovable ? () => onMove(folder.id, 'folder', folder.name) : undefined}
                   onDelete={() => onDelete(folder.id, 'folder', folder.name, isOwned)}
                   onClose={() => setIsMenuOpen(false)}
                   deleteLabel={isOwned ? '삭제' : '등록취소'}
@@ -126,7 +131,7 @@ function FolderNode({ folder, depth = 0, isInstructor = false, onAddSubfolder, o
           {folder.courses.length > 0 && (
             <div className="my-2 ml-8 space-y-3">
               {folder.courses.map((course) => (
-                <CourseRow key={course.id} course={course} isInstructor={isInstructor} isInBlockedFolder={!isOwned} onEdit={onEditCourse} onMove={onMove} onDelete={onDelete} />
+                <CourseRow key={course.id} course={course} isInstructor={isInstructor} isInBlockedFolder={!isOwned} onEdit={onEditCourse} onShowCode={onShowCode} onMove={onMove} onDelete={onDelete} />
               ))}
             </div>
           )}
@@ -140,6 +145,7 @@ function FolderNode({ folder, depth = 0, isInstructor = false, onAddSubfolder, o
                   isInstructor={isInstructor}
                   onAddSubfolder={onAddSubfolder}
                   onEditCourse={onEditCourse}
+                  onShowCode={onShowCode}
                   onRename={onRename}
                   onMove={onMove}
                   onDelete={onDelete}
@@ -164,6 +170,7 @@ interface FolderTreeProps {
   isInstructor?: boolean
   onAddSubfolder: (parentId: string) => void
   onEditCourse?: (courseId: string) => void
+  onShowCode: (itemId: string, itemType: TreeItemType, label: string) => void
   onRename: (itemId: string, itemType: TreeItemType, currentName: string) => void
   onMove: (itemId: string, itemType: TreeItemType, label: string) => void
   onDelete: (itemId: string, itemType: TreeItemType, label: string, isOwned: boolean) => void
@@ -175,7 +182,7 @@ interface FolderTreeProps {
   onRenameCancel: () => void
 }
 
-export default function FolderTree({ folders, isInstructor = false, onAddSubfolder, onEditCourse, onRename, onMove, onDelete, onDrop, renamingId, renameValue, onRenameValueChange, onRenameSubmit, onRenameCancel }: FolderTreeProps) {
+export default function FolderTree({ folders, isInstructor = false, onAddSubfolder, onEditCourse, onShowCode, onRename, onMove, onDelete, onDrop, renamingId, renameValue, onRenameValueChange, onRenameSubmit, onRenameCancel }: FolderTreeProps) {
   return (
     <ul className="space-y-1">
       {folders.map((folder) => (
@@ -185,6 +192,7 @@ export default function FolderTree({ folders, isInstructor = false, onAddSubfold
           isInstructor={isInstructor}
           onAddSubfolder={onAddSubfolder}
           onEditCourse={onEditCourse}
+          onShowCode={onShowCode}
           onRename={onRename}
           onMove={onMove}
           onDelete={onDelete}

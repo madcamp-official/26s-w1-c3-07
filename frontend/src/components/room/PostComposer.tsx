@@ -132,33 +132,32 @@ export default function PostComposer({ target, isLoggedIn, isInstructor = false,
       />
 
       <div className="mt-2 divide-y divide-slate-100">
-        <ToggleRow
-          label={isAnonymous ? '익명' : '실명'}
-          description={isAnonymous ? '이름이 공개되지 않습니다' : '이름이 공개됩니다'}
-          checked={isAnonymous}
-          disabled={!isLoggedIn || isInstructor}
-          onChange={setIsAnonymous}
-        />
-        {!isLoggedIn && (
-          <div className="border-t-0 py-2">
-            <p className="flex items-center gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700"><TriangleAlert className="size-4 shrink-0" />실명으로 작성하려면 Google 로그인이 필요합니다.</p>
-          </div>
-        )}
-        {isInstructor && (
-          <div className="border-t-0 py-2">
-            <p className="flex items-center gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700"><TriangleAlert className="size-4 shrink-0" />강의자는 익명으로 작성할 수 없습니다.</p>
-          </div>
+        {!isInstructor && (
+          <>
+            <ToggleRow
+              label={isAnonymous ? '익명' : '실명'}
+              description={isAnonymous ? '이름이 공개되지 않습니다' : '이름이 공개됩니다'}
+              checked={isAnonymous}
+              disabled={!isLoggedIn}
+              onChange={setIsAnonymous}
+            />
+            {!isLoggedIn && (
+              <div className="border-t-0 py-2">
+                <p className="flex items-center gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700"><TriangleAlert className="size-4 shrink-0" />실명으로 작성하려면 Google 로그인이 필요합니다.</p>
+              </div>
+            )}
+          </>
         )}
         <ToggleRow
           label="AI 교정"
-          description={isAiAssisted ? 'AI가 질문을 더 명확하게 개선합니다' : 'AI를 사용하지 않고 질문을 생성합니다'}
+          description={isAiAssisted ? 'AI가 글을 더 명확하게 개선합니다' : 'AI를 사용하지 않고 그대로 제출합니다'}
           checked={isAiAssisted}
           onChange={(checked) => { setIsAiAssisted(checked); setAiDraft(null) }}
         />
         {!isInstructor && (
           <ToggleRow
             label={isQuestion ? '질문' : '의견'}
-            description={isQuestion ? '강의자에게 질문합니다' : '강의자에게 의견을 남깁니다'}
+            description={isQuestion ? '강의자에게 질문합니다' : '강의와 관련된 의견을 남깁니다'}
             checked={isQuestion}
             onChange={setIsQuestion}
           />
@@ -201,7 +200,7 @@ export default function PostComposer({ target, isLoggedIn, isInstructor = false,
             onClick={() => (isAiAssisted ? void generateDraft() : void finalize(content.trim()))}
           >
             {isAiAssisted && <Sparkles className="size-4" />}
-            {isSubmitting ? '등록 중' : isGeneratingDraft ? '생성 중' : isAiAssisted ? 'AI로 질문 생성하기' : '제출하기'}
+            {isSubmitting ? '등록 중' : isGeneratingDraft ? '생성 중' : isAiAssisted ? 'AI로 교정하기' : '제출하기'}
           </Button>
         )}
       </div>

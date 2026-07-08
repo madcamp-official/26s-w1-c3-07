@@ -13,11 +13,12 @@ interface CourseRowProps {
   isInstructor?: boolean
   isInBlockedFolder?: boolean
   onEdit?: (courseId: string) => void
+  onShowCode: (itemId: string, itemType: TreeItemType, label: string) => void
   onMove: (itemId: string, itemType: TreeItemType, label: string) => void
   onDelete: (itemId: string, itemType: TreeItemType, label: string, isOwned: boolean) => void
 }
 
-export default function CourseRow({ course, isInstructor = false, isInBlockedFolder = false, onEdit, onMove, onDelete }: CourseRowProps) {
+export default function CourseRow({ course, isInstructor = false, isInBlockedFolder = false, onEdit, onShowCode, onMove, onDelete }: CourseRowProps) {
   const navigate = useNavigate()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const isOwned = isInstructor || course.ownership === 'owned'
@@ -39,7 +40,7 @@ export default function CourseRow({ course, isInstructor = false, isInBlockedFol
         <CourseIcon color={isOwned ? 'purple' : course.color} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-base font-extrabold text-slate-900 sm:text-lg">{course.title}</span>
-          <span className="mt-1.5 block"><CourseMeta participantCount={course.participantCount} questionCount={course.questionCount} updatedAt={course.updatedAt} /></span>
+          <span className="mt-1.5 block"><CourseMeta questionCount={course.questionCount} updatedAt={course.updatedAt} /></span>
         </span>
       </button>
 
@@ -50,6 +51,7 @@ export default function CourseRow({ course, isInstructor = false, isInBlockedFol
           </button>
           {isMenuOpen && (
             <ItemActionsMenu
+              onShowCode={isInstructor && isOwned ? () => onShowCode(course.id, 'course', course.title) : undefined}
               onEdit={isOwned && onEdit ? () => onEdit(course.id) : undefined}
               onMove={() => onMove(course.id, 'course', course.title)}
               onDelete={() => onDelete(course.id, 'course', course.title, isOwned)}

@@ -7,7 +7,7 @@ import ReplyItem from './ReplyItem'
 interface QuestionThreadProps {
   question: Question
   canResolve?: boolean
-  isHighlighted?: boolean
+  highlightId?: string | null
   onLike: (questionId: string) => Promise<void>
   onResolve?: (questionId: string) => Promise<void>
   onReply: (parentPostId: string, label: string) => void
@@ -16,7 +16,7 @@ interface QuestionThreadProps {
   onDelete?: (postId: string) => void
 }
 
-export default function QuestionThread({ question, canResolve = false, isHighlighted = false, onLike, onResolve, onReply, onEdit, onEditReply, onDelete }: QuestionThreadProps) {
+export default function QuestionThread({ question, canResolve = false, highlightId = null, onLike, onResolve, onReply, onEdit, onEditReply, onDelete }: QuestionThreadProps) {
   const [isExpanded, setIsExpanded] = useState(true)
   const [isResolving, setIsResolving] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -25,6 +25,10 @@ export default function QuestionThread({ question, canResolve = false, isHighlig
   const [editError, setEditError] = useState('')
   const isOpinion = question.postType === 'opinion'
   const isLecturer = question.authorRole === 'lecturer'
+  // 좋아요/답글/수정 펜의 색(hover·활성·채움)을 셀 왼쪽 테두리 색(의견=파랑, 질문=보라)과 맞춤.
+  const accentText = isOpinion ? 'text-blue-600' : 'text-violet-600'
+  const accentFill = isOpinion ? 'fill-blue-600' : 'fill-violet-600'
+  const accentHover = isOpinion ? 'hover:text-blue-600' : 'hover:text-violet-600'
 
   const handleResolve = async () => {
     if (!onResolve) return
@@ -60,15 +64,15 @@ export default function QuestionThread({ question, canResolve = false, isHighlig
     <article
       id={`post-${question.id}`}
       className={cn(
-        'scroll-mt-6 rounded-3xl border-2 bg-white p-5 shadow-sm transition-shadow sm:p-6',
-        isOpinion ? 'border-rose-400' : 'border-violet-400',
-        isHighlighted && 'ring-4 ring-amber-300',
+        'scroll-mt-6 rounded-3xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-white p-5 shadow-sm transition-all duration-700 ease-out sm:p-6',
+        isOpinion ? 'border-l-blue-400' : 'border-l-violet-400',
+        question.id === highlightId && 'bg-slate-50 shadow-lg shadow-slate-300/60 ring-2 ring-slate-300',
       )}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 text-sm text-slate-400">
-          <span className={cn('font-bold', isLecturer ? 'text-blue-700' : 'text-slate-600')}>{question.authorName}</span>
-          {isLecturer && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">Lecturer</span>}
+          <span className="font-bold text-slate-600">{question.authorName}</span>
+          {isLecturer && <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700">Lecturer</span>}
           <span>·</span>
           <span>{question.createdAt}</span>
         </div>
@@ -87,7 +91,7 @@ export default function QuestionThread({ question, canResolve = false, isHighlig
             </button>
           )}
           {question.isEditable && onEdit && !isEditing && (
-            <button type="button" onClick={startEditing} className="rounded-lg p-1.5 text-slate-300 hover:bg-slate-50 hover:text-violet-600" aria-label="수정">
+            <button type="button" onClick={startEditing} className={cn('rounded-lg p-1.5 text-slate-300 hover:bg-slate-50', accentHover)} aria-label="수정">
               <Pencil className="size-4" />
             </button>
           )}
@@ -96,9 +100,11 @@ export default function QuestionThread({ question, canResolve = false, isHighlig
               <Trash2 className="size-4" />
             </button>
           )}
-          <button type="button" onClick={() => setIsExpanded((current) => !current)} className="rounded-lg p-1 text-slate-300 hover:bg-slate-50 hover:text-slate-500" aria-label={isExpanded ? '접기' : '펼치기'}>
-            <ChevronDown className={cn('size-5 transition', !isExpanded && '-rotate-90')} />
-          </button>
+          {question.replies.length > 0 && (
+            <button type="button" onClick={() => setIsExpanded((current) => !current)} className="rounded-lg p-1 text-slate-300 hover:bg-slate-50 hover:text-slate-500" aria-label={isExpanded ? '접기' : '펼치기'}>
+              <ChevronDown className={cn('size-5 transition', !isExpanded && '-rotate-90')} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -132,12 +138,12 @@ export default function QuestionThread({ question, canResolve = false, isHighlig
         <button
           type="button"
           onClick={() => void onLike(question.id)}
-          className={cn('inline-flex items-center gap-1.5 text-sm font-bold transition', question.isLikedByMe ? 'text-violet-600' : 'text-slate-400 hover:text-violet-600')}
+          className={cn('inline-flex items-center gap-1.5 text-sm font-bold transition', question.isLikedByMe ? accentText : cn('text-slate-400', accentHover))}
           aria-pressed={question.isLikedByMe}
         >
-          <ThumbsUp className={cn('size-4', question.isLikedByMe && 'fill-violet-600')} />{question.likeCount}
+          <ThumbsUp className={cn('size-4', question.isLikedByMe && accentFill)} />{question.likeCount}
         </button>
-        <button type="button" onClick={() => onReply(question.id, question.content)} className="inline-flex items-center gap-1.5 text-sm font-bold text-slate-400 hover:text-violet-600">
+        <button type="button" onClick={() => onReply(question.id, question.content)} className={cn('inline-flex items-center gap-1.5 text-sm font-bold text-slate-400', accentHover)}>
           <MessageSquare className="size-4" />답글
         </button>
       </div>
@@ -148,6 +154,8 @@ export default function QuestionThread({ question, canResolve = false, isHighlig
             <ReplyItem
               key={reply.id}
               reply={reply}
+              isHighlighted={reply.id === highlightId}
+              onLike={() => void onLike(reply.id)}
               onReply={() => onReply(reply.id, reply.content)}
               onEdit={onEditReply ? (content) => onEditReply(question.id, reply.id, content) : undefined}
               onDelete={onDelete ? () => onDelete(reply.id) : undefined}

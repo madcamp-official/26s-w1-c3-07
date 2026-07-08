@@ -4,6 +4,7 @@
 
 - [스키마 개요](#스키마-개요)
 - [SQL](#sql)
+  - [타입](#타입)
   - [테이블](#테이블)
     - [`profiles`](#profiles)
     - [`nodes`](#nodes)
@@ -42,6 +43,7 @@
     - [`lecture_feedback_votes`](#lecture_feedback_votes-1)
     - [`posts`](#posts-1)
     - [`post_likes`](#post_likes-1)
+  - [예약 작업 (pg_cron)](#예약-작업-pg_cron)
 - [Edge Function](#edge-function)
 - [설계 노트](#설계-노트)
   - [테이블 관계 및 트리 구조](#테이블-관계-및-트리-구조)
@@ -72,6 +74,18 @@
 
 ## SQL
 
+### 타입
+
+#### `user_mode`
+
+`profiles.mode`/`nodes.created_mode`/`posts.created_mode`/`post_drafts.created_mode` 네 컬럼이 전부 "강의자 아니면 수강생" 값을 갖는데, 원래는 각 테이블마다 `text` + `check (... in ('lecturer', 'student'))`로 따로 강제하고 있었습니다. 같은 값 목록을 컬럼마다 중복 서술하는 대신 enum 타입 하나로 통일했습니다 — 값 목록이 타입 레벨에서 강제되므로 개별 `check` 제약이 필요 없어집니다.
+
+```sql
+create type user_mode as enum ('lecturer', 'student');
+```
+
+값 추가/삭제가 `check` 제약보다 번거롭다는 트레이드오프가 있습니다(`alter type ... add value`로 추가는 되지만 삭제는 직접 지원 안 해서 타입을 새로 만들고 컬럼을 마이그레이션해야 함). 다만 이 두 값은 앞으로도 바뀔 일이 없다고 보여 이 프로젝트엔 적합하다고 판단했습니다. PostgREST/`supabase-js`로 조회하면 다른 문자열 컬럼과 똑같이 평범한 문자열(`"lecturer"`/`"student"`)로 직렬화되어 프론트 쪽 타입/코드는 그대로 둬도 됩니다.
+
 ### 테이블
 
 #### `profiles`
@@ -82,8 +96,7 @@ Supabase Auth 사용자(`auth.users`)를 확장하는 회원 부가정보 테이
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   name text,
-  mode text not null default 'student',
-  constraint profiles_mode_valid check (mode in ('lecturer', 'student'))
+  mode user_mode not null default 'student'
 );
 ```
 
@@ -98,10 +111,9 @@ create table nodes (
   type text not null,
   name text not null,
   created_by uuid references profiles(id) on delete set null,
-  created_mode text not null,
+  created_mode user_mode not null,
   created_at timestamptz default now(),
   constraint nodes_type_valid check (type in ('folder', 'lecture')),
-  constraint nodes_created_mode_valid check (created_mode in ('lecturer', 'student')),
   constraint nodes_lecture_requires_lecturer_mode check (type <> 'lecture' or created_mode = 'lecturer')
 );
 ```
@@ -166,7 +178,7 @@ create table lecture_feedback_votes (
 
 #### `posts`
 
-게시글과 답글을 하나로 통합한 자기참조 트리로, `parent_id`가 `null`이면 최상위 게시글, 값이 있으면 답글입니다(무한 depth). 최상위 글을 삭제하면 답글도 `on delete cascade`로 재귀 삭제됩니다. `author_id`는 비회원이면 `null`이고, 회원이 탈퇴해도 `on delete set null`로 글은 남고 작성자 정보만 사라집니다 — 이때 `is_anonymous`는 건드리지 않고 원래 값 그대로 둡니다(자세한 이유는 아래 CHECK 제약 설명과 "정책·트리거·뷰" 절 참고). `guest_token`은 비회원 글 수정/삭제 인증용인 `uuid`이며(`crypto.randomUUID()`로 생성, 자세한 이유는 아래 "비회원 익명 식별자" 절 참고), 강의가 끝나도 무효화하지 않고 영구 보존합니다 — 왜 무효화가 필요 없는지는 아래 CHECK 제약 설명 참고. `status`는 최상위 게시글만 사용(답글은 `null`)하고, `resolved_at`은 해결됨으로 바뀐 시각으로 해결된 게시글 정렬 기준이며 미해결로 되돌아가면 다시 `null` 처리됩니다. `created_mode`는 강의자 모드/수강생 모드 중 어느 화면에서 썼는지를 저장해 화면에서 색을 구분하는 데 씁니다. `type`/`status`/`created_mode`의 값 목록을 제한하는 단순 열거형 제약(`posts_type_valid`/`posts_status_valid`/`posts_created_mode_valid`) 외에, 여러 컬럼을 함께 보는 여섯 개의 `check` 제약은 각각:
+게시글과 답글을 하나로 통합한 자기참조 트리로, `parent_id`가 `null`이면 최상위 게시글, 값이 있으면 답글입니다(무한 depth). 최상위 글을 삭제하면 답글도 `on delete cascade`로 재귀 삭제됩니다. `author_id`는 비회원이면 `null`이고, 회원이 탈퇴해도 `on delete set null`로 글은 남고 작성자 정보만 사라집니다 — 이때 `is_anonymous`는 건드리지 않고 원래 값 그대로 둡니다(자세한 이유는 아래 CHECK 제약 설명과 "정책·트리거·뷰" 절 참고). `guest_token`은 비회원 글 수정/삭제 인증용인 `uuid`이며(`crypto.randomUUID()`로 생성, 자세한 이유는 아래 "비회원 익명 식별자" 절 참고), 강의가 끝나도 무효화하지 않고 영구 보존합니다 — 왜 무효화가 필요 없는지는 아래 CHECK 제약 설명 참고. `status`는 최상위 게시글만 사용(답글은 `null`)하고, `resolved_at`은 해결됨으로 바뀐 시각으로 해결된 게시글 정렬 기준이며 미해결로 되돌아가면 다시 `null` 처리됩니다. `created_mode`는 강의자 모드/수강생 모드 중 어느 화면에서 썼는지를 저장해 화면에서 색을 구분하는 데 쓰며, 값 목록은 `check` 제약이 아니라 [`user_mode` 타입](#user_mode) 자체로 강제됩니다. `type`/`status`의 값 목록을 제한하는 단순 열거형 제약(`posts_type_valid`/`posts_status_valid`) 외에, 여러 컬럼을 함께 보는 여섯 개의 `check` 제약은 각각:
 - `posts_guest_must_be_anonymous`: `guest_token`이 있는 글(=진짜 비회원 글)은 반드시 익명이어야 함. 원래는 "작성자(`author_id`)가 없으면 무조건 익명"이었는데, 이러면 탈퇴한 회원의 실명 글까지 이 제약에 걸려버려서(아래 참고) `guest_token` 기준으로 좁혔습니다.
 - `posts_status_matches_top_level`: 최상위 게시글은 `status` 필수·답글은 `status` 필수 `null`
 - `posts_lecturer_mode_reply_opinion_only`: 강의자 모드로 쓴 글은 답글+`opinion` 타입만 가능
@@ -187,10 +199,9 @@ create table posts (
   resolved_at timestamptz,
   content text not null,
   created_at timestamptz default now(),
-  created_mode text not null default 'student',
+  created_mode user_mode not null default 'student',
   constraint posts_type_valid check (type in ('question', 'opinion')),
   constraint posts_status_valid check (status in ('unresolved', 'resolved')),
-  constraint posts_created_mode_valid check (created_mode in ('lecturer', 'student')),
   constraint posts_guest_must_be_anonymous check (guest_token is null or is_anonymous = true),
   constraint posts_status_matches_top_level check ((parent_id is null) = (status is not null)),
   constraint posts_lecturer_mode_reply_opinion_only check (created_mode <> 'lecturer' or (parent_id is not null and type = 'opinion')),
@@ -216,10 +227,9 @@ create table post_drafts (
   guest_token uuid,
   type text not null,
   content text not null,
-  created_mode text not null,
+  created_mode user_mode not null,
   created_at timestamptz not null default now(),
-  constraint post_drafts_type_valid check (type in ('question', 'opinion')),
-  constraint post_drafts_created_mode_valid check (created_mode in ('lecturer', 'student'))
+  constraint post_drafts_type_valid check (type in ('question', 'opinion'))
 );
 
 alter table post_drafts enable row level security;
@@ -421,6 +431,8 @@ for each row execute function unresolve_post_on_question_reply();
 
 `nodes_insert_own`/`nodes_update_own` RLS는 새로 쓰는 행 자신의 `created_by = auth.uid()`만 검사할 뿐, `parent_id`가 가리키는 부모 행은 검사하지 않습니다. 그래서 다른 사람 폴더 밑에 내 노드를 끼워 넣거나(INSERT), 같은 계정이라도 강의자 모드 폴더를 수강생 모드 폴더 밑으로 옮기는 것(UPDATE, "위치 이동" 기능)이 막혀 있지 않았고, 강의(`type = 'lecture'`)를 다른 노드의 부모로 지정하는 것도(강의는 트리의 리프여야 함) 막혀 있지 않았습니다. 이 트리거는 `parent_id`가 가리키는 부모 노드가 (1) 강의가 아니고 (2) `created_by`/`created_mode`가 반드시 일치하도록 강제해, `nodes.parent_id` 체인이 항상 한 사람·한 모드의 트리 안에서만, 리프가 아닌 노드 밑으로만 이어지게 합니다. 다른 행(부모 행)을 참조해야 해서 `check` 제약으로는 표현할 수 없어(서브쿼리 금지) 트리거로 구현했습니다. (원래 이름은 `enforce_nodes_parent_ownership()`였는데, 소유권 검사만 하는 것처럼 보여 실제 검사 범위에 맞게 개명함)
 
+INSERT는 새 행이라 자기 자신의 자손이 될 수 없어 문제없지만, UPDATE로 어떤 노드의 `parent_id`를 그 노드 자신의 하위 트리 안에 있는 노드로 바꾸면(예: A → B → C인데 A의 부모를 C로 변경) 사이클이 생겨 재귀 조회(`get_my_favorite_subtrees()` 등)가 무한 루프에 빠질 수 있었습니다. 그래서 `parent_id`가 실제로 바뀌는 UPDATE에 한해 두 가지를 추가로 검사합니다: (1) 새 부모가 자기 자신인 경우를 즉시 비교로 거르고, (2) 더 깊은 사이클은 새 부모 후보가 이 노드의 자손 트리에 속하는지 `with recursive`로 확인합니다(다른 행을 재귀적으로 조회해야 해서 `check` 제약으로는 표현 불가). `parent_id` 변경이 없는 UPDATE와 INSERT는 이 검사를 건너뛰어 불필요한 재귀 조회를 피합니다.
+
 ```sql
 create or replace function enforce_nodes_parent_rules()
 returns trigger as $$
@@ -443,6 +455,25 @@ begin
   then
     raise exception '부모 폴더와 소유자/모드가 일치해야 합니다';
   end if;
+
+  if tg_op = 'UPDATE' and new.parent_id is not null and new.parent_id is distinct from old.parent_id then
+    if new.parent_id = new.id then
+      raise exception '자기 자신을 부모로 지정할 수 없습니다';
+    end if;
+
+    if exists (
+      with recursive descendants as (
+        select id from nodes where parent_id = new.id
+        union all
+        select n.id from nodes n join descendants d on n.parent_id = d.id
+      )
+      select 1 from descendants where id = new.parent_id
+    )
+    then
+      raise exception '자기 자신의 하위 노드를 부모로 지정할 수 없습니다 (트리에 사이클이 생깁니다)';
+    end if;
+  end if;
+
   return new;
 end;
 $$ language plpgsql;
@@ -1053,6 +1084,34 @@ create policy "post_likes_delete_own" on post_likes for delete
   using (voter_key = coalesce(auth.uid(), (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid));
 ```
 
+### 예약 작업 (pg_cron)
+
+Edge Function이 요청-응답으로 즉시 처리하는 로직이라면, pg_cron은 사용자 요청과 무관하게 주기적으로만 실행되면 되는 하우스키핑(정리) 작업에 씁니다. `create extension pg_cron`으로 활성화하고, `cron.schedule(job_name, schedule, command)`으로 등록합니다.
+
+- **`purge_expired_join_codes`** (`*/15 * * * *`, 15분마다) — `lecture_join_codes`는 강의 입장을 손으로 입력하기 편하게 하려고 만든 4자리 코드일 뿐, 강의 종료 후 입장을 막으려는 기능이 아닙니다(강의 종료 이후 입장 차단은 이 코드의 목적이 아니고, 실제로 존재하지도 않는 안전장치입니다). 파기가 필요한 이유는 순전히 4자리라 공간이 10000개뿐이라서 — 끝난 강의의 코드를 계속 붙잡고 있으면 재사용 가능한 코드 공간이 줄어들기 때문에, 강의 `end_time`이 1시간 지난 코드를 주기적으로 비워줍니다. 15분은 공간을 너무 오래 묵히지도, 너무 자주 스캔하지도 않는 적당한 주기로 택했습니다.
+  ```sql
+  select cron.schedule(
+    'purge_expired_join_codes',
+    '*/15 * * * *',
+    $$
+    delete from lecture_join_codes
+    using lectures
+    where lectures.id = lecture_join_codes.lecture_id
+      and lectures.end_time < now() - interval '1 hour'
+    $$
+  );
+  ```
+- **`purge_stale_post_drafts`** (`0 18 * * *`, 매일 UTC 18시 = KST 새벽 3시) — `post_drafts`는 "취소"/"보러 가기"를 선택하면 삭제 없이 고아로 남는 설계라, 하루 지난 행을 지웁니다. 강행 제출은 보통 같은 세션 내 몇 분 안에 일어나므로 하루면 충분히 넉넉한 보관 기간이라고 판단했고, 트래픽이 적은 새벽 시간대에 하루 한 번만 실행합니다.
+  ```sql
+  select cron.schedule(
+    'purge_stale_post_drafts',
+    '0 18 * * *',
+    $$delete from post_drafts where created_at < now() - interval '1 day'$$
+  );
+  ```
+
+두 작업 모두 라이브 DB에서 실제 만료 시나리오(강의 종료 3시간 후 코드 vs 30분 후 코드, 2일 지난 draft vs 방금 만든 draft)로 삭제 쿼리를 직접 실행해 의도한 행만 지워지는 것까지 확인했습니다.
+
 ## Edge Function
 
 AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함수/트리거)가 아니라 별도 서버 로직이 필요한 부분은 Supabase Edge Function(Deno 런타임)으로 구현되어 있습니다. `service_role` 키를 써서 RLS를 우회하고 `posts`/`post_drafts`에 직접 접근합니다.
@@ -1102,7 +1161,7 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
 - **presence key 규칙**:
   - 회원: `user_id` 사용 → 같은 계정으로 탭/기기를 여러 개 열어도 key가 같으므로 한 명으로 집계됨.
   - 비회원: 아래 "비회원 익명 식별자"의 로컬(브라우저) 저장 토큰을 그대로 사용 → 같은 브라우저에서 탭을 새로 열어도 토큰이 같아 한 명으로 집계되고, 다른 토큰(다른 브라우저/기기, 또는 저장소 초기화)이면 별도 접속자로 집계됨.
-- **`lectures.max_participants`는 입장을 막는 값이 아니라 "실시간 집계(track)에 반영되는 인원의 최대치"로 정의함.** Presence는 웹소켓 채널 상태일 뿐이라, 채널에 등록 안 하고 강의실 페이지 정보만 요청하는 걸 DB/서버 차원에서 막을 방법이 없고(막을 필요도 없다고 판단) — 그래서 정원 자체를 접근 제어 수단으로 쓰지 않기로 함. 채널 구독 직후 첫 sync 시점 인원이 이미 정원이면 그 사람은 `track()`하지 않고 관전만 하고(페이지 이용은 완전히 정상 동작, 카운트에만 안 잡힘), 이후 자리가 나도 재판단은 안 함(새로고침해야 재시도됨). **✅ `frontend-realtime-presence` 브랜치에 구현 완료**(`frontend`에서 새로 딴 브랜치, 아직 `frontend`에 병합 전 — `hooks/useRoomPresence.ts`). 호출 방법은 [SUPABASE_GUIDE.md 11번](./SUPABASE_GUIDE.md#11-실시간-접속자-수-realtime-presence) 참고.
+- **`lectures.max_participants`는 입장을 막는 값이 아니라 "실시간 집계(track)에 반영되는 인원의 최대치"로 정의함.** Presence는 웹소켓 채널 상태일 뿐이라, 채널에 등록 안 하고 강의실 페이지 정보만 요청하는 걸 DB/서버 차원에서 막을 방법이 없고(막을 필요도 없다고 판단) — 그래서 정원 자체를 접근 제어 수단으로 쓰지 않기로 함. 채널 구독 직후 첫 sync 시점 인원이 이미 정원이면 그 사람은 `track()`하지 않고 관전만 하고(페이지 이용은 완전히 정상 동작, 카운트에만 안 잡힘), 이후 자리가 나도 재판단은 안 함(새로고침해야 재시도됨). **✅ `frontend`에 구현 완료** — `useCourseRoom.ts`와 `services/api.ts`의 `subscribeToRoomChannel`이 Presence sync/track과 실시간 갱신 Broadcast를 같은 채널로 통합해서 처리합니다(`hooks/useRoomPresence.ts`는 이 통합 과정에서 삭제됨). 호출 방법은 [SUPABASE_GUIDE.md 11번](./SUPABASE_GUIDE.md#11-실시간-접속자-수-realtime-presence) 참고.
 
 ## 비회원 익명 식별자: `guest_token` (여러 기능에서 공용으로 사용)
 
@@ -1170,3 +1229,6 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
   - `20260708200000_broadcast_triggers_for_realtime_updates.sql` — `postgres_changes` 대신 Broadcast from Database(`realtime.send()`)로 방향을 바꿔 강의 페이지 실시간 갱신을 실제로 구현. `posts`/`post_likes`/`lecture_feedback_votes`/`nodes`(강의 제목)/`lectures`(일정/장소/정원) 다섯 테이블에 `SECURITY DEFINER` 트리거를 달아 변경이 생기면 `lecture:<lecture_id>` 채널로 브로드캐스트. `realtime.send()`는 원본 테이블 RLS와 무관한 별도 경로(`realtime.messages`에 INSERT할 뿐)라 회원/비회원 구분 없이 받을 수 있음. 계정 이름(`profiles.name`)은 한 사람이 여러 강의를 소유할 수 있어 채널 하나로 안 끝나는 부채살 구조라 이번 범위에서 제외. 자세한 설계는 [SQL → 트리거 함수 → 실시간 갱신용 Broadcast 트리거 5종](#실시간-갱신용-broadcast-트리거-5종), 프론트 구독 방법은 [SUPABASE_GUIDE.md](./SUPABASE_GUIDE.md) 참고. 라이브 리스너로 다섯 이벤트 전부 실제 발신·수신 확인 완료
   - `20260708210000_lectures_end_after_start.sql` — `lectures.end_time`이 `start_time`보다 늦어야 한다는 `lectures_end_after_start` 체크 제약 추가. 라이브 DB에 이미 위반하는 테스트성 데이터 2건(`DUMMY_DATA.md` 시드 아님, 수동 테스트 중 생성된 것으로 보임)이 있어서 `end_time`을 `start_time` + 1시간으로 먼저 고친 뒤 제약 추가. 실제 UPDATE로 차단되는 것까지 검증 완료
   - `20260708220000_posts_counts_top_level_only.sql` — `posts_counts`가 답글까지 포함해 `lecture_id`별 `posts` 전체를 세고 있었는데, 프론트(`CourseMeta.tsx`)는 이 값을 "게시글 {n}개"로 표시하고 있어 최상위 게시글만 세도록 `where parent_id is null` 추가. 라이브 DB에서 답글 포함 10건/최상위만 6건인 강의로 값이 6으로 바뀌는 것까지 확인
+  - `20260708230000_user_mode_enum.sql` — `profiles.mode`/`nodes.created_mode`/`posts.created_mode`/`post_drafts.created_mode` 네 컬럼이 각자 `text` + `check (... in ('lecturer', 'student'))`로 값 목록을 중복 강제하던 걸 `user_mode` enum 타입 하나로 통일. `nodes.created_mode`/`posts.created_mode`를 참조하는 RLS 정책(`favorites_*_only_favorite_lecturer_mode`, `favorites_*_anchor_must_be_own_student_folder`, `posts_*_lecturer_mode_matches_owner`)과 `created_mode`를 리터럴과 비교하는 `check` 제약(`nodes_lecture_requires_lecturer_mode`, `posts_lecturer_mode_reply_opinion_only`, `posts_lecturer_mode_not_anonymous`), `posts.created_mode`를 select하는 `posts_public` 뷰는 컬럼 타입 변경 자체를 막아서(각각 "cannot alter type of a column used in a policy definition"/"...used by a view or rule", 그리고 이미 저장된 표현식의 리터럴이 text로 고정돼 있어 나는 "operator does not exist: user_mode = text") 전부 지웠다가 타입 변경 후 원래 정의 그대로 다시 만듦. PostgREST로 조회 시 다른 문자열 컬럼과 동일하게 평범한 문자열로 직렬화되어 프론트는 변경 없음 — 라이브 DB에서 `posts_public` 조회로 확인 완료
+  - `20260708240000_nodes_prevent_parent_cycle.sql` — `enforce_nodes_parent_rules()`가 부모가 강의가 아닌지/소유자·모드 일치만 검사하고 `parent_id` 체인의 사이클은 막지 않던 문제(TODO #2) 해결. UPDATE로 `parent_id`가 실제로 바뀔 때만, (1) 새 부모가 자기 자신인 경우와 (2) 새 부모가 자기 자신의 자손 트리에 속하는 경우(`with recursive`로 확인)를 막도록 함수에 검사 추가. 라이브 DB에서 A→B→C 체인을 만들어 A의 부모를 C로 바꾸는 시도(사이클)와 A의 부모를 자기 자신으로 바꾸는 시도 둘 다 거부되는 것, C를 A 밑으로 정상 이동하는 건 그대로 성공하는 것까지 확인 완료
+  - `20260708250000_pg_cron_cleanup_jobs.sql` — `pg_cron` 확장을 활성화하고 정리 작업 2개 등록(TODO #1/#2 구현). `purge_expired_join_codes`(15분마다)는 강의 `end_time`이 1시간 넘게 지난 `lecture_join_codes`를 삭제, `purge_stale_post_drafts`(매일 UTC 18시)는 하루 지난 `post_drafts`를 삭제. 자세한 설계는 [예약 작업 (pg_cron)](#예약-작업-pg_cron) 참고. 라이브 DB에서 만료/보관 기간 경계를 넘긴 행과 안 넘긴 행을 각각 만들어 실제 삭제 쿼리로 의도한 행만 지워지는 것까지 확인 완료

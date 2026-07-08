@@ -2,6 +2,7 @@ import { CheckCircle2, LogOut, Pencil, TriangleAlert, UserX } from 'lucide-react
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from '../components/ui/Button'
+import LogoutConfirmModal from '../components/ui/LogoutConfirmModal'
 import { deleteAccount, getCurrentUser, signOut, updateUserName } from '../services/api'
 import type { User } from '../types/user'
 
@@ -155,19 +156,13 @@ export default function SettingsPage() {
         </section>
       </div>
 
-      {isLogoutConfirmOpen && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/30 p-4 backdrop-blur-sm" role="presentation" onMouseDown={() => setIsLogoutConfirmOpen(false)}>
-          <section role="alertdialog" aria-modal="true" className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
-            <h2 className="text-lg font-extrabold text-slate-900">로그아웃 하시겠습니까?</h2>
-            <p className="mt-2 text-sm text-slate-500">다시 로그인하면 이전 정보로 계속 이용할 수 있습니다.</p>
-            {accountActionError && <p className="mt-2 text-sm font-medium text-rose-500">{accountActionError}</p>}
-            <div className="mt-6 flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setIsLogoutConfirmOpen(false)}>취소</Button>
-              <Button onClick={() => void handleLogout()} disabled={isProcessingAccountAction}><LogOut className="size-4" />{isProcessingAccountAction ? '로그아웃 중' : '로그아웃'}</Button>
-            </div>
-          </section>
-        </div>
-      )}
+      <LogoutConfirmModal
+        isOpen={isLogoutConfirmOpen}
+        isProcessing={isProcessingAccountAction}
+        error={accountActionError}
+        onConfirm={() => void handleLogout()}
+        onClose={() => setIsLogoutConfirmOpen(false)}
+      />
 
       {isDeleteConfirmOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/30 p-4 backdrop-blur-sm" role="presentation" onMouseDown={() => setIsDeleteConfirmOpen(false)}>
