@@ -375,7 +375,7 @@ supabase 클라이언트는 앱 시작할 때 딱 한 번만 만들고(`supabase
 
 같은 계정이라도 강의자 모드로 쓴 글인지 수강생 모드로 쓴 글인지에 따라 화면 색을 다르게 표시해야 하는데(`author_id`가 강의 제작자와 같은지만으론 구분 안 됨), 그 판단은 조회한 **`posts_public`**(`posts`가 아님, [5번 "테이블 조회"](#테이블-조회) 참고) 행의 `created_mode` 컬럼 값(`'lecturer'` | `'student'`)만 보면 됩니다.
 
-- **`created_mode: 'lecturer'`로 글을 쓰는데 실제 그 강의를 만든 계정이 아니면 거부됩니다.** 글 작성은 [10번](#10-글-작성제출-ai-correct-submit-post-edge-function)에 정리된 **`submit-post` Edge Function**을 통해서만 이뤄지고(구현·배포 완료), 이 함수 내부에서 `lectures`/`nodes` 조인으로 소유권을 확인해 거부합니다. **다만 클라이언트가 이 함수를 우회해 `posts`에 직접 insert하는 것 자체를 막는 RLS 변경(`posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 정책 삭제 + INSERT 권한 회수)은 아직 적용 전**이라, 지금 당장은 클라이언트가 직접 insert해도 여전히 통과됩니다 — 프론트는 `submit-post`를 쓰도록 맞춰주세요. 모드 상태 관리 버그로 이 값이 잘못 실릴 경우 조용히 무시되는 게 아니라 요청이 실패하니, 에러 핸들링에 유의하세요. 자세한 제약 내용은 [DB_DESIGN.md](./DB_DESIGN.md) 참고.
+- **`created_mode: 'lecturer'`로 글을 쓰는데 실제 그 강의를 만든 계정이 아니면 거부됩니다.** 글 작성은 [10번](#10-글-작성제출-ai-correct-submit-post-edge-function)에 정리된 **`submit-post` Edge Function**을 통해서만 이뤄지고(구현·배포 완료), 이 함수 내부에서 `lectures`/`nodes` 조인으로 소유권을 확인해 거부합니다. **✅ 클라이언트가 이 함수를 우회해 `posts`에 직접 insert하는 경로도 차단 완료** — `posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 정책 삭제 + `anon`/`authenticated`의 INSERT 권한 자체를 회수했습니다. 이제 `posts`에 글을 쓰는 유일한 방법은 `submit-post`뿐입니다. 모드 상태 관리 버그로 이 값이 잘못 실릴 경우 조용히 무시되는 게 아니라 요청이 실패하니, 에러 핸들링에 유의하세요. 자세한 제약 내용은 [DB_DESIGN.md](./DB_DESIGN.md) 참고.
 
 ## 10. 글 작성/제출: `ai-correct`, `submit-post` Edge Function
 

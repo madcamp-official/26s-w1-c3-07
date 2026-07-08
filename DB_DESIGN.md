@@ -44,6 +44,8 @@
     - [`posts`](#posts-1)
     - [`post_likes`](#post_likes-1)
   - [예약 작업 (pg_cron)](#예약-작업-pg_cron)
+    - [`purge_expired_join_codes`](#purge_expired_join_codes)
+    - [`purge_stale_post_drafts`](#purge_stale_post_drafts)
 - [Edge Function](#edge-function)
 - [설계 노트](#설계-노트)
   - [테이블 관계 및 트리 구조](#테이블-관계-및-트리-구조)
@@ -995,12 +997,13 @@ RLS는 "누가 행에 접근 가능한가"만 결정할 뿐, "어떤 테이블/�
 
 강의자는 자기 강의(`lectures.id` 소유)에 속한 게시글이면 남의 글이라도 상태 전환(미해결↔해결) 및 삭제(부적절한 글 제거)가 가능합니다. Postgres는 같은 명령어에 정책이 여러 개면 OR로 합쳐지므로, 이 정책은 `posts_update_own`/`posts_delete_own`과 나란히 적용됩니다.
 
-AI 적절성 검사(GPT-4o-mini + 전용 프롬프트, `moderation-prompt.ts`)/유사 질문 탐지(GPT-4o-mini + `get_similarity_candidates()` RPC, 아래 [RPC 함수](#rpc-함수) 참고)를 포함한 글 제출 흐름은 `submit-post` Edge Function(`service_role`, RLS 우회)으로 구현·배포 완료(정확한 요청/응답 계약은 [SUPABASE_GUIDE.md 10번](./SUPABASE_GUIDE.md#10-글-작성제출-ai-correct-submit-post-edge-function), 실제 구현 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고). **다만 클라이언트가 이 검사를 우회해 `posts`에 직접 쓰지 못하게 막는 부분(아래 `posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 두 INSERT 정책 삭제 + `anon`/`authenticated`의 `posts` INSERT 권한 자체 회수)은 아직 적용 전** — `frontend` 브랜치는 이미 `submit-post`/`ai-correct`를 실제로 호출하도록 구현됐지만(`SUPABASE_GUIDE.md 10번` 참고), 이 두 정책이 그대로 살아있어 원한다면 클라이언트가 직접 insert하는 것도 여전히 가능합니다.
+AI 적절성 검사(GPT-4o-mini + 전용 프롬프트, `moderation-prompt.ts`)/유사 질문 탐지(GPT-4o-mini + `get_similarity_candidates()` RPC, 아래 [RPC 함수](#rpc-함수) 참고)를 포함한 글 제출 흐름은 `submit-post` Edge Function(`service_role`, RLS 우회)으로 구현·배포 완료(정확한 요청/응답 계약은 [SUPABASE_GUIDE.md 10번](./SUPABASE_GUIDE.md#10-글-작성제출-ai-correct-submit-post-edge-function), 실제 구현 경위는 [TODO.md 해결된 것](./TODO.md#해결된-것-참고용-기록) 참고). 클라이언트가 이 검사를 우회해 `posts`에 직접 쓰지 못하도록, `posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 두 INSERT 정책을 삭제하고 `anon`/`authenticated`의 `posts` INSERT 권한 자체를 회수했습니다 — `submit-post`는 `service_role`(RLS 우회)로 실행되므로 정상 제출 경로에는 영향 없이, 클라이언트가 이 함수를 거치지 않고 직접 insert하는 경로만 차단됩니다.
 
 ```sql
 revoke select on posts from anon, authenticated;
 grant select (id, lecture_id, parent_id, is_anonymous, type, status, resolved_at, content, created_at, created_mode)
   on posts to anon, authenticated;
+revoke insert on posts from anon, authenticated;
 ```
 
 ```sql
@@ -1018,8 +1021,6 @@ create policy "posts_select_lecturer" on posts for select
     )
   );
 
-create policy "posts_insert_anyone" on posts for insert
-  with check (author_id is null or author_id = auth.uid());
 create policy "posts_update_own" on posts for update
   using (
     author_id = auth.uid()
@@ -1035,14 +1036,6 @@ create policy "posts_delete_own" on posts for delete
     or guest_token = (current_setting('request.headers', true)::json ->> 'x-guest-token')::uuid
   );
 
-create policy "posts_insert_lecturer_mode_matches_owner" on posts for insert
-  with check (
-    created_mode <> 'lecturer'
-    or exists (
-      select 1 from lectures join nodes on nodes.id = lectures.id
-      where lectures.id = posts.lecture_id and nodes.created_by = auth.uid()
-    )
-  );
 create policy "posts_update_lecturer_mode_matches_owner" on posts as restrictive for update
   using (true)
   with check (
@@ -1088,27 +1081,34 @@ create policy "post_likes_delete_own" on post_likes for delete
 
 Edge Function이 요청-응답으로 즉시 처리하는 로직이라면, pg_cron은 사용자 요청과 무관하게 주기적으로만 실행되면 되는 하우스키핑(정리) 작업에 씁니다. `create extension pg_cron`으로 활성화하고, `cron.schedule(job_name, schedule, command)`으로 등록합니다.
 
-- **`purge_expired_join_codes`** (`*/15 * * * *`, 15분마다) — `lecture_join_codes`는 강의 입장을 손으로 입력하기 편하게 하려고 만든 4자리 코드일 뿐, 강의 종료 후 입장을 막으려는 기능이 아닙니다(강의 종료 이후 입장 차단은 이 코드의 목적이 아니고, 실제로 존재하지도 않는 안전장치입니다). 파기가 필요한 이유는 순전히 4자리라 공간이 10000개뿐이라서 — 끝난 강의의 코드를 계속 붙잡고 있으면 재사용 가능한 코드 공간이 줄어들기 때문에, 강의 `end_time`이 1시간 지난 코드를 주기적으로 비워줍니다. 15분은 공간을 너무 오래 묵히지도, 너무 자주 스캔하지도 않는 적당한 주기로 택했습니다.
-  ```sql
-  select cron.schedule(
-    'purge_expired_join_codes',
-    '*/15 * * * *',
-    $$
-    delete from lecture_join_codes
-    using lectures
-    where lectures.id = lecture_join_codes.lecture_id
-      and lectures.end_time < now() - interval '1 hour'
-    $$
-  );
-  ```
-- **`purge_stale_post_drafts`** (`0 18 * * *`, 매일 UTC 18시 = KST 새벽 3시) — `post_drafts`는 "취소"/"보러 가기"를 선택하면 삭제 없이 고아로 남는 설계라, 하루 지난 행을 지웁니다. 강행 제출은 보통 같은 세션 내 몇 분 안에 일어나므로 하루면 충분히 넉넉한 보관 기간이라고 판단했고, 트래픽이 적은 새벽 시간대에 하루 한 번만 실행합니다.
-  ```sql
-  select cron.schedule(
-    'purge_stale_post_drafts',
-    '0 18 * * *',
-    $$delete from post_drafts where created_at < now() - interval '1 day'$$
-  );
-  ```
+#### `purge_expired_join_codes`
+
+`*/15 * * * *`(15분마다) 실행됩니다. `lecture_join_codes`는 강의 입장을 손으로 입력하기 편하게 하려고 만든 4자리 코드일 뿐, 강의 종료 후 입장을 막으려는 기능이 아닙니다(강의 종료 이후 입장 차단은 이 코드의 목적이 아니고, 실제로 존재하지도 않는 안전장치입니다). 파기가 필요한 이유는 순전히 4자리라 공간이 10000개뿐이라서 — 끝난 강의의 코드를 계속 붙잡고 있으면 재사용 가능한 코드 공간이 줄어들기 때문에, 강의 `end_time`이 1시간 지난 코드를 주기적으로 비워줍니다. 15분은 공간을 너무 오래 묵히지도, 너무 자주 스캔하지도 않는 적당한 주기로 택했습니다.
+
+```sql
+select cron.schedule(
+  'purge_expired_join_codes',
+  '*/15 * * * *',
+  $$
+  delete from lecture_join_codes
+  using lectures
+  where lectures.id = lecture_join_codes.lecture_id
+    and lectures.end_time < now() - interval '1 hour'
+  $$
+);
+```
+
+#### `purge_stale_post_drafts`
+
+`0 18 * * *`(매일 UTC 18시 = KST 새벽 3시) 실행됩니다. `post_drafts`는 "취소"/"보러 가기"를 선택하면 삭제 없이 고아로 남는 설계라, 하루 지난 행을 지웁니다. 강행 제출은 보통 같은 세션 내 몇 분 안에 일어나므로 하루면 충분히 넉넉한 보관 기간이라고 판단했고, 트래픽이 적은 새벽 시간대에 하루 한 번만 실행합니다.
+
+```sql
+select cron.schedule(
+  'purge_stale_post_drafts',
+  '0 18 * * *',
+  $$delete from post_drafts where created_at < now() - interval '1 day'$$
+);
+```
 
 두 작업 모두 라이브 DB에서 실제 만료 시나리오(강의 종료 3시간 후 코드 vs 30분 후 코드, 2일 지난 draft vs 방금 만든 draft)로 삭제 쿼리를 직접 실행해 의도한 행만 지워지는 것까지 확인했습니다.
 
@@ -1232,3 +1232,4 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
   - `20260708230000_user_mode_enum.sql` — `profiles.mode`/`nodes.created_mode`/`posts.created_mode`/`post_drafts.created_mode` 네 컬럼이 각자 `text` + `check (... in ('lecturer', 'student'))`로 값 목록을 중복 강제하던 걸 `user_mode` enum 타입 하나로 통일. `nodes.created_mode`/`posts.created_mode`를 참조하는 RLS 정책(`favorites_*_only_favorite_lecturer_mode`, `favorites_*_anchor_must_be_own_student_folder`, `posts_*_lecturer_mode_matches_owner`)과 `created_mode`를 리터럴과 비교하는 `check` 제약(`nodes_lecture_requires_lecturer_mode`, `posts_lecturer_mode_reply_opinion_only`, `posts_lecturer_mode_not_anonymous`), `posts.created_mode`를 select하는 `posts_public` 뷰는 컬럼 타입 변경 자체를 막아서(각각 "cannot alter type of a column used in a policy definition"/"...used by a view or rule", 그리고 이미 저장된 표현식의 리터럴이 text로 고정돼 있어 나는 "operator does not exist: user_mode = text") 전부 지웠다가 타입 변경 후 원래 정의 그대로 다시 만듦. PostgREST로 조회 시 다른 문자열 컬럼과 동일하게 평범한 문자열로 직렬화되어 프론트는 변경 없음 — 라이브 DB에서 `posts_public` 조회로 확인 완료
   - `20260708240000_nodes_prevent_parent_cycle.sql` — `enforce_nodes_parent_rules()`가 부모가 강의가 아닌지/소유자·모드 일치만 검사하고 `parent_id` 체인의 사이클은 막지 않던 문제(TODO #2) 해결. UPDATE로 `parent_id`가 실제로 바뀔 때만, (1) 새 부모가 자기 자신인 경우와 (2) 새 부모가 자기 자신의 자손 트리에 속하는 경우(`with recursive`로 확인)를 막도록 함수에 검사 추가. 라이브 DB에서 A→B→C 체인을 만들어 A의 부모를 C로 바꾸는 시도(사이클)와 A의 부모를 자기 자신으로 바꾸는 시도 둘 다 거부되는 것, C를 A 밑으로 정상 이동하는 건 그대로 성공하는 것까지 확인 완료
   - `20260708250000_pg_cron_cleanup_jobs.sql` — `pg_cron` 확장을 활성화하고 정리 작업 2개 등록(TODO #1/#2 구현). `purge_expired_join_codes`(15분마다)는 강의 `end_time`이 1시간 넘게 지난 `lecture_join_codes`를 삭제, `purge_stale_post_drafts`(매일 UTC 18시)는 하루 지난 `post_drafts`를 삭제. 자세한 설계는 [예약 작업 (pg_cron)](#예약-작업-pg_cron) 참고. 라이브 DB에서 만료/보관 기간 경계를 넘긴 행과 안 넘긴 행을 각각 만들어 실제 삭제 쿼리로 의도한 행만 지워지는 것까지 확인 완료
+  - `20260709120000_posts_insert_via_submit_post_only.sql` — `posts_insert_anyone`/`posts_insert_lecturer_mode_matches_owner` 두 INSERT 정책을 삭제하고 `anon`/`authenticated`의 `posts` INSERT 권한을 회수해, 클라이언트가 `submit-post`(적절성 검사·유사 질문 탐지)를 우회해 직접 insert하던 경로를 차단(`submit-post`는 `service_role`로 실행돼 RLS를 우회하므로 정상 제출 경로는 영향 없음). 라이브 DB에서 `anon`/`authenticated`의 `posts` INSERT grant·정책이 전부 사라지고 `service_role`은 그대로 유지되는 것까지 확인 완료
