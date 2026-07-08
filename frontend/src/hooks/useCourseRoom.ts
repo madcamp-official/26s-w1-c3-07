@@ -33,6 +33,21 @@ function findOwnerQuestion(questions: Question[], postId: string): Question | un
 }
 
 /**
+ * 미해결 게시글은 좋아요 개수 내림차순(동률이면 제출 시각 최신순)으로 정렬돼야 하므로,
+ * 좋아요가 바뀌거나 새 글이 도착할 때마다 순위를 즉시 다시 매김. 동률 tie-break를
+ * createdAtRaw로 직접 비교해서, 안정 정렬의 "현재 배열상 위치"에 의존하지 않게 함
+ * (좋아요를 눌렀다 취소했을 때도 항상 원래 제출 시각 순서로 정확히 복귀).
+ * 해결된 게시글은 좋아요와 무관한 기준(해결 시각)으로 정렬되므로 순서를 건드리지 않음.
+ */
+function reorderByLikeCount(questions: Question[]): Question[] {
+  const unresolved = questions
+    .filter((question) => !question.isResolved)
+    .sort((a, b) => b.likeCount - a.likeCount || b.createdAtRaw.localeCompare(a.createdAtRaw))
+  const resolved = questions.filter((question) => question.isResolved)
+  return [...unresolved, ...resolved]
+}
+
+/**
  * post_change 브로드캐스트를 로컬 state에 반영합니다. author_id/guest_token이 페이로드에
  * 없어 "내 글인지"를 알 수 없으므로, 이미 로컬에 있는 항목(내가 방금 쓴 글의 echo 포함)은
  * identity 기반 필드(authorName/authorRole/isEditable/canDelete)를 건드리지 않고 공개
@@ -74,7 +89,8 @@ function mergePostChange(setState: Dispatch<SetStateAction<CourseRoomState>>, pa
     // 로컬에 없던 새 글/답글 -> 남이 쓴 것으로 간주.
     const authorName = resolvePostAuthorName({ is_anonymous: payload.is_anonymous ?? false, author_display_name: payload.author_display_name ?? null })
     const authorRole = postAuthorRole({ is_anonymous: payload.is_anonymous ?? false, created_mode: payload.created_mode ?? 'student' })
-    const createdAt = formatRelativeTime(payload.created_at ?? new Date().toISOString())
+    const createdAtRaw = payload.created_at ?? new Date().toISOString()
+    const createdAt = formatRelativeTime(createdAtRaw)
     const canDelete = isPrivilegedEditor()
 
     if (payload.parent_id === null) {
@@ -86,13 +102,14 @@ function mergePostChange(setState: Dispatch<SetStateAction<CourseRoomState>>, pa
         isEditable: false,
         canDelete,
         createdAt,
+        createdAtRaw,
         content: payload.content ?? '',
         likeCount: 0,
         isLikedByMe: false,
         isResolved,
         replies: [],
       }
-      return { ...current, room: { ...current.room, questions: [question, ...questions] } }
+      return { ...current, room: { ...current.room, questions: reorderByLikeCount([question, ...questions]) } }
     }
 
     const ownerQuestion = findOwnerQuestion(questions, payload.parent_id)
@@ -164,13 +181,13 @@ export function useCourseRoom(courseId: string | undefined) {
       onLikeChange: (payload) => {
         setState((current) => {
           if (!current.room) return current
-          const questions = current.room.questions.map((question) => ({
+          const questions = reorderByLikeCount(current.room.questions.map((question) => ({
             ...question,
             likeCount: question.id === payload.post_id ? payload.like_count : question.likeCount,
             replies: question.replies.map((reply) =>
               reply.id === payload.post_id ? { ...reply, likeCount: payload.like_count } : reply,
             ),
-          }))
+          })))
           return { ...current, room: { ...current.room, questions } }
         })
       },
@@ -275,14 +292,14 @@ export function useCourseRoom(courseId: string | undefined) {
     const { likeCount, isLikedByMe } = await toggleQuestionLike(courseId, postId)
     setState((current) => {
       if (!current.room) return current
-      const questions = current.room.questions.map((question) => {
+      const questions = reorderByLikeCount(current.room.questions.map((question) => {
         if (question.id === postId) return { ...question, likeCount, isLikedByMe }
         if (!question.replies.some((reply) => reply.id === postId)) return question
         return {
           ...question,
           replies: question.replies.map((reply) => (reply.id === postId ? { ...reply, likeCount, isLikedByMe } : reply)),
         }
-      })
+      }))
       return { ...current, room: { ...current.room, questions } }
     })
   }

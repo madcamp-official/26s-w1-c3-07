@@ -32,6 +32,8 @@ export interface Question {
   isEditable: boolean
   canDelete: boolean
   createdAt: string
+  /** 정렬 전용 원본 타임스탬프(ISO). createdAt은 "3분 전" 같은 표시용 상대시간이라 정렬엔 못 씀. */
+  createdAtRaw: string
   content: string
   likeCount: number
   isLikedByMe: boolean
