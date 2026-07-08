@@ -7,6 +7,7 @@ import RoomHeader from '../components/room/RoomHeader'
 import BrandLogo from '../components/BrandLogo'
 import Sidebar from '../components/navigation/Sidebar'
 import Button from '../components/ui/Button'
+import ShareCourseModal from '../components/course/ShareCourseModal'
 import { useCourseRoom } from '../hooks/useCourseRoom'
 import { getCurrentUser } from '../services/api'
 import type { QuestionFilter } from '../types/room'
@@ -22,6 +23,7 @@ export default function CourseRoomPage() {
   const [filter, setFilter] = useState<QuestionFilter>('unresolved')
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isShareOpen, setIsShareOpen] = useState(false)
 
   const highlightId = searchParams.get('highlight')
 
@@ -91,6 +93,7 @@ export default function CourseRoomPage() {
             lecturerName={room.lecturerName}
             participantCount={room.participantCount}
             questionCount={room.questions.length}
+            onShare={isInstructor ? () => setIsShareOpen(true) : undefined}
           />
 
           <div className="mt-5">
@@ -167,6 +170,19 @@ export default function CourseRoomPage() {
           </section>
         </div>
       )}
+
+      <ShareCourseModal
+        isOpen={isShareOpen}
+        course={{
+          id: room.id,
+          title: room.title,
+          participantCount: room.participantCount,
+          questionCount: room.questions.length,
+          color: 'purple',
+          ownership: 'owned',
+        }}
+        onClose={() => setIsShareOpen(false)}
+      />
     </div>
   )
 }
