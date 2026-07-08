@@ -5,13 +5,14 @@ import { cn } from '../../utils/cn'
 
 interface ReplyItemProps {
   reply: QuestionReply
+  isHighlighted?: boolean
   onLike?: () => void
   onReply?: () => void
   onEdit?: (content: string) => Promise<void>
   onDelete?: () => void
 }
 
-export default function ReplyItem({ reply, onLike, onReply, onEdit, onDelete }: ReplyItemProps) {
+export default function ReplyItem({ reply, isHighlighted = false, onLike, onReply, onEdit, onDelete }: ReplyItemProps) {
   const isLecturer = reply.authorRole === 'lecturer'
   const isOpinion = reply.postType === 'opinion'
   const [isEditing, setIsEditing] = useState(false)
@@ -41,7 +42,12 @@ export default function ReplyItem({ reply, onLike, onReply, onEdit, onDelete }: 
 
   return (
     <div
-      className={cn('rounded-2xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-slate-50 p-4', isLecturer ? 'border-l-rose-400' : isOpinion ? 'border-l-blue-400' : 'border-l-violet-400')}
+      id={`post-${reply.id}`}
+      className={cn(
+        'scroll-mt-6 rounded-2xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-slate-50 p-4',
+        isLecturer ? 'border-l-rose-400' : isOpinion ? 'border-l-blue-400' : 'border-l-violet-400',
+        isHighlighted && 'ring-4 ring-amber-300',
+      )}
       style={reply.depth > 0 ? { marginLeft: `${Math.min(reply.depth, 6) * 1.5}rem` } : undefined}
     >
       <div className="flex items-center justify-between gap-3">

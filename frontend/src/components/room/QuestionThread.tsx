@@ -7,7 +7,7 @@ import ReplyItem from './ReplyItem'
 interface QuestionThreadProps {
   question: Question
   canResolve?: boolean
-  isHighlighted?: boolean
+  highlightId?: string | null
   onLike: (questionId: string) => Promise<void>
   onResolve?: (questionId: string) => Promise<void>
   onReply: (parentPostId: string, label: string) => void
@@ -16,7 +16,7 @@ interface QuestionThreadProps {
   onDelete?: (postId: string) => void
 }
 
-export default function QuestionThread({ question, canResolve = false, isHighlighted = false, onLike, onResolve, onReply, onEdit, onEditReply, onDelete }: QuestionThreadProps) {
+export default function QuestionThread({ question, canResolve = false, highlightId = null, onLike, onResolve, onReply, onEdit, onEditReply, onDelete }: QuestionThreadProps) {
   const [isExpanded, setIsExpanded] = useState(true)
   const [isResolving, setIsResolving] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -62,7 +62,7 @@ export default function QuestionThread({ question, canResolve = false, isHighlig
       className={cn(
         'scroll-mt-6 rounded-3xl border-l-4 border-y border-r border-y-slate-100 border-r-slate-100 bg-white p-5 shadow-sm transition-shadow sm:p-6',
         isOpinion ? 'border-l-blue-400' : 'border-l-violet-400',
-        isHighlighted && 'ring-4 ring-amber-300',
+        question.id === highlightId && 'ring-4 ring-amber-300',
       )}
     >
       <div className="flex items-start justify-between gap-3">
@@ -148,6 +148,7 @@ export default function QuestionThread({ question, canResolve = false, isHighlig
             <ReplyItem
               key={reply.id}
               reply={reply}
+              isHighlighted={reply.id === highlightId}
               onLike={() => void onLike(reply.id)}
               onReply={() => onReply(reply.id, reply.content)}
               onEdit={onEditReply ? (content) => onEditReply(question.id, reply.id, content) : undefined}

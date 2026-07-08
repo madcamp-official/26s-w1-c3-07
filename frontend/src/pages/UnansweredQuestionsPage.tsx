@@ -11,11 +11,11 @@ interface UnansweredData {
   totalCount: number
 }
 
-function QuestionRow({ question, onOpen }: { question: UnansweredQuestion; onOpen: (courseId: string) => void }) {
+function QuestionRow({ question, onOpen }: { question: UnansweredQuestion; onOpen: (courseId: string, questionId?: string) => void }) {
   return (
     <button
       type="button"
-      onClick={() => onOpen(question.courseId)}
+      onClick={() => onOpen(question.courseId, question.id)}
       className="flex w-full items-start justify-between gap-4 rounded-2xl border border-slate-100 bg-white px-5 py-4 text-left transition hover:border-violet-200 hover:shadow-sm"
     >
       <span className="min-w-0 flex-1">
@@ -31,7 +31,7 @@ function QuestionRow({ question, onOpen }: { question: UnansweredQuestion; onOpe
   )
 }
 
-function CourseGroup({ course, onOpen }: { course: { id: string; title: string; questions: UnansweredQuestion[] }; onOpen: (courseId: string) => void }) {
+function CourseGroup({ course, onOpen }: { course: { id: string; title: string; questions: UnansweredQuestion[] }; onOpen: (courseId: string, questionId?: string) => void }) {
   const [isExpanded, setIsExpanded] = useState(true)
   const Chevron = isExpanded ? ChevronDown : ChevronRight
 
@@ -55,7 +55,7 @@ function CourseGroup({ course, onOpen }: { course: { id: string; title: string; 
   )
 }
 
-function FolderGroup({ folder, depth, onOpen }: { folder: UnansweredFolderNode; depth: number; onOpen: (courseId: string) => void }) {
+function FolderGroup({ folder, depth, onOpen }: { folder: UnansweredFolderNode; depth: number; onOpen: (courseId: string, questionId?: string) => void }) {
   const [isExpanded, setIsExpanded] = useState(true)
   const Chevron = isExpanded ? ChevronDown : ChevronRight
 
@@ -94,7 +94,8 @@ export default function UnansweredQuestionsPage() {
 
   useEffect(load, [])
 
-  const openCourse = (courseId: string) => navigate(`/room/${courseId}`)
+  const openCourse = (courseId: string, questionId?: string) =>
+    navigate(questionId ? `/room/${courseId}?highlight=${questionId}` : `/room/${courseId}`)
 
   if (isLoading) {
     return <div className="grid min-h-screen place-items-center"><div className="size-10 animate-spin rounded-full border-4 border-violet-100 border-t-violet-600" aria-label="미답변 질문 불러오는 중" /></div>

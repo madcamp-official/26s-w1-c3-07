@@ -34,8 +34,10 @@ export default function CourseRoomPage() {
 
   useEffect(() => {
     if (!highlightId || !room) return
-    const target = room.questions.find((question) => question.id === highlightId)
-    if (target) setFilter(target.isResolved ? 'resolved' : 'unresolved')
+    // highlight 대상은 최상위 글일 수도, 답글일 수도 있음 - 어느 쪽이든 그 답글이 속한
+    // 최상위 글의 해결 여부를 기준으로 탭을 맞춰야 함(답글 자체엔 isResolved가 없음).
+    const owner = room.questions.find((question) => question.id === highlightId || question.replies.some((reply) => reply.id === highlightId))
+    if (owner) setFilter(owner.isResolved ? 'resolved' : 'unresolved')
 
     const timer = window.setTimeout(() => {
       document.getElementById(`post-${highlightId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -131,7 +133,7 @@ export default function CourseRoomPage() {
                 key={question.id}
                 question={question}
                 canResolve={isInstructor}
-                isHighlighted={question.id === highlightId}
+                highlightId={highlightId}
                 onLike={likeQuestion}
                 onResolve={resolveQuestion}
                 onReply={(questionId, label) => navigate(`/room/${courseId}/write`, { state: { target: { questionId, label } } })}
