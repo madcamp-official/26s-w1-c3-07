@@ -480,19 +480,19 @@ const { data } = await supabase.functions.invoke('submit-post', {
 - 회원: `user_id` — 같은 계정으로 탭/기기를 여러 개 열어도 한 명으로 집계됨.
 - 비회원: [8번](#8-비회원-인증-guest_token--x-guest-token-헤더)의 `guest_token`을 그대로 재사용 — 같은 브라우저면 한 명, 다른 브라우저/기기면 별도 접속자.
 
-**✅ `frontend-realtime-presence` 브랜치에 구현 완료**(`frontend`에서 새로 딴 브랜치, 아직 `frontend`에 병합 전) — `hooks/useRoomPresence.ts`가 이 훅을 담당합니다.
+**✅ `frontend` 브랜치에 구현·병합 완료.** 원래는 `hooks/useRoomPresence.ts`라는 별도 훅이 이 기능을 담당했지만, [12번](#12-강의-페이지-실시간-갱신-broadcast)의 Broadcast 구독과 채널을 하나로 합치면서 `useRoomPresence.ts`는 삭제되고 `services/api.ts`의 `subscribeToRoomChannel`로 통합되었습니다. 컴포넌트에서는 이 채널을 직접 다루지 않고, `useCourseRoom` 훅이 반환하는 `participantCount`를 그대로 씁니다.
 
 ```js
-const participantCount = useRoomPresence(courseId, room?.capacity ?? null)
+const { participantCount } = useCourseRoom(courseId)
 ```
 
-내부적으로는:
+내부적으로는(`subscribeToRoomChannel` 안에서):
 ```js
 const channel = supabase.channel(`lecture:${courseId}`, {
   config: { presence: { key: presenceKey } },
 })
 channel.on('presence', { event: 'sync' }, () => {
-  setParticipantCount(Object.keys(channel.presenceState()).length)
+  handlers.onParticipantCount(Object.keys(channel.presenceState()).length)
 })
 channel.subscribe()
 ```
@@ -505,9 +505,9 @@ channel.subscribe()
 
 "다른 사람이 쓴 글이 새로고침 없이 바로 뜨나요?" — 여기부터가 그 답이에요. 강의실 페이지에서 질문/답글, 좋아요, 실시간 피드백, 강의 제목/일정이 바뀌면 서버(DB 트리거)가 [Presence](#11-실시간-접속자-수-realtime-presence)와 **같은 채널**(`lecture:<lectureId>`)로 Broadcast 메시지를 쏴줘요. `postgres_changes`(테이블을 직접 구독하는 방식)가 아니라 Broadcast를 쓰는 이유는 [DB_DESIGN.md의 트리거 설명](./DB_DESIGN.md#실시간-갱신용-broadcast-트리거-5종) 참고 — 요약하면 `postgres_changes`는 RLS를 그대로 타는데 이 프로젝트 RLS는 `x-guest-token` 헤더 비교가 섞여 있어서 비회원이 이벤트를 못 받는 문제가 있었고, Broadcast는 그 문제가 없어요(회원/비회원 구분 없이 다 받음).
 
-**✅ 백엔드(DB 트리거) 구현·배포 완료. 프론트 구독 코드는 아직 없음** — 아래는 어떻게 구독하면 되는지에 대한 안내입니다.
+**✅ 백엔드(DB 트리거)·프론트 구독 코드 모두 구현·배포 완료.** 같은 `lecture:<lectureId>` 채널을 [Presence](#11-실시간-접속자-수-realtime-presence)와 공유하는데, `services/api.ts`의 `subscribeToRoomChannel(lectureId, capacity, handlers)` 함수 하나가 이 채널 생성부터 Presence·Broadcast 리스너 등록까지 전부 책임집니다(채널을 따로 만들지 않도록 구조적으로 강제되어 있어요). `handlers`에는 아래 5개 브로드캐스트 콜백에 더해 `onParticipantCount(count)`도 함께 넘겨야 합니다.
 
-같은 `lecture:<lectureId>` 채널을 [Presence](#11-실시간-접속자-수-realtime-presence)와 공유하니, 이미 그 채널을 열어뒀다면(`useRoomPresence` 등) 거기에 아래 리스너만 추가하면 됩니다. 채널을 새로 만들 필요는 없어요.
+> 참고: 예전에는 Presence와 Broadcast를 각자 다른 훅/함수에서 같은 topic으로 따로 구독했었는데, Supabase Realtime은 같은 웹소켓에서 같은 topic으로 두 번째 join이 들어오면 먼저 붙은 채널을 서버가 강제로 닫아버려서 접속자 수가 0으로 고정되는 버그가 났었습니다. 그래서 지금처럼 한 채널 인스턴스로 합쳤어요 — 앞으로도 이 채널에 리스너를 추가할 땐 새 채널을 만들지 말고 `subscribeToRoomChannel` 쪽에 추가해주세요.
 
 ```js
 channel.on('broadcast', { event: 'post_change' }, ({ payload }) => {
