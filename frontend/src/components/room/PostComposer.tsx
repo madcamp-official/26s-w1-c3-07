@@ -150,7 +150,7 @@ export default function PostComposer({ target, isLoggedIn, isInstructor = false,
         )}
         <ToggleRow
           label="AI 교정"
-          description={isAiAssisted ? 'AI가 글을 더 명확하게 개선합니다' : 'AI를 사용하지 않고 질문을 생성합니다'}
+          description={isAiAssisted ? 'AI가 글을 더 명확하게 개선합니다' : 'AI를 사용하지 않고 그대로 제출합니다'}
           checked={isAiAssisted}
           onChange={(checked) => { setIsAiAssisted(checked); setAiDraft(null) }}
         />
