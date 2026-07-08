@@ -28,7 +28,7 @@
 
 ### 8. `lecture_join_codes` 파기(DELETE) 시점/주체 결정
 
-`[join_code]` 강의 종료 시 자동으로 지울지(예: `pg_cron`), 강의자가 수동으로 파기하기 전까진 남겨둘지. 안 지워져도 입장 시 `lectures.end_time` 확인이 안전망이라 급한 이슈는 아님.
+`[join_code]` 서버가 `pg_cron`으로 주기적으로 확인해서, 강의 `end_time`이 1시간 넘게 지난 강의의 코드를 자동으로 파기하는 방식으로 결정. 안 지워져도 입장 시 `lectures.end_time` 확인이 안전망이라 급한 이슈는 아님. 아직 실제 구현(`pg_cron` 스케줄/삭제 쿼리)은 없음.
 
 ### 9. 오래된 `post_drafts` 정기 삭제 기능 추가
 
