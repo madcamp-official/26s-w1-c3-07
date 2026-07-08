@@ -858,8 +858,8 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
     if (likeDiff !== 0) return likeDiff
     return b.created_at.localeCompare(a.created_at)
   })
-  // 해결됨: 해결된 시각 오름차순(해결된 시각이 이를수록 위).
-  resolved.sort((a, b) => (a.resolved_at ?? '').localeCompare(b.resolved_at ?? ''))
+  // 해결됨: 해결된 시각 내림차순(최근에 해결될수록 위).
+  resolved.sort((a, b) => (b.resolved_at ?? '').localeCompare(a.resolved_at ?? ''))
 
   const sortedTopLevel = [...unresolved, ...resolved]
 
