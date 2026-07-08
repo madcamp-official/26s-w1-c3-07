@@ -11,14 +11,14 @@ interface FeedbackBarProps {
 
 export default function FeedbackBar({ options, canVote = true, onVote, onAcknowledge }: FeedbackBarProps) {
   return (
-    <div className="flex items-center gap-3 overflow-x-auto rounded-3xl border border-amber-100 bg-amber-50 p-4">
-      <span className="inline-flex shrink-0 items-center gap-1.5 font-extrabold text-amber-600"><Zap className="size-4 fill-amber-400 text-amber-400" />실시간 피드백</span>
+    <div className="flex items-center gap-3 overflow-x-auto rounded-3xl border border-violet-100 bg-violet-50 p-4">
+      <span className="inline-flex shrink-0 items-center gap-1.5 font-extrabold text-violet-600"><Zap className="size-4 fill-violet-400 text-violet-400" />실시간 피드백</span>
       {/* justify-evenly: 항목 사이 간격과 묶음 양 끝 여백을 모두 동일하게 배분(라벨/오른쪽 벽과 살짝 떨어지되 사이 간격과 같은 폭) */}
       <div className="flex flex-1 items-center justify-evenly gap-3">
       {options.map((option) => {
         const isEmpty = option.likeCount === 0 && option.dislikeCount === 0
         return (
-          <div key={option.key} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-amber-200 bg-white px-3 py-1.5 text-sm font-bold text-slate-700">
+          <div key={option.key} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-violet-200 bg-white px-3 py-1.5 text-sm font-bold text-slate-700">
             <span>{option.label}</span>
             <button
               type="button"
