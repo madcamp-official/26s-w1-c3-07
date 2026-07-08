@@ -311,9 +311,10 @@ async function getInstructorDataset(userId: string): Promise<{ folders: CourseFo
     .eq('created_by', userId)
     .eq('created_mode', 'lecturer')
     .order('created_at')
+    .returns<NodeRow[]>()
 
   if (error) throw error
-  return buildFolderTree((data ?? []) as NodeRow[], 'owned')
+  return buildFolderTree(data ?? [], 'owned')
 }
 
 async function getStudentDataset(userId: string): Promise<{ folders: CourseFolder[]; rootCourses: Course[] }> {
