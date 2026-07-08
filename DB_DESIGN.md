@@ -157,7 +157,7 @@ create table lecture_feedback_votes (
   voter_key uuid not null,
   value smallint not null,
   primary key (lecture_id, feedback_type, voter_key, value),
-  constraint lecture_feedback_votes_feedback_type_valid check (feedback_type in ('cold', 'hot', 'quiet', 'dark')),
+  constraint lecture_feedback_votes_feedback_type_valid check (feedback_type in ('cold', 'hot', 'quiet', 'unclear')),
   constraint lecture_feedback_votes_value_valid check (value in (1, -1))
 );
 ```
@@ -1005,3 +1005,4 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
   - `20260708150000_rename_auto_generated_check_constraints.sql` — Postgres가 이름 없는 `check` 제약에 자동으로 붙이는 `<table>[_컬럼]_check[N]` 이름들을 이 프로젝트 스타일(서술적 이름)로 통일. 일부는 과거 컬럼 리네임(`node_type`→`type`, `post_type`→`type`, `last_mode`→`mode`) 이후에도 옛 컬럼명을 그대로 가진 이름이라 이번에 같이 바로잡음(`nodes_node_type_check`→`nodes_type_valid`, `posts_post_type_check`→`posts_type_valid`, `profiles_last_mode_check`→`profiles_mode_valid` 등). `rename constraint`는 이름표만 바꾸는 메타데이터 작업이라 데이터/락 영향 없음. 이 문서의 모든 테이블 SQL도 새 이름을 명시하도록 갱신
   - `20260708160000_rename_enforce_nodes_parent_ownership_to_rules.sql` — `enforce_nodes_parent_ownership()`/`trg_enforce_nodes_parent_ownership`이 `20260708120000`부터 소유권 검사뿐 아니라 "부모가 강의면 안 됨" 구조 검사까지 하게 됐는데 이름은 여전히 "ownership"만 검사하는 것처럼 보여서, `enforce_nodes_parent_rules()`/`trg_enforce_nodes_parent_rules`로 개명(`alter function ... rename to`/`alter trigger ... rename to`라 함수 본문·트리거 동작은 그대로, 이름표만 바뀜). 개명 후에도 강의를 부모로 지정하면 여전히 차단되는지 재검증 완료
   - `20260708170000_lectures_public_view.sql` — 강의실 페이지에서 강의자 이름이 안 보이던 문제(`profiles`가 본인만 SELECT 가능해서, 강의를 만든 본인이 아니면 이름을 조회할 수 없었음) 해결용 `lectures_public` 뷰 추가. `posts_public`과 같은 원리(뷰 소유자 권한으로 `profiles` 우회 조인)로 강의 제목/일시/장소와 함께 강의자 이름(`lecturer_name`)을 공개 노출. `profiles` RLS 자체를 완화하지 않은 이유는 그러면 강의자뿐 아니라 가입한 모든 사용자 이름을 익명 스크래핑당할 수 있기 때문(자세한 내용은 "정책·트리거·뷰 보완 설명" 참고)
+  - `20260708180000_feedback_type_dark_to_unclear.sql` — 피드백 유형 `dark`를 `unclear`로 변경(조명이 어둡다는 뜻으로 오해되기 쉬워서, 원래 의도인 "글씨가 작아서/흐려서 안 보임"에 맞게). 이전에 한 번 이 값을 바꾼 적이 있었지만 그땐 이미 적용된 `init_schema.sql`의 텍스트만 고치고 실제 `ALTER`를 안 해서 라이브 DB와 프론트가 계속 `dark`를 쓰고 있었고, 이번엔 기존 데이터를 `unclear`로 `UPDATE`한 뒤 `lecture_feedback_votes_feedback_type_valid` 제약을 실제로 `ALTER`해서 라이브 DB에 반영. 프론트(`frontend` 브랜치의 `FeedbackKey`/`FEEDBACK_KEYS`/`FEEDBACK_LABELS`)는 아직 `dark`를 쓰고 있어 별도로 갱신이 필요함([SUPABASE_GUIDE.md 참고](./SUPABASE_GUIDE.md#테이블-조회))
