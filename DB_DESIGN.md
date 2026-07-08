@@ -456,7 +456,9 @@ for each row execute function handle_new_user();
 
 #### `delete_own_account()`
 
-로그인한 본인만 자기 `auth.users` 행을 삭제할 수 있게 하는 회원 탈퇴 RPC입니다. `auth.users` DELETE는 일반 role(`anon`/`authenticated`)에게 권한이 없어 `SECURITY DEFINER`로 우회하고, `auth.uid()`로 삭제 대상을 "요청자 본인"으로 못박아 다른 사람 계정을 삭제하는 걸 원천 차단합니다. `search_path`를 빈 문자열로 비워 모든 참조를 완전한 스키마 경로(`auth.users`)로 강제해 스키마 하이재킹을 방지합니다. 함수 생성 직후 `PUBLIC`에게 자동으로 부여되는 기본 실행 권한을 전부 회수(`revoke all`)하고 `authenticated`에게만 다시 실행 권한을 부여해, 로그인하지 않은 사용자는 아예 호출조차 못 하게 막습니다. 본문이 분기/변수 없는 단순 `DELETE` 한 줄이라 트리거 함수들과 달리 `plpgsql`이 필요 없어 `sql` 언어로 정의했습니다.
+로그인한 본인만 자기 `auth.users` 행을 삭제할 수 있게 하는 회원 탈퇴 RPC입니다. `auth.users` DELETE는 일반 role(`anon`/`authenticated`)에게 권한이 없어 `SECURITY DEFINER`로 우회하고, `auth.uid()`로 삭제 대상을 "요청자 본인"으로 못박아 다른 사람 계정을 삭제하는 걸 원천 차단합니다. `search_path`를 빈 문자열로 비워 모든 참조를 완전한 스키마 경로(`auth.users`)로 강제해 스키마 하이재킹을 방지합니다. 본문이 분기/변수 없는 단순 `DELETE` 한 줄이라 트리거 함수들과 달리 `plpgsql`이 필요 없어 `sql` 언어로 정의했습니다.
+
+함수 생성 직후 `PUBLIC`에게 자동으로 부여되는 기본 실행 권한을 전부 회수(`revoke all ... from public`)하고 `authenticated`에게만 다시 실행 권한을 부여했는데, **이것만으로는 `anon`을 막지 못합니다** — Supabase는 새 함수를 만들면 `PUBLIC` 회수와 별개로 `anon`/`authenticated`에 EXECUTE를 자동으로 또 부여해서, `revoke all ... from public`을 실행해도 이미 부여된 `anon`의 EXECUTE는 그대로 남습니다(`get_or_create_join_code()`/`reissue_join_code()`도 동일). 이 프로젝트는 처음엔 이걸 놓쳐서 실제로는 비로그인 상태에서도 호출 자체는 가능했던 채로 있었고(각 함수 본문이 `auth.uid()` 기반으로 대상을 제한해 실질 피해는 없었음), `get_similarity_candidates()`를 만들면서 이 함정을 알아채고 뒤늦게 `20260707220448_revoke_anon_execute_on_member_only_rpcs.sql`로 세 함수 모두 `anon`의 EXECUTE를 명시적으로 회수해 바로잡았습니다.
 
 프론트에서는 `supabase.rpc('delete_own_account')`로 호출합니다.
 
@@ -471,6 +473,7 @@ $$ language sql;
 
 revoke all on function delete_own_account() from public;
 grant execute on function delete_own_account() to authenticated;
+revoke execute on function delete_own_account() from anon;
 ```
 
 #### `get_my_favorite_subtrees()`
@@ -564,6 +567,7 @@ $$ language plpgsql;
 
 revoke all on function get_or_create_join_code(uuid) from public;
 grant execute on function get_or_create_join_code(uuid) to authenticated;
+revoke execute on function get_or_create_join_code(uuid) from anon;
 ```
 
 #### `reissue_join_code()`
@@ -609,11 +613,12 @@ $$ language plpgsql;
 
 revoke all on function reissue_join_code(uuid) from public;
 grant execute on function reissue_join_code(uuid) to authenticated;
+revoke execute on function reissue_join_code(uuid) from anon;
 ```
 
 #### `get_similarity_candidates()`
 
-`submit-post` Edge Function이 유사도 검사를 하기 전에 비교 대상 후보를 가져오는 내부 헬퍼입니다. 비교 범위는 같은 강의의 **미해결 질문 + 그 답글 전부**(무한 depth, 답글 타입 무관)로, 재귀 CTE로 미해결 최상위 질문들을 찾은 뒤 그 아래 답글을 전부 따라 내려갑니다. `submit-post`(`service_role`)만 호출하는 용도라 새 함수 생성 시 기본으로 열리는 `PUBLIC EXECUTE`를 회수하고 `service_role`에만 다시 부여했습니다 — 이 함수 자체가 `posts_public`으로도 이미 보이는 내용(`id`/`content`)만 반환해서 위험한 노출은 아니지만, "서버 전용"이라는 설계 의도와 권한을 맞춰두기 위함입니다.
+`submit-post` Edge Function이 유사도 검사를 하기 전에 비교 대상 후보를 가져오는 내부 헬퍼입니다. 비교 범위는 같은 강의의 **미해결 게시글(타입 무관: 질문/의견) + 그 답글 전부**(무한 depth, 답글 타입 무관)로, 재귀 CTE로 미해결 최상위 게시글들을 찾은 뒤 그 아래 답글을 전부 따라 내려갑니다. `submit-post`(`service_role`)만 호출하는 용도라 새 함수 생성 시 기본으로 열리는 `PUBLIC EXECUTE`를 회수하고 `service_role`에만 다시 부여했습니다 — 이 함수 자체가 `posts_public`으로도 이미 보이는 내용(`id`/`content`)만 반환해서 위험한 노출은 아니지만, "서버 전용"이라는 설계 의도와 권한을 맞춰두기 위함입니다. `posts`에 이미 `check ((parent_id is null) = (status is not null))` 제약이 있어 `status = 'unresolved'`(not null) 조건만으로 `parent_id is null`이 자동 보장되므로, root 선택 조건에 `parent_id is null`을 별도로 넣지 않습니다(`20260707230000` 마이그레이션에서 중복 조건으로 판단해 제거).
 
 ```sql
 create or replace function get_similarity_candidates(p_lecture_id uuid)
@@ -623,7 +628,6 @@ as $$
     select posts.id
     from posts
     where posts.lecture_id = p_lecture_id
-      and posts.parent_id is null
       and posts.status = 'unresolved'
   ),
   thread as (
@@ -969,6 +973,9 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
   - `20260707200000_post_drafts_staging_table.sql` — `submit-post`에서 유사 질문이 발견됐을 때 "강행 제출"을 처리하기 위한 스테이징 테이블 `post_drafts` 신설. 원래 글 내용(`lecture_id`/`parent_id`/`author_id`/`is_anonymous`/`guest_token`/`type`/`content`/`created_mode`)을 그대로 담아두고, `created_at`은 스테이징 시점이 아니라 나중에 강행 제출이 실제 실행되는 시점 값이 되도록 INSERT 시 명시적으로 넣지 않고 DB `default now()`에 맡김(강행 제출 INSERT에서도 동일하게 `created_at`을 생략해 실제 제출 순간이 그대로 기록되게 함). RLS는 켜두되 정책을 하나도 만들지 않고 `anon`/`authenticated`에서 `revoke all`로 완전히 차단 — `service_role`만 접근 가능(어차피 BYPASSRLS라 정책 여부와 무관하게 접근 가능하므로 정책을 안 만들어도 무방). "취소"는 별도 API 없이 그냥 드래프트를 방치하는 것으로 처리(고아 드래프트는 무해하며 나중에 일괄 정리하면 됨), "강행 제출"만 드래프트를 읽고 요청자 identity를 대조한 뒤 삭제하고 실제 INSERT로 이어짐
   - `20260707210000_get_similarity_candidates_rpc.sql` — `submit-post`의 유사도 검사가 AI에게 넘길 비교 대상을 얻기 위한 RPC. 같은 강의의 미해결(`status = 'unresolved'`) 질문 게시글들과 그 답글 트리 전체(재귀 CTE로 `parent_id` 체인을 끝까지 따라감)를 `(id, content)` 쌍으로 반환
   - `20260707211000_restrict_get_similarity_candidates_execute.sql` — 새 함수가 기본으로 `PUBLIC`에 EXECUTE 권한이 열려 있는 Postgres 기본 동작을 발견하고, `anon`/`authenticated`/`public`의 실행 권한을 회수하고 `service_role`에만 부여 — 클라이언트가 이 RPC를 직접 호출해 다른 사람 글 내용을 긁어가지 못하게 함(`submit-post`를 거치지 않은 직접 호출 차단)
+  - `20260707220448_revoke_anon_execute_on_member_only_rpcs.sql` — 바로 위 마이그레이션에서 알아챈 "새 함수는 기본으로 `PUBLIC` 회수와 별개로 `anon`/`authenticated`에 EXECUTE가 자동으로 열려 있다"는 함정이, `delete_own_account()`/`get_or_create_join_code()`/`reissue_join_code()`에도 똑같이 남아있던 걸 뒤늦게 발견. 이 세 함수는 `revoke all ... from public`만 해뒀어서 `anon`의 EXECUTE가 그대로 살아있었음(각 함수 본문이 `auth.uid()`로 대상을 제한해 실질 피해는 없었지만, 문서에 "비로그인은 호출 자체가 안 된다"고 서술한 것과 실제가 어긋나 있었음) — 세 함수 모두 `anon`의 EXECUTE를 명시적으로 회수해 문서 서술과 실제를 일치시킴
+  - `20260707220741_document_lecture_feedback_votes_select_lecturer.sql` — `lecture_feedback_votes_select_lecturer` 정책이 마이그레이션 파일을 거치지 않고 원격 DB에 직접(대시보드 등으로) 추가되어 있던 걸 뒤늦게 발견해 버전 관리에 편입. 강의자가 자기 강의의 피드백 투표를 `voter_key` 제한 없이 전체 행 단위로 조회할 수 있게 해주는 정책으로, 이미 원격 DB에 존재하므로 `drop policy if exists` 후 재생성하는 멱등적 형태로 작성해 실제 스키마는 바뀌지 않음
+  - `20260707230000_get_similarity_candidates_drop_redundant_parent_filter.sql` — `get_similarity_candidates()`의 root 선택 조건에서 `parent_id is null`을 제거. `posts`의 `check ((parent_id is null) = (status is not null))` 제약 때문에 `status = 'unresolved'`(not null) 조건만으로 이미 `parent_id is null`이 보장돼 논리적으로 중복이었음. 겸사겸사 비교 범위도 명시적으로 확정: `type`(질문/의견) 무관하게 같은 강의의 미해결 최상위 게시글 전부 + 그 답글을 후보로 삼음(원래도 SQL에 `type` 필터가 없어 실제로는 이렇게 동작하고 있었음) — `similarity.ts` 주석과 유사도 검사 프롬프트 문구도 이에 맞춰 정리
   - `20260708120000_enforce_nodes_parent_not_lecture.sql` — `nodes.parent_id`가 강의(`type = 'lecture'`) 노드를 가리키지 못하게 강제. 강의는 트리의 리프여야 하는데 이를 막는 제약이 없어서, 라이브 DB에 강의를 부모로 둔 노드가 실제로 하나 생겨 있던 걸 발견(테스트 중 수동으로 만든 데이터, 이후 올바른 부모로 직접 수정). 부모 행의 `type`을 참조해야 해서 `check` 제약으로는 표현 불가 → 기존 `enforce_nodes_parent_ownership()` 트리거에 조건 추가. 실제 INSERT로 차단되는지 검증 완료(이후 `20260708160000`에서 이 트리거/함수 이름을 검사 범위에 맞게 개명함)
   - `20260708130000_posts_deleted_author_placeholder.sql` — 탈퇴한 회원이 실명으로 쓴 글을 익명 처리하지 않고 "탈퇴한 계정입니다"로 표시할 수 있도록 스키마 변경. `anonymize_posts_before_profile_delete()` 트리거/함수를 삭제하고(더 이상 탈퇴 시 글을 강제로 `is_anonymous = true`로 바꾸지 않음), 이로 인해 깨지는 두 체크 제약을 손봄: `posts_check`(작성자 없으면 무조건 익명)를 `posts_guest_must_be_anonymous`(`guest_token`이 있으면, 즉 진짜 비회원 글이면 반드시 익명)로 좁히고, `posts_author_id_xor_guest_token`(정확히 하나만 값을 가짐)을 `posts_author_id_guest_token_not_both_set`(둘 다 값을 갖지는 않음, 둘 다 `null`은 허용)으로 다시 완화. 라이브 DB에서 실명 글을 쓴 회원이 탈퇴하는 시나리오를 직접 실행해 제약 위반 없이 통과하는지 검증 완료
   - `20260708140000_posts_lecturer_mode_not_anonymous.sql` — 강의자 모드로 쓴 글(`created_mode = 'lecturer'`)은 반드시 실명이어야 한다는 `posts_lecturer_mode_not_anonymous` 체크 제약 추가. 바로 위 변경으로 회원 탈퇴가 더 이상 `is_anonymous`를 건드리지 않게 되어, 이 제약이 탈퇴 여부와 무관하게 항상 성립하게 됨. 라이브 DB에서 강의자 모드 실명 답글을 쓴 계정이 탈퇴하는 시나리오까지 함께 검증 완료
