@@ -20,7 +20,6 @@
     - [`post_likes_counts`](#post_likes_counts)
     - [`lecture_feedback_votes_counts`](#lecture_feedback_votes_counts)
   - [트리거 함수](#트리거-함수)
-    - [`anonymize_posts_before_profile_delete()`](#anonymize_posts_before_profile_delete)
     - [`block_status_change_by_non_lecturer()`](#block_status_change_by_non_lecturer)
     - [`set_resolved_at_on_status_change()`](#set_resolved_at_on_status_change)
     - [`unresolve_post_on_question_reply()`](#unresolve_post_on_question_reply)
@@ -156,7 +155,12 @@ create table lecture_feedback_votes (
 
 #### `posts`
 
-게시글과 답글을 하나로 통합한 자기참조 트리로, `parent_id`가 `null`이면 최상위 게시글, 값이 있으면 답글입니다(무한 depth). 최상위 글을 삭제하면 답글도 `on delete cascade`로 재귀 삭제됩니다. `author_id`는 비회원이면 `null`이고, 회원이 탈퇴해도 `on delete set null`로 글은 남고 작성자 정보만 사라집니다. `guest_token`은 비회원 글 수정/삭제 인증용인 `uuid`이며(`crypto.randomUUID()`로 생성, 자세한 이유는 아래 "비회원 익명 식별자" 절 참고), 강의가 끝나도 무효화하지 않고 영구 보존합니다 — 왜 무효화가 필요 없는지는 아래 CHECK 제약 설명 참고. `status`는 최상위 게시글만 사용(답글은 `null`)하고, `resolved_at`은 해결됨으로 바뀐 시각으로 해결된 게시글 정렬 기준이며 미해결로 되돌아가면 다시 `null` 처리됩니다. `created_mode`는 강의자 모드/수강생 모드 중 어느 화면에서 썼는지를 저장해 화면에서 색을 구분하는 데 씁니다. 다섯 개의 `check` 제약은 각각: 작성자가 없으면(비회원) 반드시 익명이어야 함, 최상위 게시글은 `status` 필수·답글은 `status` 필수 `null`, 강의자 모드로 쓴 글은 답글+`opinion` 타입만 가능, `resolved`일 때만 `resolved_at`이 존재하도록 양방향 강제, `author_id`와 `guest_token` 중 **정확히 하나만** 값을 가지도록 강제(`posts_author_id_xor_guest_token`). 원래는 "둘 다 값을 갖는 경우"만 막고 "둘 다 `null`"(강의 종료 후 `guest_token`을 지워 무효화하는 상태)은 허용했었는데, `guest_token`이 `crypto.randomUUID()`(UUID v4, 122비트 무작위성) 기반이라 강의 하나에 쌓인 토큰들 사이에서 우연히 겹치는 쌍이 하나라도 나올 확률(생일 문제로 계산)이 현실적인 방문자 수 규모에서는 무시 가능한 수준이라고 판단해 무효화 로직 자체를 도입하지 않기로 결정했고, 그러면 "둘 다 `null`"인 상태가 나올 이유가 없어져 제약을 XOR로 강화했습니다(자세한 계산 근거는 [TODO.md](./TODO.md#해결된-것-참고용-기록) 참고).
+게시글과 답글을 하나로 통합한 자기참조 트리로, `parent_id`가 `null`이면 최상위 게시글, 값이 있으면 답글입니다(무한 depth). 최상위 글을 삭제하면 답글도 `on delete cascade`로 재귀 삭제됩니다. `author_id`는 비회원이면 `null`이고, 회원이 탈퇴해도 `on delete set null`로 글은 남고 작성자 정보만 사라집니다 — 이때 `is_anonymous`는 건드리지 않고 원래 값 그대로 둡니다(자세한 이유는 아래 CHECK 제약 설명과 "정책·트리거·뷰" 절 참고). `guest_token`은 비회원 글 수정/삭제 인증용인 `uuid`이며(`crypto.randomUUID()`로 생성, 자세한 이유는 아래 "비회원 익명 식별자" 절 참고), 강의가 끝나도 무효화하지 않고 영구 보존합니다 — 왜 무효화가 필요 없는지는 아래 CHECK 제약 설명 참고. `status`는 최상위 게시글만 사용(답글은 `null`)하고, `resolved_at`은 해결됨으로 바뀐 시각으로 해결된 게시글 정렬 기준이며 미해결로 되돌아가면 다시 `null` 처리됩니다. `created_mode`는 강의자 모드/수강생 모드 중 어느 화면에서 썼는지를 저장해 화면에서 색을 구분하는 데 씁니다. 다섯 개의 `check` 제약은 각각:
+- `posts_guest_must_be_anonymous`: `guest_token`이 있는 글(=진짜 비회원 글)은 반드시 익명이어야 함. 원래는 "작성자(`author_id`)가 없으면 무조건 익명"이었는데, 이러면 탈퇴한 회원의 실명 글까지 이 제약에 걸려버려서(아래 참고) `guest_token` 기준으로 좁혔습니다.
+- 최상위 게시글은 `status` 필수·답글은 `status` 필수 `null`
+- 강의자 모드로 쓴 글은 답글+`opinion` 타입만 가능
+- `resolved`일 때만 `resolved_at`이 존재하도록 양방향 강제
+- `posts_author_id_guest_token_not_both_set`: `author_id`와 `guest_token`이 동시에 값을 갖지는 못하게 막음(둘 다 `null`인 상태는 허용). 한때 "정확히 하나만 값을 가짐"(XOR)으로 강화했다가, 회원 탈퇴 시 `author_id`가 `null`이 되면서 `guest_token`(원래도 `null`)과 함께 "둘 다 `null`"인 상태가 정상적으로 발생해야 한다는 게 드러나 다시 완화했습니다(`guest_token` 자체를 지우는 무효화 로직을 다시 쓰는 건 아님 — 왜 무효화가 필요 없는지는 [TODO.md](./TODO.md#해결된-것-참고용-기록) 참고).
 
 ```sql
 create table posts (
@@ -172,13 +176,15 @@ create table posts (
   content text not null,
   created_at timestamptz default now(),
   created_mode text not null default 'student' check (created_mode in ('lecturer', 'student')),
-  check (author_id is not null or is_anonymous = true),
+  constraint posts_guest_must_be_anonymous check (guest_token is null or is_anonymous = true),
   check ((parent_id is null) = (status is not null)),
   check (created_mode <> 'lecturer' or (parent_id is not null and type = 'opinion')),
   check ((status = 'resolved') = (resolved_at is not null)),
-  constraint posts_author_id_xor_guest_token check ((author_id is null) <> (guest_token is null))
+  constraint posts_author_id_guest_token_not_both_set check (author_id is null or guest_token is null)
 );
 ```
+
+**탈퇴한 회원이 실명으로 쓴 글은 어떻게 되는가**: `author_id`가 `on delete set null`로 `null`이 되지만 `is_anonymous`는 그대로 `false`로 남습니다. `is_anonymous = false`인 행은 `posts_guest_must_be_anonymous` 제약 때문에 `guest_token`이 항상 `null`이라(비회원 글이 아니라는 뜻), "`author_id`도 `guest_token`도 `null`인데 `is_anonymous`가 `false`"인 상태는 오직 탈퇴한 회원의 실명 글에서만 나올 수 있습니다. `posts_public` 뷰에서는 이 상태가 `author_display_name is null`(조인 대상 프로필이 없으므로)이면서 `is_anonymous = false`인 행으로 그대로 드러나므로, 프론트는 이 조합을 "탈퇴한 계정입니다"로 표시하면 됩니다. 원래는 `profiles` 삭제 직전(`BEFORE DELETE`)에 `anonymize_posts_before_profile_delete()` 트리거가 해당 작성자의 글을 전부 `is_anonymous = true`로 강제 변경해서 이 문제를 우회했지만, 그러면 실명 글까지 전부 "익명"으로 뭉개져서 탈퇴 사실 자체를 구분할 수 없었기 때문에 이 트리거는 삭제했습니다(자세한 배경은 배포 현황의 `20260708130000_posts_deleted_author_placeholder.sql` 항목 참고).
 
 #### `post_drafts`
 
@@ -281,28 +287,6 @@ group by lecture_id, feedback_type;
 ```
 
 ### 트리거 함수
-
-#### `anonymize_posts_before_profile_delete()`
-
-회원이 탈퇴하면 `profiles`가 `on delete cascade`로 삭제되면서 그 사람이 쓴 글의 `author_id`가 `null`로 바뀌는데, `posts`엔 "작성자가 없으면 반드시 익명이어야 한다"는 체크 제약(`check (author_id is not null or is_anonymous = true)`)이 있어서 실명으로 쓴 글이 이 제약을 위반하게 됩니다. 이 트리거는 `profiles` 삭제 **직전**(`BEFORE DELETE`)에 해당 작성자의 글을 먼저 `is_anonymous = true`로 바꿔 이 충돌을 막습니다. `search_path`를 `public`으로 명시 고정한 이유는, 이 트리거를 호출하는 쪽(예: `delete_own_account()`, `search_path=''`)의 `search_path`를 그대로 물려받으면 `posts`처럼 스키마 미지정 참조가 깨지기 때문입니다 — 호출 컨텍스트와 무관하게 항상 동작하도록 자체적으로 고정했습니다.
-
-```sql
-create or replace function anonymize_posts_before_profile_delete()
-returns trigger
-set search_path = public
-as $$
-begin
-  update posts
-  set is_anonymous = true
-  where author_id = old.id;
-  return old;
-end;
-$$ language plpgsql;
-
-create trigger trg_anonymize_posts_before_profile_delete
-before delete on profiles
-for each row execute function anonymize_posts_before_profile_delete();
-```
 
 #### `block_status_change_by_non_lecturer()`
 
@@ -764,7 +748,7 @@ create policy "lecture_feedback_votes_lecturer_reset" on lecture_feedback_votes 
 
 #### `posts`
 
-RLS는 "누가 행에 접근 가능한가"만 결정할 뿐, "어떤 테이블/컬럼에 접근 가능한가"는 별도의 GRANT 권한 문제입니다. 전체 공개 SELECT 정책을 열어둔 채로 `guest_token` 컬럼을 그대로 두면, RLS와 무관하게 `posts` 테이블에 직접 `select`를 날리는 것만으로 `guest_token`이 노출되어 남의 글을 수정/삭제할 수 있게 됩니다. 그래서 `guest_token`/`author_id` 두 컬럼만 컬럼 단위로 GRANT에서 계속 제외하고, 나머지 컬럼은 아래 두 SELECT 정책이 허용하는 행(본인 글 또는 자기 강의의 글)에 한해 직접 조회도 가능합니다. 목록 조회처럼 여러 사람의 글을 한 번에 봐야 하는 화면은 여전히 `posts_public` 뷰(위 "뷰" 섹션 참고)를 쓰세요. 회원/비회원 누구나 글을 쓸 수 있지만(단 `author_id`는 본인 것만 주장 가능), 수정/삭제는 `post_likes`와 같은 방식으로 처리합니다 — 회원은 `auth.uid()`, 비회원은 `x-guest-token` 헤더 값(`::uuid`로 캐스팅)과 `guest_token` 일치 여부로 확인합니다. `posts_update_own`/`posts_delete_own`의 `guest_token` 비교 조건에는 원래 `author_id is null and` 가드가 앞에 붙어 있었는데, 위 [테이블 → `posts`](#posts)의 옛 배타 제약(`author_id is null or guest_token is null`)이 생기면서 `guest_token = 헤더`가 참이라는 것 자체가 이미 `author_id is null`을 함의하게 되어 가드가 논리적으로 중복이 되었고, 그래서 제거했습니다. 이후 무효화 로직을 도입하지 않기로 결정하면서 이 제약이 `posts_author_id_xor_guest_token`(정확히 하나만 값을 가짐)으로 강화됐고, `guest_token` 컬럼 타입도 `uuid`로 바뀌었습니다.
+RLS는 "누가 행에 접근 가능한가"만 결정할 뿐, "어떤 테이블/컬럼에 접근 가능한가"는 별도의 GRANT 권한 문제입니다. 전체 공개 SELECT 정책을 열어둔 채로 `guest_token` 컬럼을 그대로 두면, RLS와 무관하게 `posts` 테이블에 직접 `select`를 날리는 것만으로 `guest_token`이 노출되어 남의 글을 수정/삭제할 수 있게 됩니다. 그래서 `guest_token`/`author_id` 두 컬럼만 컬럼 단위로 GRANT에서 계속 제외하고, 나머지 컬럼은 아래 두 SELECT 정책이 허용하는 행(본인 글 또는 자기 강의의 글)에 한해 직접 조회도 가능합니다. 목록 조회처럼 여러 사람의 글을 한 번에 봐야 하는 화면은 여전히 `posts_public` 뷰(위 "뷰" 섹션 참고)를 쓰세요. 회원/비회원 누구나 글을 쓸 수 있지만(단 `author_id`는 본인 것만 주장 가능), 수정/삭제는 `post_likes`와 같은 방식으로 처리합니다 — 회원은 `auth.uid()`, 비회원은 `x-guest-token` 헤더 값(`::uuid`로 캐스팅)과 `guest_token` 일치 여부로 확인합니다. `posts_update_own`/`posts_delete_own`의 `guest_token` 비교 조건에는 원래 `author_id is null and` 가드가 앞에 붙어 있었는데, 위 [테이블 → `posts`](#posts)의 옛 배타 제약(`author_id is null or guest_token is null`)이 생기면서 `guest_token = 헤더`가 참이라는 것 자체가 이미 `author_id is null`을 함의하게 되어 가드가 논리적으로 중복이 되었고, 그래서 제거했습니다. 이후 무효화 로직을 도입하지 않기로 결정하면서 이 제약이 `posts_author_id_xor_guest_token`(정확히 하나만 값을 가짐)으로 강화됐고, `guest_token` 컬럼 타입도 `uuid`로 바뀌었습니다(가드 제거 로직은 이 XOR 상태에서도 그대로 유효). 다만 탈퇴한 회원의 글을 익명으로 뭉개지 않고 "탈퇴한 계정"으로 보존하기로 결정하면서(아래 `posts` 테이블 설명 참고), `author_id`가 `on delete set null`로 `null`이 되어도 `guest_token`은 원래도 `null`이라 "둘 다 `null`"인 상태가 정상적으로 발생해야 하게 되어, 제약을 다시 `posts_author_id_guest_token_not_both_set`(둘 다 값을 갖지는 않음)으로 완화했습니다.
 
 **`posts_select_own`/`posts_select_lecturer`가 왜 필요한가**: Postgres는 UPDATE/DELETE가 대상 행을 찾을 때(WHERE 절 평가) SELECT 커맨드에 대한 RLS 가시성도 함께 요구합니다. `posts`에 SELECT 정책이 하나도 없으면 `posts_update_own`/`posts_lecturer_delete` 등 UPDATE/DELETE 전용 정책이 아무리 맞아도 대상 행 자체가 "안 보이는" 걸로 취급되어 전부 0행 매치로 실패합니다(실제로 프론트에서 답글 수정/질문 해결 처리가 42501로 막히는 버그로 발견됨). 그래서 UPDATE/DELETE가 허용하는 행과 정확히 같은 조건으로 SELECT 정책 두 개를 추가해 가시성을 확보했습니다. `guest_token`/`author_id`는 이 SELECT로도 여전히 컬럼 단위로 막혀 있어서(위 GRANT 참고), `select('*')`나 `select('guest_token')`류는 여전히 42501로 거부됩니다 — 정책이 "행 가시성"을 열어준 것과 "컬럼 접근권"은 별개라 이 둘을 조합해야 안전합니다. 프론트에서 `.update()` 뒤에 `.select()`를 체이닝할 땐 `select('*')`가 아니라 허용된 컬럼만 명시하거나(`return=representation` 대신 `return=minimal`, 즉 `.select()` 자체를 생략) `createPost`가 이미 쓰고 있는 방식을 그대로 따르세요.
 
@@ -962,3 +946,4 @@ AI 교정/적절성 검사/유사 질문 탐지처럼 DB 스키마(Postgres 함�
   - `20260707200000_post_drafts_staging_table.sql` — `submit-post`에서 유사 질문이 발견됐을 때 "강행 제출"을 처리하기 위한 스테이징 테이블 `post_drafts` 신설. 원래 글 내용(`lecture_id`/`parent_id`/`author_id`/`is_anonymous`/`guest_token`/`type`/`content`/`created_mode`)을 그대로 담아두고, `created_at`은 스테이징 시점이 아니라 나중에 강행 제출이 실제 실행되는 시점 값이 되도록 INSERT 시 명시적으로 넣지 않고 DB `default now()`에 맡김(강행 제출 INSERT에서도 동일하게 `created_at`을 생략해 실제 제출 순간이 그대로 기록되게 함). RLS는 켜두되 정책을 하나도 만들지 않고 `anon`/`authenticated`에서 `revoke all`로 완전히 차단 — `service_role`만 접근 가능(어차피 BYPASSRLS라 정책 여부와 무관하게 접근 가능하므로 정책을 안 만들어도 무방). "취소"는 별도 API 없이 그냥 드래프트를 방치하는 것으로 처리(고아 드래프트는 무해하며 나중에 일괄 정리하면 됨), "강행 제출"만 드래프트를 읽고 요청자 identity를 대조한 뒤 삭제하고 실제 INSERT로 이어짐
   - `20260707210000_get_similarity_candidates_rpc.sql` — `submit-post`의 유사도 검사가 AI에게 넘길 비교 대상을 얻기 위한 RPC. 같은 강의의 미해결(`status = 'unresolved'`) 질문 게시글들과 그 답글 트리 전체(재귀 CTE로 `parent_id` 체인을 끝까지 따라감)를 `(id, content)` 쌍으로 반환
   - `20260707211000_restrict_get_similarity_candidates_execute.sql` — 새 함수가 기본으로 `PUBLIC`에 EXECUTE 권한이 열려 있는 Postgres 기본 동작을 발견하고, `anon`/`authenticated`/`public`의 실행 권한을 회수하고 `service_role`에만 부여 — 클라이언트가 이 RPC를 직접 호출해 다른 사람 글 내용을 긁어가지 못하게 함(`submit-post`를 거치지 않은 직접 호출 차단)
+  - `20260708130000_posts_deleted_author_placeholder.sql` — 탈퇴한 회원이 실명으로 쓴 글을 익명 처리하지 않고 "탈퇴한 계정입니다"로 표시할 수 있도록 스키마 변경. `anonymize_posts_before_profile_delete()` 트리거/함수를 삭제하고(더 이상 탈퇴 시 글을 강제로 `is_anonymous = true`로 바꾸지 않음), 이로 인해 깨지는 두 체크 제약을 손봄: `posts_check`(작성자 없으면 무조건 익명)를 `posts_guest_must_be_anonymous`(`guest_token`이 있으면, 즉 진짜 비회원 글이면 반드시 익명)로 좁히고, `posts_author_id_xor_guest_token`(정확히 하나만 값을 가짐)을 `posts_author_id_guest_token_not_both_set`(둘 다 값을 갖지는 않음, 둘 다 `null`은 허용)으로 다시 완화. 라이브 DB에서 실명 글을 쓴 회원이 탈퇴하는 시나리오를 직접 실행해 제약 위반 없이 통과하는지 검증 완료
