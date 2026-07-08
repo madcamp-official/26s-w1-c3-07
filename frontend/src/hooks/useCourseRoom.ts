@@ -270,12 +270,19 @@ export function useCourseRoom(courseId: string | undefined) {
     })
   }
 
-  const likeQuestion = async (questionId: string): Promise<void> => {
+  const likeQuestion = async (postId: string): Promise<void> => {
     if (!courseId) return
-    const { likeCount, isLikedByMe } = await toggleQuestionLike(courseId, questionId)
+    const { likeCount, isLikedByMe } = await toggleQuestionLike(courseId, postId)
     setState((current) => {
       if (!current.room) return current
-      const questions = current.room.questions.map((question) => (question.id === questionId ? { ...question, likeCount, isLikedByMe } : question))
+      const questions = current.room.questions.map((question) => {
+        if (question.id === postId) return { ...question, likeCount, isLikedByMe }
+        if (!question.replies.some((reply) => reply.id === postId)) return question
+        return {
+          ...question,
+          replies: question.replies.map((reply) => (reply.id === postId ? { ...reply, likeCount, isLikedByMe } : reply)),
+        }
+      })
       return { ...current, room: { ...current.room, questions } }
     })
   }

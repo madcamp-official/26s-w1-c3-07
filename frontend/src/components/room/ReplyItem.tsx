@@ -1,16 +1,18 @@
-import { ThumbsUp, Trash2 } from 'lucide-react'
+import { MessageSquare, Pencil, ThumbsUp, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { QuestionReply } from '../../types/room'
 import { cn } from '../../utils/cn'
 
 interface ReplyItemProps {
   reply: QuestionReply
+  canLike?: boolean
+  onLike?: () => void
   onReply?: () => void
   onEdit?: (content: string) => Promise<void>
   onDelete?: () => void
 }
 
-export default function ReplyItem({ reply, onReply, onEdit, onDelete }: ReplyItemProps) {
+export default function ReplyItem({ reply, canLike = true, onLike, onReply, onEdit, onDelete }: ReplyItemProps) {
   const isLecturer = reply.authorRole === 'lecturer'
   const isOpinion = reply.postType === 'opinion'
   const [isEditing, setIsEditing] = useState(false)
@@ -51,11 +53,13 @@ export default function ReplyItem({ reply, onReply, onEdit, onDelete }: ReplyIte
         </div>
         <div className="flex items-center gap-2">
           {reply.isEditable && !isEditing && (
-            <button type="button" onClick={startEditing} className="text-xs font-medium text-slate-400 hover:text-violet-600">수정하기</button>
+            <button type="button" onClick={startEditing} className="rounded-lg p-1.5 text-slate-300 hover:bg-slate-50 hover:text-violet-600" aria-label="수정">
+              <Pencil className="size-4" />
+            </button>
           )}
           {reply.canDelete && onDelete && (
-            <button type="button" onClick={onDelete} className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-rose-600">
-              <Trash2 className="size-3" />삭제
+            <button type="button" onClick={onDelete} className="rounded-lg p-1.5 text-slate-300 hover:bg-rose-50 hover:text-rose-500" aria-label="삭제">
+              <Trash2 className="size-4" />
             </button>
           )}
         </div>
@@ -87,11 +91,24 @@ export default function ReplyItem({ reply, onReply, onEdit, onDelete }: ReplyIte
         <p className="mt-2 text-sm leading-relaxed text-slate-700">{reply.content}</p>
       )}
 
-      <button type="button" onClick={onReply} className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-violet-600">
-        <ThumbsUp className="size-3.5" />{reply.likeCount}
-        <span className="text-slate-300">·</span>
-        답글
-      </button>
+      <div className="mt-2 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onLike}
+          disabled={!canLike}
+          className={cn(
+            'inline-flex items-center gap-1.5 text-xs font-bold transition disabled:cursor-not-allowed',
+            reply.isLikedByMe ? 'text-violet-600' : 'text-slate-400',
+            canLike && !reply.isLikedByMe && 'hover:text-violet-600',
+          )}
+          aria-pressed={reply.isLikedByMe}
+        >
+          <ThumbsUp className={cn('size-3.5', reply.isLikedByMe && 'fill-violet-600')} />{reply.likeCount}
+        </button>
+        <button type="button" onClick={onReply} className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-violet-600">
+          <MessageSquare className="size-3.5" />답글
+        </button>
+      </div>
     </div>
   )
 }

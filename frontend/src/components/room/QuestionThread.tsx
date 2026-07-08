@@ -7,6 +7,7 @@ import ReplyItem from './ReplyItem'
 interface QuestionThreadProps {
   question: Question
   canResolve?: boolean
+  canLike?: boolean
   isHighlighted?: boolean
   onLike: (questionId: string) => Promise<void>
   onResolve?: (questionId: string) => Promise<void>
@@ -16,7 +17,7 @@ interface QuestionThreadProps {
   onDelete?: (postId: string) => void
 }
 
-export default function QuestionThread({ question, canResolve = false, isHighlighted = false, onLike, onResolve, onReply, onEdit, onEditReply, onDelete }: QuestionThreadProps) {
+export default function QuestionThread({ question, canResolve = false, canLike = true, isHighlighted = false, onLike, onResolve, onReply, onEdit, onEditReply, onDelete }: QuestionThreadProps) {
   const [isExpanded, setIsExpanded] = useState(true)
   const [isResolving, setIsResolving] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -132,7 +133,12 @@ export default function QuestionThread({ question, canResolve = false, isHighlig
         <button
           type="button"
           onClick={() => void onLike(question.id)}
-          className={cn('inline-flex items-center gap-1.5 text-sm font-bold transition', question.isLikedByMe ? 'text-violet-600' : 'text-slate-400 hover:text-violet-600')}
+          disabled={!canLike}
+          className={cn(
+            'inline-flex items-center gap-1.5 text-sm font-bold transition disabled:cursor-not-allowed',
+            question.isLikedByMe ? 'text-violet-600' : 'text-slate-400',
+            canLike && !question.isLikedByMe && 'hover:text-violet-600',
+          )}
           aria-pressed={question.isLikedByMe}
         >
           <ThumbsUp className={cn('size-4', question.isLikedByMe && 'fill-violet-600')} />{question.likeCount}
@@ -148,6 +154,8 @@ export default function QuestionThread({ question, canResolve = false, isHighlig
             <ReplyItem
               key={reply.id}
               reply={reply}
+              canLike={canLike}
+              onLike={() => void onLike(reply.id)}
               onReply={() => onReply(reply.id, reply.content)}
               onEdit={onEditReply ? (content) => onEditReply(question.id, reply.id, content) : undefined}
               onDelete={onDelete ? () => onDelete(reply.id) : undefined}
