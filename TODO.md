@@ -3,16 +3,13 @@
 ## 목차
 
 - [미해결 (중요도순)](#미해결-중요도순)
-  - [1. Supabase Auth 리다이렉트 URL 허용 목록에 와일드카드 등록 확인](#1-supabase-auth-리다이렉트-url-허용-목록에-와일드카드-등록-확인) `[Auth]`
 - [해결된 것 (참고용 기록)](#해결된-것-참고용-기록)
 
 ## 미해결 (중요도순)
 
 아래는 위에서부터 중요도(체감 영향/리스크) 순서로 정렬되어 있음: README 명세와 실제 동작이 어긋나는 명백한 버그 → 데이터 무결성 리스크 → 설계가 아직 안 끝난 미완성 기능 → 안전망이 있어 급하지 않은 낮은 리스크 → 무해한 하우스키핑 순.
 
-### 1. Supabase Auth 리다이렉트 URL 허용 목록에 와일드카드 등록 확인
-
-`[Auth]` `frontend`(`signInWithGoogle`, `services/api.ts`)가 OAuth `redirectTo`를 로그인을 호출한 현재 페이지 URL(`window.location.href`)로 보내도록 바뀌었는데, Supabase 대시보드(Authentication → URL Configuration → Redirect URLs)에 이 프로젝트의 실제 배포 도메인에 대한 와일드카드 패턴(예: `https://<도메인>/**`)이 등록돼 있는지 미확인 상태. 등록 안 돼 있으면 홈이 아닌 다른 경로(`/room/<id>`, `/room/<id>/write` 등)로의 리다이렉트가 실패함. 코드 변경이 아니라 Supabase 대시보드에서 직접 확인/등록해야 하는 작업.
+(현재 없음)
 
 ## 해결된 것 (참고용 기록)
 
@@ -73,3 +70,4 @@
   - `frontend/src/hooks/useCourseRoom.ts`에 `admissionStatus`(`'pending' | 'admitted' | 'full'`) 상태 추가. Presence 동기화가 지연/실패해서 입장 가능 여부 결정이 영영 안 나는 경우(네트워크 문제 등)를 대비해 5초 타임아웃으로 자동 입장 허용(fail-open) 처리.
   - `frontend/src/pages/CourseRoomPage.tsx`: `admissionStatus`가 `'full'`이면 강의실 콘텐츠 대신 정원 초과 안내 화면을, `'pending'`이면 로딩 스피너를 보여주고, `'admitted'`일 때만 기존 강의실 화면을 렌더링. "홈으로" 버튼은 비회원이면 `/`로, 회원이면 `/courses`로 이동.
   - 실제 DB에서 강의 정원을 0으로 낮춰 라이브로 차단 화면과 "홈으로" 버튼 동작을 확인 후 원래 값(`null`)으로 복원함. `frontend-2` 브랜치에서 구현 완료.
+- **`[Auth]` Supabase Auth 리다이렉트 URL 허용 목록 미등록으로 실제 404 발생 → Site URL/Redirect URLs 갱신으로 해결** — Vercel 배포 도메인이 `26s-w1-c3-07.vercel.app`에서 `q-room.vercel.app`으로 바뀌었는데, Supabase 대시보드(Authentication → URL Configuration)의 Site URL이 옛 도메인(`26s-w1-c3-07.vercel.app`)에 그대로 남아 있어서 Google 로그인 후 옛 도메인으로 리다이렉트되며 404가 발생함. Site URL을 `https://q-room.vercel.app`로 바꾸고, Redirect URLs 허용 목록에도 `https://q-room.vercel.app/**` 와일드카드를 추가해 해결. 코드 변경 없이 Supabase 대시보드에서만 조치. 배포 도메인 자체가 바뀌었던 게 근본 원인이라, 이후 다시 도메인이 바뀌면 Site URL/Redirect URLs를 새 도메인으로 갱신해야 같은 문제가 재발하지 않음.
