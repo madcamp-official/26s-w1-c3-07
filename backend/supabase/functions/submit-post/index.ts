@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { HttpError, resolveIdentity } from "./identity.ts";
-import { moderateContent } from "./moderate.ts";
+import { moderateContent } from "./moderation.ts";
 import { findMostSimilarPostId } from "./similarity.ts";
 import { consumeDraft, createDraft } from "./drafts.ts";
 import type { NewPostFields } from "./drafts.ts";
