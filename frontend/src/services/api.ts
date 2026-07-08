@@ -648,11 +648,14 @@ export async function deleteCourseItem(input: DeleteItemInput): Promise<void> {
   if (error) throw error
 }
 
-interface NodeWithLectureAndOwnerRow {
+interface LecturePublicRow {
   id: string
-  name: string
-  created_by: string | null
-  lectures: { start_time: string; end_time: string; location: string | null } | null
+  title: string
+  start_time: string
+  end_time: string
+  location: string | null
+  max_participants: number | null
+  lecturer_name: string | null
 }
 
 function formatLectureDate(startTime: string): string {
@@ -669,34 +672,22 @@ interface CourseRoomMeta {
   participantCount: number
 }
 
-/** 실제 DB(nodes+lectures)에서 강의 메타데이터만 조회합니다. */
+/** 실제 DB(lectures_public)에서 강의 메타데이터만 조회합니다. */
 async function getCourseRoomFromDb(courseId: string): Promise<CourseRoomMeta> {
-  const { data: node, error } = await supabase
-    .from('nodes')
-    .select('id, name, created_by, lectures(start_time, end_time, location)')
+  const { data: lecture, error } = await supabase
+    .from('lectures_public')
+    .select('id, title, start_time, end_time, location, max_participants, lecturer_name')
     .eq('id', courseId)
-    .eq('type', 'lecture')
-    .single<NodeWithLectureAndOwnerRow>()
+    .single<LecturePublicRow>()
 
-  if (error || !node) throw new Error('강의실을 찾을 수 없습니다.')
-
-  // profiles는 본인만 SELECT 가능(RLS)이라, 남의 강의를 볼 때는 소유자 이름을 조회할 수 없습니다.
-  // 로그인한 계정이 이 강의의 소유자 본인인 경우에만 정확한 이름을 얻을 수 있고,
-  // 그 외(다른 강의자/수강생/게스트가 볼 때)에는 기본값으로 폴백합니다.
-  let lecturerName = '강의자'
-  if (node.created_by) {
-    const { data: sessionData } = await supabase.auth.getSession()
-    if (sessionData.session?.user.id === node.created_by) {
-      const { data: owner } = await supabase.from('profiles').select('name').eq('id', node.created_by).maybeSingle<{ name: string | null }>()
-      if (owner?.name) lecturerName = owner.name
-    }
-  }
+  if (error || !lecture) throw new Error('강의실을 찾을 수 없습니다.')
 
   return {
-    id: node.id,
-    title: node.name,
-    date: node.lectures ? formatLectureDate(node.lectures.start_time) : '',
-    lecturerName,
+    id: lecture.id,
+    title: lecture.title,
+    date: formatLectureDate(lecture.start_time),
+    // lecturer_name이 null이면 강의를 만든 계정이 탈퇴한 것입니다.
+    lecturerName: lecture.lecturer_name ?? '탈퇴한 계정입니다',
     participantCount: 0,
   }
 }
@@ -753,6 +744,15 @@ function postAuthorRole(row: Pick<PostPublicRow, 'is_anonymous' | 'created_mode'
   return row.created_mode === 'lecturer' ? 'lecturer' : 'student'
 }
 
+/**
+ * 익명 글은 항상 "익명"으로 표시합니다. 실명 글인데 author_display_name이 null이면
+ * 작성자가 탈퇴한 회원이라는 뜻이라 "탈퇴한 계정입니다"로 표시합니다.
+ */
+function resolvePostAuthorName(row: Pick<PostPublicRow, 'is_anonymous' | 'author_display_name'>): string {
+  if (row.is_anonymous) return '익명'
+  return row.author_display_name ?? '탈퇴한 계정입니다'
+}
+
 /** 유사 질문 발견 모달에서 보여줄 글 내용을 조회합니다. */
 export async function getSimilarQuestionPreview(postId: string): Promise<{ content: string; authorName: string } | null> {
   const { data, error } = await supabase
@@ -762,7 +762,7 @@ export async function getSimilarQuestionPreview(postId: string): Promise<{ conte
     .maybeSingle<{ content: string; is_anonymous: boolean; author_display_name: string | null }>()
 
   if (error || !data) return null
-  return { content: data.content, authorName: data.is_anonymous ? '익명' : (data.author_display_name ?? '이름 없음') }
+  return { content: data.content, authorName: resolvePostAuthorName(data) }
 }
 
 /** posts_public(flat) + 좋아요/내 투표 정보를 합쳐 최상위 질문(Question[]) 트리로 조립합니다. */
@@ -799,7 +799,7 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
 
   const toReply = (row: PostPublicRow, depth: number): QuestionReply => ({
     id: row.id,
-    authorName: row.is_anonymous ? '익명' : (row.author_display_name ?? '이름 없음'),
+    authorName: resolvePostAuthorName(row),
     authorRole: postAuthorRole(row),
     postType: row.type,
     isEditable: row.is_mine,
@@ -820,7 +820,7 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
   return topLevel
     .map((row): Question => ({
       id: row.id,
-      authorName: row.is_anonymous ? '익명' : (row.author_display_name ?? '이름 없음'),
+      authorName: resolvePostAuthorName(row),
       authorRole: postAuthorRole(row),
       postType: row.type,
       isEditable: row.is_mine,
@@ -835,8 +835,8 @@ async function getQuestionsFromDb(lectureId: string): Promise<Question[]> {
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
 }
 
-const FEEDBACK_LABELS: Record<FeedbackKey, string> = { cold: '추워요', hot: '더워요', quiet: '소리가 작아요', dark: '잘 안 보여요' }
-const FEEDBACK_KEYS: FeedbackKey[] = ['cold', 'hot', 'quiet', 'dark']
+const FEEDBACK_LABELS: Record<FeedbackKey, string> = { cold: '추워요', hot: '더워요', quiet: '소리가 작아요', unclear: '잘 안 보여요' }
+const FEEDBACK_KEYS: FeedbackKey[] = ['cold', 'hot', 'quiet', 'unclear']
 
 async function getFeedbackOptionsFromDb(lectureId: string): Promise<FeedbackOption[]> {
   const voterKey = await getCurrentVoterKey()

@@ -1,4 +1,4 @@
-export type FeedbackKey = 'cold' | 'hot' | 'quiet' | 'dark'
+export type FeedbackKey = 'cold' | 'hot' | 'quiet' | 'unclear'
 export type PostType = 'question' | 'opinion'
 
 export interface FeedbackOption {
