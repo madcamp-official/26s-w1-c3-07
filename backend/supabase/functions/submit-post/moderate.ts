@@ -1,8 +1,8 @@
-import { MODERATION_SYSTEM_PROMPT } from "./moderation-prompt.ts";
+import { MODERATION_SYSTEM_PROMPT } from "./moderate-prompt.ts";
 
 const OPENAI_MODEL = "gpt-4o-mini";
 
-// 적절성 검사. GPT-4o-mini + 커스텀 프롬프트(moderation-prompt.ts)로 욕설/비속어/인신공격 등을
+// 적절성 검사. GPT-4o-mini + 커스텀 프롬프트(moderate-prompt.ts)로 욕설/비속어/인신공격 등을
 // 판단. OpenAI Moderation API(/v1/moderations)는 혐오/폭력/성적 콘텐츠 같은 안전 카테고리 위주라
 // 특정 대상을 향하지 않는 일반 욕설·비속어(특히 한국어 변형 표기)를 잘 못 잡아서 chat completion
 // 기반으로 전환함. 실패(키 누락, API 오류)해도 통과시켜 글쓰기 흐름 자체를 막지 않음.

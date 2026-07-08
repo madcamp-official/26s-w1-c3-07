@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
-import { SIMILARITY_SYSTEM_PROMPT } from "./prompt.ts";
+import { SIMILARITY_SYSTEM_PROMPT } from "./similarity-prompt.ts";
 
 type Candidate = { id: string; content: string };
 
