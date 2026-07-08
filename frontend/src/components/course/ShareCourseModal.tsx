@@ -74,7 +74,7 @@ export default function ShareCourseModal({ isOpen, course, onClose }: ShareCours
     }
   }
 
-  const joinLink = `https://qroom.app/join/${course.id.replace(/^course-/, '')}`
+  const joinLink = `${window.location.origin}/room/${course.id}`
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/30 p-4 backdrop-blur-sm" role="presentation" onMouseDown={onClose}>
