@@ -61,14 +61,14 @@ export default function QuestionThread({ question, canResolve = false, isHighlig
       id={`post-${question.id}`}
       className={cn(
         'scroll-mt-6 rounded-3xl border-2 bg-white p-5 shadow-sm transition-shadow sm:p-6',
-        isOpinion ? 'border-rose-400' : 'border-violet-400',
+        isOpinion ? 'border-blue-400' : 'border-violet-400',
         isHighlighted && 'ring-4 ring-amber-300',
       )}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 text-sm text-slate-400">
-          <span className={cn('font-bold', isLecturer ? 'text-blue-700' : 'text-slate-600')}>{question.authorName}</span>
-          {isLecturer && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">Lecturer</span>}
+          <span className={cn('font-bold', isLecturer ? 'text-rose-700' : 'text-slate-600')}>{question.authorName}</span>
+          {isLecturer && <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700">Lecturer</span>}
           <span>·</span>
           <span>{question.createdAt}</span>
         </div>
