@@ -15,8 +15,10 @@ interface ReplyItemProps {
 export default function ReplyItem({ reply, isHighlighted = false, onLike, onReply, onEdit, onDelete }: ReplyItemProps) {
   const isLecturer = reply.authorRole === 'lecturer'
   const isOpinion = reply.postType === 'opinion'
-  // 수정 펜 hover 색을 셀 왼쪽 테두리 색(강의자=노랑, 의견=파랑, 질문답글=보라)과 맞춤.
-  const penHoverClass = isLecturer ? 'hover:text-amber-600' : isOpinion ? 'hover:text-blue-600' : 'hover:text-violet-600'
+  // 좋아요/답글/수정 펜의 색(hover·활성·채움)을 셀 왼쪽 테두리 색(강의자=노랑, 의견=파랑, 질문답글=보라)과 맞춤.
+  const accentText = isLecturer ? 'text-amber-600' : isOpinion ? 'text-blue-600' : 'text-violet-600'
+  const accentFill = isLecturer ? 'fill-amber-600' : isOpinion ? 'fill-blue-600' : 'fill-violet-600'
+  const accentHover = isLecturer ? 'hover:text-amber-600' : isOpinion ? 'hover:text-blue-600' : 'hover:text-violet-600'
   const [isEditing, setIsEditing] = useState(false)
   const [draft, setDraft] = useState(reply.content)
   const [isSaving, setIsSaving] = useState(false)
@@ -60,7 +62,7 @@ export default function ReplyItem({ reply, isHighlighted = false, onLike, onRepl
         </div>
         <div className="flex items-center gap-2">
           {reply.isEditable && !isEditing && (
-            <button type="button" onClick={startEditing} className={cn('rounded-lg p-1.5 text-slate-300 hover:bg-slate-50', penHoverClass)} aria-label="수정">
+            <button type="button" onClick={startEditing} className={cn('rounded-lg p-1.5 text-slate-300 hover:bg-slate-50', accentHover)} aria-label="수정">
               <Pencil className="size-4" />
             </button>
           )}
@@ -102,12 +104,12 @@ export default function ReplyItem({ reply, isHighlighted = false, onLike, onRepl
         <button
           type="button"
           onClick={onLike}
-          className={cn('inline-flex items-center gap-1.5 text-xs font-bold transition', reply.isLikedByMe ? 'text-violet-600' : 'text-slate-400 hover:text-violet-600')}
+          className={cn('inline-flex items-center gap-1.5 text-xs font-bold transition', reply.isLikedByMe ? accentText : cn('text-slate-400', accentHover))}
           aria-pressed={reply.isLikedByMe}
         >
-          <ThumbsUp className={cn('size-3.5', reply.isLikedByMe && 'fill-violet-600')} />{reply.likeCount}
+          <ThumbsUp className={cn('size-3.5', reply.isLikedByMe && accentFill)} />{reply.likeCount}
         </button>
-        <button type="button" onClick={onReply} className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-violet-600">
+        <button type="button" onClick={onReply} className={cn('inline-flex items-center gap-1.5 text-xs font-bold text-slate-400', accentHover)}>
           <MessageSquare className="size-3.5" />답글
         </button>
       </div>
