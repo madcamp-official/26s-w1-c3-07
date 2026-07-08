@@ -38,7 +38,7 @@ export default function PostWritePage() {
     <div className="min-h-screen bg-slate-50 pb-16">
       <header className="border-b border-slate-100 bg-white px-4 py-4 sm:px-6">
         <div className="mx-auto flex max-w-4xl items-center justify-between">
-          <BrandLogo compact to={user ? '/student/courses' : undefined} />
+          <BrandLogo compact to={user ? '/courses' : undefined} />
           {user ? (
             <span className="grid size-9 place-items-center rounded-full bg-violet-600 text-sm font-extrabold text-white">{user.avatarText}</span>
           ) : (
@@ -58,7 +58,7 @@ export default function PostWritePage() {
               <p className="font-bold text-slate-700">{error ?? '강의실을 찾을 수 없습니다.'}</p>
               <div className="mt-4 flex justify-center gap-2">
                 <Button onClick={() => void reload()}><RotateCcw className="size-4" />다시 시도</Button>
-                <Button variant="secondary" onClick={() => navigate(user ? '/student/courses' : '/')}>홈으로</Button>
+                <Button variant="secondary" onClick={() => navigate(user ? '/courses' : '/')}>홈으로</Button>
               </div>
             </div>
           </div>

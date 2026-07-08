@@ -114,7 +114,7 @@ export default function StudentCoursesPage() {
           <h1 className="shrink-0 pt-2 text-2xl font-extrabold tracking-tight text-slate-900">내 강의</h1>
           {!isInstructor && <div className="w-full xl:max-w-xl"><CourseJoinForm /></div>}
           {isInstructor ? (
-            <Button onClick={() => navigate('/student/courses/new')} className="self-start rounded-full"><Plus className="size-5" />강의 만들기</Button>
+            <Button onClick={() => navigate('/courses/new')} className="self-start rounded-full"><Plus className="size-5" />강의 만들기</Button>
           ) : (
             <Button onClick={() => setIsRegisterOpen(true)} className="self-start rounded-full"><Plus className="size-5" />폴더/강의 등록</Button>
           )}
@@ -154,7 +154,7 @@ export default function StudentCoursesPage() {
             folders={folders}
             isInstructor={isInstructor}
             onAddSubfolder={(parentId) => { setCreateFolderParentId(parentId); setIsCreateFolderOpen(true) }}
-            onEditCourse={(courseId) => navigate(`/student/courses/${courseId}/edit`)}
+            onEditCourse={(courseId) => navigate(`/courses/${courseId}/edit`)}
             onRename={startRename}
             onMove={(itemId, itemType, label) => setMoveTarget({ itemId, itemType, label })}
             onDelete={(itemId, itemType, label, isOwned) => setDeleteTarget({ itemId, itemType, label, isOwned })}
@@ -174,7 +174,7 @@ export default function StudentCoursesPage() {
                 key={course.id}
                 course={course}
                 isInstructor={isInstructor}
-                onEdit={(courseId) => navigate(`/student/courses/${courseId}/edit`)}
+                onEdit={(courseId) => navigate(`/courses/${courseId}/edit`)}
                 onMove={(itemId, itemType, label) => setMoveTarget({ itemId, itemType, label })}
                 onDelete={(itemId, itemType, label, isOwned) => setDeleteTarget({ itemId, itemType, label, isOwned })}
               />

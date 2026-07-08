@@ -69,7 +69,7 @@ export default function CreateCoursePage() {
           capacity: capacity ? Number(capacity) : null,
         })
         setIsUpdated(true)
-        window.setTimeout(() => navigate('/student/courses'), 1200)
+        window.setTimeout(() => navigate('/courses'), 1200)
       } else {
         const course = await addCourse({
           title: title.trim(),
@@ -80,7 +80,7 @@ export default function CreateCoursePage() {
           location: location.trim() || undefined,
           capacity: capacity ? Number(capacity) : null,
         })
-        navigate('/student/courses', { state: { shareCourseId: course.id } })
+        navigate('/courses', { state: { shareCourseId: course.id } })
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : (isEditMode ? '강의를 수정하지 못했습니다.' : '강의를 만들지 못했습니다.'))
@@ -93,7 +93,7 @@ export default function CreateCoursePage() {
     <div className="min-h-screen bg-slate-50">
       <header className="flex items-center justify-between border-b border-slate-100 bg-white px-6 py-5 sm:px-10">
         <div className="flex items-center gap-3">
-          <button type="button" onClick={() => navigate('/student/courses')} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="뒤로 가기">
+          <button type="button" onClick={() => navigate('/courses')} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="뒤로 가기">
             <ArrowLeft className="size-5" />
           </button>
           <span className="text-slate-200">|</span>
@@ -201,7 +201,7 @@ export default function CreateCoursePage() {
 
         <div className="mt-8 flex justify-between">
           {isEditMode ? (
-            <Button variant="secondary" onClick={() => navigate('/student/courses')}><ArrowLeft className="size-4" />이전</Button>
+            <Button variant="secondary" onClick={() => navigate('/courses')}><ArrowLeft className="size-4" />이전</Button>
           ) : <span />}
           <Button onClick={() => void handleSubmit()} disabled={!isValid || isSubmitting} className="px-8">
             {isSubmitting ? (isEditMode ? '수정하는 중' : '만드는 중') : (isEditMode ? '업데이트' : '다음')}

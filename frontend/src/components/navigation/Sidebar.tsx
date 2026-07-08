@@ -12,14 +12,14 @@ interface SidebarProps {
 }
 
 const studentNavigation = [
-  { label: '내 강의', to: '/student/courses', Icon: BookOpen },
-  { label: '설정', to: '/student/settings', Icon: Settings },
+  { label: '내 강의', to: '/courses', Icon: BookOpen },
+  { label: '설정', to: '/settings', Icon: Settings },
 ]
 
 const instructorNavigation = [
-  { label: '내 강의', to: '/student/courses', Icon: BookOpen },
-  { label: '미답변 질문', to: '/student/questions', Icon: MessageCircleQuestion },
-  { label: '설정', to: '/student/settings', Icon: Settings },
+  { label: '내 강의', to: '/courses', Icon: BookOpen },
+  { label: '미답변 질문', to: '/questions', Icon: MessageCircleQuestion },
+  { label: '설정', to: '/settings', Icon: Settings },
 ]
 
 export default function Sidebar({ user, onNavigate, onSwitchRole, showRoleSwitch = true }: SidebarProps) {
@@ -27,7 +27,7 @@ export default function Sidebar({ user, onNavigate, onSwitchRole, showRoleSwitch
 
   return (
     <div className="flex h-full flex-col bg-white px-5 py-7">
-      <BrandLogo compact to="/student/courses" />
+      <BrandLogo compact to="/courses" />
 
       <div className="mt-7 flex items-center gap-3 rounded-3xl border border-violet-100 bg-violet-50 p-4">
         <span className="grid size-11 place-items-center rounded-full bg-violet-600 font-extrabold text-white">{user.avatarText}</span>

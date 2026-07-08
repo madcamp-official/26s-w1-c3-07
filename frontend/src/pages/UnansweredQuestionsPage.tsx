@@ -120,7 +120,7 @@ export default function UnansweredQuestionsPage() {
             <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-4 py-2 text-sm font-bold text-amber-700">
               <MessageCircleQuestion className="size-4" />{data.totalCount}개 미답변
             </span>
-            <Button variant="secondary" onClick={() => navigate('/student/courses')}>내 강의</Button>
+            <Button variant="secondary" onClick={() => navigate('/courses')}>내 강의</Button>
           </div>
         </div>
       </header>
