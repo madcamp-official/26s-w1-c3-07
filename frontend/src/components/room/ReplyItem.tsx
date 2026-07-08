@@ -46,7 +46,7 @@ export default function ReplyItem({ reply, onLike, onReply, onEdit, onDelete }: 
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className={cn('font-extrabold', isLecturer ? 'text-rose-700' : 'text-slate-800')}>{reply.authorName}</span>
+          <span className="font-extrabold text-slate-800">{reply.authorName}</span>
           {isLecturer && <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700">Lecturer</span>}
           <span className="shrink-0 text-xs text-slate-400">{reply.createdAt}</span>
         </div>
